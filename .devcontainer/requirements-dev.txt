@@ -1,0 +1,4 @@
+jupyter
+ipykernel
+twine
+types-requests
