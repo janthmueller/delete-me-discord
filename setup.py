@@ -54,7 +54,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "delete-me-discord=delete-me-discord:main",
+            "delete-me-discord=delete_me_discord:main",
         ],
     },
 )
