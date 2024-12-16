@@ -15,19 +15,19 @@ def read_long_description():
         with open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
             return fh.read()
     except FileNotFoundError:
-        return "delete-me-discord: A tool to delete Discord messages based on time and preservation count."
+        return "A tool to delete Discord messages."
 
 
 setup(
     name="delete-me-discord",
     version=delete_me_discord.__version__,
     packages=find_packages(exclude=["tests"]),
-    author="Jan T. Müller",  # Replace with your name
-    author_email="mail@jantmueller.com",  # Replace with your email
-    description="A tool to delete Discord messages based on time and preservation count.",
+    author="Jan T. Müller",
+    author_email="mail@jantmueller.com",
+    description="A tool to delete Discord messages.",
     long_description=read_long_description(),
     long_description_content_type="text/markdown",
-    url="https://github.com/janthmueller/delete-me-discord",  # Replace with your repository URL
+    url="https://github.com/janthmueller/delete-me-discord",
     project_urls={
         "Documentation": "https://github.com/janthmueller/delete-me-discord/blob/main/README.md",
         "Source": "https://github.com/janthmueller/delete-me-discord",
