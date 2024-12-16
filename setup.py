@@ -36,7 +36,7 @@ setup(
     license="MIT",  # Replace with your license if different
     classifiers=[
         "Intended Audience :: Developers",
-        "Topic :: Software Development :: Utilities",
+        "Topic :: Communications :: Chat",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
