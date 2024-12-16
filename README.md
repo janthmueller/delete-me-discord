@@ -2,6 +2,9 @@
 
 **Delete Me Discord** is a command-line tool designed to help Discord users delete their messages across multiple channels based on time or message count criteria.
 
+
+>⚠️**Use at Your Own Risk:**
+>Using automated tools on Discord, may violate Discord's [Terms of Service](https://discord.com/terms) and could result in account suspension or termination. Please use this tool responsibly and understand the potential risks involved.
 ## Features
 
 - **Time-Based Deletion:** Delete messages older than a specified time delta.
