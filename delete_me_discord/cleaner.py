@@ -131,7 +131,7 @@ class MessageCleaner:
         self.logger.info("Fetching messages from %s.", channel_str(channel))
         fetched_count = 0
 
-        for message in self.api.fetch_messages(channel["id"], user_id=self.user_id, fetch_sleep_time_range=fetch_sleep_time_range):
+        for message in self.api.fetch_messages(channel["id"], fetch_sleep_time_range=fetch_sleep_time_range):
             yield message
             fetched_count += 1
 
@@ -156,12 +156,21 @@ class MessageCleaner:
         """
         deleted_count = 0
         preserved_count = 0
-
-        for i, message in enumerate(messages):
+        deleteable = 0
+        for message in messages:
             message_id = message["message_id"]
             timestamp_str = message["timestamp"]
             message_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            if i < self.preserve_n or message_time >= cutoff_time:
+            # skip non user messages
+            if message["author_id"] != self.user_id:
+                self.logger.debug("Skipping message %s not authored by user.", message["message_id"])
+                continue
+            if not message["type"].deletable:
+                self.logger.debug("Skipping non-deletable message of type %s.", message["type"])
+                continue
+
+            deleteable += 1
+            if deleteable < self.preserve_n or message_time >= cutoff_time:
                 self.logger.debug("Preserving message %s sent at %s UTC.", message_id, message_time.isoformat())
                 preserved_count += 1
                 continue
