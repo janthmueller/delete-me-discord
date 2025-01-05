@@ -111,23 +111,3 @@ def parse_preserve_last(time_str: str) -> timedelta:
         raise argparse.ArgumentTypeError(
             f"Invalid time delta format: '{time_str}'. Use format like 'weeks=2,days=3'. Error: {e}"
         ) from e
-
-
-def confirm_action(prompt: str) -> bool:
-    """
-    Prompts the user for confirmation.
-
-    Args:
-        prompt (str): The confirmation prompt.
-
-    Returns:
-        bool: True if the user confirms, False otherwise.
-    """
-    while True:
-        response = input(f"{prompt} (y/n): ").strip().lower()
-        if response in {'y', 'yes'}:
-            return True
-        elif response in {'n', 'no'}:
-            return False
-        else:
-            print("Please respond with 'y' or 'n'.")

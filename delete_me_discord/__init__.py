@@ -2,13 +2,13 @@
 
 from .api import DiscordAPI, FetchError
 from .cleaner import MessageCleaner
-from .utils import setup_logging, parse_random_range, parse_preserve_last, confirm_action
+from .utils import setup_logging, parse_random_range, parse_preserve_last
 from datetime import timedelta
 
 import argparse
 import logging
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 def main():
     """
@@ -104,14 +104,6 @@ def main():
     if preserve_n < 0:
         logging.error("--preserve-n must be a non-negative integer.")
         return
-
-    if not dry_run:
-        confirmation = confirm_action(
-            "Are you sure you want to delete messages? This action cannot be undone."
-        )
-        if not confirmation:
-            print("Operation cancelled by the user.")
-            return
 
     try:
         # Initialize DiscordAPI with max_retries and retry_time_buffer
