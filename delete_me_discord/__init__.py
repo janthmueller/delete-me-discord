@@ -141,3 +141,5 @@ def main():
     except Exception as e:
         logging.exception("An unexpected error occurred: %s", e)
 
+if __name__ == "__main__":
+    main()
