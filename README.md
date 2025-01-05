@@ -1,4 +1,7 @@
 # Delete Me Discord
+[![PyPI Latest Release](https://img.shields.io/pypi/v/delete-me-discord.svg)](https://pypi.org/project/delete-me-discord/)
+[![Pepy Total Downloads](https://img.shields.io/pepy/dt/delete-me-discord)](https://pepy.tech/project/delete-me-discord)
+[![GitHub License](https://img.shields.io/github/license/janthmueller/delete-me-discord)](https://github.com/janthmueller/delete-me-discord/blob/main/LICENSE)
 
 **Delete Me Discord** is a command-line tool designed to help Discord users delete their messages across multiple channels based on time or message count criteria.
 
