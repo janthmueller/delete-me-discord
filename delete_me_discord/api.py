@@ -6,7 +6,7 @@ import random
 from typing import List, Dict, Any, Optional, Tuple, Generator
 import logging
 import requests
-from type_enums import MessageType
+from .type_enums import MessageType
 from .utils import FetchError
 
 
