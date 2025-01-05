@@ -5,9 +5,8 @@ import time
 import random
 from typing import List, Dict, Any, Optional, Tuple, Generator
 import logging
-
 import requests
-
+from type_enums import MessageType
 from .utils import FetchError
 
 
@@ -119,7 +118,6 @@ class DiscordAPI:
         self,
         channel_id: str,
         max_messages: int = 10000,
-        user_id: Optional[str] = None,
         fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2)
     ) -> Generator[Dict[str, Any], None, None]:
         """
@@ -175,17 +173,12 @@ class DiscordAPI:
                 break
 
             for message in batch:
-                if user_id and message.get("author", {}).get("id") != user_id:
-                    continue
-
-                if message.get("type") != 0:  # Only default messages
-                    self.logger.debug("Skipping non-default message: %s", message.get("type"))
-                    continue
-
                 yield {
                     "message_id": message["id"],
                     "timestamp": message["timestamp"],
-                    "channel_id": channel_id
+                    "channel_id": channel_id,
+                    "type": MessageType(message.get("type", 0)),
+                    "author_id": message.get("author", {}).get("id"),
                 }
 
                 fetched_count += 1
