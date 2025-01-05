@@ -49,8 +49,7 @@ setup(
     ],
     python_requires=">=3.6",
     install_requires=[
-        "types-requests",
-        "python-dotenv",
+        "requests",
     ],
     entry_points={
         "console_scripts": [
