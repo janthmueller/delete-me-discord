@@ -8,7 +8,7 @@ from datetime import timedelta
 import argparse
 import logging
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 def main():
     """
