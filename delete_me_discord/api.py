@@ -117,7 +117,7 @@ class DiscordAPI:
     def fetch_messages(
         self,
         channel_id: str,
-        max_messages: int = 10000,
+        max_messages: int | float = float("inf"),
         fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2)
     ) -> Generator[Dict[str, Any], None, None]:
         """
