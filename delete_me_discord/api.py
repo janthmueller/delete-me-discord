@@ -3,7 +3,7 @@
 import os
 import time
 import random
-from typing import List, Dict, Any, Optional, Tuple, Generator
+from typing import List, Dict, Any, Optional, Tuple, Generator, Union
 import logging
 import requests
 from .type_enums import MessageType
@@ -117,7 +117,7 @@ class DiscordAPI:
     def fetch_messages(
         self,
         channel_id: str,
-        max_messages: int | float = float("inf"),
+        max_messages: Union[int, float] = float("inf"),
         fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2)
     ) -> Generator[Dict[str, Any], None, None]:
         """
