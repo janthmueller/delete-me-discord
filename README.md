@@ -73,7 +73,7 @@ This command will delete messages older than 1 week and 3 days while preserving 
 
 - `--delete-reactions`:
   **Type:** `flag`
-  **Description:** Remove your reactions (emoji) from messages encountered. Applies even when messages are preserved or not deletable; honors `--dry-run`.
+  **Description:** Remove your reactions (emoji) from messages encountered; honors `--dry-run`.
   **Usage:** `--delete-reactions`
 
 - `--log-level`:
