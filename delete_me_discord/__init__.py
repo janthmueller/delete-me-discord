@@ -101,7 +101,7 @@ def main():
         "--preserve-last",
         type=parse_time_delta,
         default=timedelta(weeks=2),
-        help="Preserves recent messages within last given delta time 'weeks=2,days=3' regardless of --preserve-n. Default is weeks=2."
+        help="Preserves recent messages (and reactions) within last given delta time 'weeks=2,days=3' regardless of --preserve-n. Default is weeks=2."
     )
     parser.add_argument(
         "--fetch-max-age",
@@ -114,6 +114,11 @@ def main():
         type=int,
         default=None,
         help="Maximum number of messages to fetch per channel. Defaults to no limit."
+    )
+    parser.add_argument(
+        "--delete-reactions",
+        action='store_true',
+        help="Remove your reactions from messages encountered (even if messages are preserved or not deletable)."
     )
     args = parser.parse_args()
 
@@ -131,6 +136,7 @@ def main():
     delete_sleep_time_range = args.delete_sleep_time  # Tuple[float, float]
     fetch_max_age = args.fetch_max_age  # Optional[timedelta]
     max_messages = args.max_messages if args.max_messages is not None else float("inf")
+    delete_reactions = args.delete_reactions
 
     fetch_since = None
     if fetch_max_age:
@@ -160,7 +166,8 @@ def main():
             fetch_sleep_time_range=fetch_sleep_time_range,
             delete_sleep_time_range=delete_sleep_time_range,
             fetch_since=fetch_since,
-            max_messages=max_messages
+            max_messages=max_messages,
+            delete_reactions=delete_reactions
         )
         logging.info("Script completed. Total messages deleted: %s", total_deleted)
     except FetchError as e:

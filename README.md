@@ -71,6 +71,11 @@ This command will delete messages older than 1 week and 3 days while preserving 
   **Description:** Perform a dry run without deleting any messages. Useful for testing.
   **Usage:** `--dry-run`
 
+- `--delete-reactions`:
+  **Type:** `flag`
+  **Description:** Remove your reactions (emoji) from messages encountered. Applies even when messages are preserved or not deletable; honors `--dry-run`.
+  **Usage:** `--delete-reactions`
+
 - `--log-level`:
   **Type:** `str`
   **Choices:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
@@ -110,7 +115,7 @@ This command will delete messages older than 1 week and 3 days while preserving 
 
 - `--preserve-last`:
   **Type:** `str`
-  **Description:** Preserves recent messages within the last given delta time (e.g., `"weeks=2,days=3"`) regardless of `--preserve-n`. Default is `weeks=2`.
+  **Description:** Preserves recent messages (and reactions) within the last given delta time (e.g., `"weeks=2,days=3"`) regardless of `--preserve-n`. Default is `weeks=2`.
   **Usage:** `--preserve-last "weeks=1,days=3"`
 
 - `--fetch-max-age`:
@@ -166,7 +171,7 @@ delete-me-discord --fetch-max-age "weeks=2" --max-messages 5000 --preserve-last 
 Before using `delete-me-discord`, you need to set up your Discord credentials by defining the following environment variables:
 
 - **`DISCORD_TOKEN`**: Your Discord authorization token. See [this guide](https://github.com/victornpb/undiscord/wiki/authToken) to obtain your token.
-- **`DISCORD_USER_ID`**: Your Discord user ID. This ID is used to target messages authored by you. You can obtain it by enabling Developer Mode in Discord and right-clicking your username to copy the ID.
+- **`DISCORD_USER_ID`** (optional): Your Discord user ID. This ID is used to target messages authored by you. If not provided, the tool will resolve it automatically using your token. You can obtain it by enabling Developer Mode in Discord and right-clicking your username to copy the ID.
 
 **Security Note:**
 Never share your authorization token. Sharing it will allow others to access your account and perform actions on your behalf.

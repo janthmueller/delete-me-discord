@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Generator, Union
 import logging
 import requests
+import urllib.parse
 from .type_enums import MessageType
 from .utils import FetchError
 
@@ -115,6 +116,22 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/users/@me/channels"
         return self._get_request(url, max_retries=max_retries, description="fetch root channels")
 
+    def get_current_user(self, max_retries: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Fetches the authenticated user's profile.
+
+        Args:
+            max_retries (Optional[int]): Overrides the instance's max_retries if provided.
+
+        Returns:
+            Dict[str, Any]: User object for the authenticated token.
+
+        Raises:
+            FetchError: If unable to fetch the user after retries.
+        """
+        url = f"{self.BASE_URL}/users/@me"
+        return self._get_request(url, max_retries=max_retries, description="fetch current user")
+
     def fetch_messages(
         self,
         channel_id: str,
@@ -191,6 +208,7 @@ class DiscordAPI:
                     "channel_id": channel_id,
                     "type": MessageType(message.get("type", 0)),
                     "author_id": message.get("author", {}).get("id"),
+                    "reactions": message.get("reactions", []),
                 }
 
                 fetched_count += 1
@@ -264,6 +282,90 @@ class DiscordAPI:
 
         self.logger.error("Max retries exceeded for deleting message %s in channel %s.", message_id, channel_id)
         return False
+
+    def delete_own_reaction(
+        self,
+        channel_id: str,
+        message_id: str,
+        emoji: Dict[str, Any]
+    ) -> bool:
+        """
+        Deletes the authenticated user's reaction from a message.
+
+        Args:
+            channel_id (str): ID of the channel containing the message.
+            message_id (str): ID of the message.
+            emoji (Dict[str, Any]): Emoji dict from the message reaction object.
+
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        emoji_identifier = self._format_emoji_identifier(emoji)
+        if not emoji_identifier:
+            self.logger.debug("Could not format emoji identifier for reaction: %s", emoji)
+            return False
+
+        encoded_identifier = urllib.parse.quote(emoji_identifier)
+        delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_identifier}/@me"
+
+        retries = 0
+        while retries < self.max_retries:
+            try:
+                response = self.session.delete(delete_url)
+            except requests.RequestException as e:
+                self.logger.error("Failed to delete reaction %s on message %s: %s", emoji_identifier, message_id, e)
+                return False
+
+            if response.status_code == 204:
+                self.logger.info("Deleted reaction %s on message %s in channel %s.", emoji_identifier, message_id, channel_id)
+                return True
+            elif response.status_code == 429:
+                retry_after = response.json().get("retry_after", 1)
+                buffer = random.uniform(*self.retry_time_buffer)
+                total_retry_after = retry_after + buffer
+                self.logger.warning(
+                    "Rate limited when deleting reaction %s on message %s. Retrying after %.2f seconds.",
+                    emoji_identifier, message_id, total_retry_after
+                )
+                time.sleep(total_retry_after)
+                retries += 1
+                continue
+            elif response.status_code in {403, 404}:
+                self.logger.error(
+                    "Cannot delete reaction %s on message %s. Status Code: %s",
+                    emoji_identifier, message_id, response.status_code
+                )
+                return False
+            else:
+                self.logger.error(
+                    "Failed to delete reaction %s on message %s. Status Code: %s",
+                    emoji_identifier, message_id, response.status_code
+                )
+                return False
+
+        self.logger.error(
+            "Max retries exceeded for deleting reaction %s on message %s in channel %s.",
+            emoji_identifier, message_id, channel_id
+        )
+        return False
+
+    def _format_emoji_identifier(self, emoji: Dict[str, Any]) -> Optional[str]:
+        """
+        Formats an emoji dict into the identifier string required by the Discord API.
+
+        Args:
+            emoji (Dict[str, Any]): Emoji dictionary containing 'name' and optionally 'id'.
+
+        Returns:
+            Optional[str]: The formatted emoji identifier or None if insufficient data.
+        """
+        if not emoji:
+            return None
+        name = emoji.get("name")
+        emoji_id = emoji.get("id")
+        if emoji_id:
+            return f"{name}:{emoji_id}"
+        return name
 
     def _get_request(self, url: str, max_retries: Optional[int], description: str) -> List[Dict[str, Any]]:
         """
