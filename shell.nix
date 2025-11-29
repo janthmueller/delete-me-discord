@@ -5,8 +5,6 @@ pkgs.mkShell rec {
   buildInputs = with pkgs; [
     python312
     python312Packages.pip
-    python312Packages.virtualenvwrapper
-    python312Packages.requests
   ];
 
   shellHook = ''
