@@ -110,6 +110,16 @@ This command will delete messages older than 1 week and 3 days while preserving 
   **Description:** Preserves recent messages within the last given delta time (e.g., `"weeks=2,days=3"`) regardless of `--preserve-n`. Default is `weeks=2`.
   **Usage:** `--preserve-last "weeks=1,days=3"`
 
+- `--fetch-max-age`:
+  **Type:** `str`
+  **Description:** Only fetch messages newer than the given time delta from now (e.g., `"weeks=1,days=2"`). Speeds up recurring purges by skipping older history. If you have never purged a channel before, older messages will remain untouched. Default is no max age.
+  **Usage:** `--fetch-max-age "weeks=1"`
+
+- `--max-messages`:
+  **Type:** `int`
+  **Description:** Maximum number of messages to fetch per channel. Defaults to no limit.
+  **Usage:** `--max-messages 5000`
+
 ### Examples
 
 #### 1. Delete Messages Older Than 2 Weeks and Preserve at least Last 10 Messages
@@ -140,6 +150,12 @@ delete-me-discord --exclude-ids 345678901234567890 --preserve-n 5
 
 ```bash
 delete-me-discord --max-retries 10 --retry-time-buffer 30 40 --preserve-n 20
+```
+
+#### 6. Speed up recurring purges by skipping older history
+
+```bash
+delete-me-discord --fetch-max-age "weeks=1" --max-messages 5000 --preserve-last "weeks=1"
 ```
 
 ## Configuration
@@ -194,4 +210,3 @@ If you encounter any bugs or have suggestions for improvements, please open an i
 ## License
 
 This project is licensed under the [MIT License](LICENSE). You are free to use, modify, and distribute this software as per the terms of the license.
-

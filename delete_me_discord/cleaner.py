@@ -3,7 +3,7 @@ import os
 import time
 import random
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Generator, Tuple, Optional
+from typing import List, Dict, Any, Generator, Tuple, Optional, Union
 import logging
 
 from .api import DiscordAPI
@@ -117,13 +117,21 @@ class MessageCleaner:
 
         return True
 
-    def fetch_all_messages(self, channel: Dict[str, Any], fetch_sleep_time_range: Tuple[float, float]) -> Generator[Dict[str, Any], None, None]:
+    def fetch_all_messages(
+        self,
+        channel: Dict[str, Any],
+        fetch_sleep_time_range: Tuple[float, float],
+        fetch_since: Optional[datetime],
+        max_messages: Union[int, float]
+    ) -> Generator[Dict[str, Any], None, None]:
         """
         Fetches all messages from a given channel authored by the specified user.
 
         Args:
             channel (Dict[str, Any]): The channel dictionary.
             fetch_sleep_time_range (Tuple[float, float]): Range for sleep time between fetch requests.
+            fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
+            max_messages (Union[int, float]): Maximum number of messages to fetch.
 
         Yields:
             Dict[str, Any]: Message data.
@@ -131,7 +139,12 @@ class MessageCleaner:
         self.logger.info("Fetching messages from %s.", channel_str(channel))
         fetched_count = 0
 
-        for message in self.api.fetch_messages(channel["id"], fetch_sleep_time_range=fetch_sleep_time_range):
+        for message in self.api.fetch_messages(
+            channel["id"],
+            fetch_sleep_time_range=fetch_sleep_time_range,
+            fetch_since=fetch_since,
+            max_messages=max_messages,
+        ):
             yield message
             fetched_count += 1
 
@@ -194,7 +207,9 @@ class MessageCleaner:
         self,
         dry_run: bool = False,
         fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.5),
-        delete_sleep_time_range: Tuple[float, float] = (1.5, 2)
+        delete_sleep_time_range: Tuple[float, float] = (1.5, 2),
+        fetch_since: Optional[datetime] = None,
+        max_messages: Union[int, float] = float("inf")
     ) -> int:
         """
         Cleans messages based on the specified criteria.
@@ -203,6 +218,8 @@ class MessageCleaner:
             dry_run (bool): If True, messages will not be deleted.
             fetch_sleep_time_range (Tuple[float, float]): Range for sleep time between fetch requests.
             delete_sleep_time_range (Tuple[float, float]): Range for sleep time between deletion attempts.
+            fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
+            max_messages (Union[int, float]): Maximum number of messages to fetch per channel.
 
         Returns:
             int: Total number of messages deleted.
@@ -210,6 +227,8 @@ class MessageCleaner:
         total_deleted = 0
         cutoff_time = datetime.now(timezone.utc) - self.preserve_last
         self.logger.info("Deleting messages older than %s UTC.", cutoff_time.isoformat())
+        if fetch_since:
+            self.logger.info("Fetching messages not older than %s UTC.", fetch_since.isoformat())
 
         channels = self.get_all_channels()
 
@@ -221,7 +240,12 @@ class MessageCleaner:
 
         for channel in channels:
             self.logger.debug("Processing channel: %s.", channel_str(channel))
-            messages = self.fetch_all_messages(channel, fetch_sleep_time_range)
+            messages = self.fetch_all_messages(
+                channel=channel,
+                fetch_sleep_time_range=fetch_sleep_time_range,
+                fetch_since=fetch_since,
+                max_messages=max_messages
+            )
             deleted, preserved = self.delete_messages_older_than(
                 messages=messages,
                 cutoff_time=cutoff_time,

@@ -1,7 +1,7 @@
 # delete_me_discord/utils.py
 
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import List, Dict, Any, Tuple
 import argparse
 
@@ -76,7 +76,7 @@ def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, floa
         ) from e
 
 
-def parse_preserve_last(time_str: str) -> timedelta:
+def parse_time_delta(time_str: str) -> timedelta:
     """
     Parses a time delta string and returns a timedelta object.
 

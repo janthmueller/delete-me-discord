@@ -2,13 +2,24 @@
 
 from .api import DiscordAPI, FetchError
 from .cleaner import MessageCleaner
-from .utils import setup_logging, parse_random_range, parse_preserve_last
-from datetime import timedelta
+from .utils import setup_logging, parse_random_range, parse_time_delta
+from datetime import timedelta, datetime, timezone
 
 import argparse
 import logging
 
-__version__ = "0.0.7"
+try:
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _version
+
+    __version__ = _version("delete-me-discord")
+except PackageNotFoundError:
+    try:
+        from setuptools_scm import get_version
+
+        __version__ = get_version(root=".", relative_to=__file__)
+    except Exception:
+        __version__ = "0.0.0-dev"
 
 def main():
     """
@@ -82,9 +93,21 @@ def main():
     )
     parser.add_argument(
         "--preserve-last",
-        type=parse_preserve_last,
+        type=parse_time_delta,
         default=timedelta(weeks=2),
         help="Preserves recent messages within last given delta time 'weeks=2,days=3' regardless of --preserve-n. Default is weeks=2."
+    )
+    parser.add_argument(
+        "--fetch-max-age",
+        type=parse_time_delta,
+        default=None,
+        help="Only fetch messages newer than this time delta from now (e.g., 'weeks=1,days=2'). Speeds up recurring purges by skipping older history. Defaults to no max age."
+    )
+    parser.add_argument(
+        "--max-messages",
+        type=int,
+        default=None,
+        help="Maximum number of messages to fetch per channel. Defaults to no limit."
     )
     args = parser.parse_args()
 
@@ -100,6 +123,12 @@ def main():
     retry_time_buffer_range = args.retry_time_buffer  # Tuple[float, float]
     fetch_sleep_time_range = args.fetch_sleep_time  # Tuple[float, float]
     delete_sleep_time_range = args.delete_sleep_time  # Tuple[float, float]
+    fetch_max_age = args.fetch_max_age  # Optional[timedelta]
+    max_messages = args.max_messages if args.max_messages is not None else float("inf")
+
+    fetch_since = None
+    if fetch_max_age:
+        fetch_since = datetime.now(timezone.utc) - fetch_max_age
 
     if preserve_n < 0:
         logging.error("--preserve-n must be a non-negative integer.")
@@ -123,7 +152,9 @@ def main():
         total_deleted = cleaner.clean_messages(
             dry_run=dry_run,
             fetch_sleep_time_range=fetch_sleep_time_range,
-            delete_sleep_time_range=delete_sleep_time_range
+            delete_sleep_time_range=delete_sleep_time_range,
+            fetch_since=fetch_since,
+            max_messages=max_messages
         )
         logging.info("Script completed. Total messages deleted: %s", total_deleted)
     except FetchError as e:

@@ -3,6 +3,7 @@
 import os
 import time
 import random
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Generator, Union
 import logging
 import requests
@@ -118,7 +119,8 @@ class DiscordAPI:
         self,
         channel_id: str,
         max_messages: Union[int, float] = float("inf"),
-        fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2)
+        fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2),
+        fetch_since: Optional[datetime] = None
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Fetches messages from a channel, optionally filtering by author.
@@ -126,8 +128,8 @@ class DiscordAPI:
         Args:
             channel_id (str): The ID of the channel.
             max_messages (int): Maximum number of messages to fetch.
-            user_id (Optional[str]): User ID to filter messages by author.
             fetch_sleep_time_range (Tuple[float, float]): Range for sleep time between fetch requests.
+            fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
 
         Yields:
             Dict[str, Any]: Message data.
@@ -136,6 +138,7 @@ class DiscordAPI:
         fetched_count = 0
         last_message_id = None
         retries = 0
+        reached_cutoff = False
 
         while fetched_count < max_messages:
             params = {"limit": 100}
@@ -173,6 +176,15 @@ class DiscordAPI:
                 break
 
             for message in batch:
+                message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
+                if fetch_since and message_time < fetch_since:
+                    reached_cutoff = True
+                    self.logger.debug(
+                        "Reached fetch cutoff (%s) in channel %s.",
+                        fetch_since.isoformat(),
+                        channel_id
+                    )
+                    break
                 yield {
                     "message_id": message["id"],
                     "timestamp": message["timestamp"],
@@ -185,6 +197,9 @@ class DiscordAPI:
                 if fetched_count >= max_messages:
                     self.logger.info("Reached the maximum of %s messages.", max_messages)
                     break
+
+            if reached_cutoff or fetched_count >= max_messages:
+                break
 
             last_message_id = batch[-1]["id"]
             # Implement randomized sleep after each fetch
