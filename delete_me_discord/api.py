@@ -182,6 +182,23 @@ class DiscordAPI:
                 retries = 0  # Reset retries on successful response or non-429 error
 
             if response.status_code != 200:
+                if response.status_code == 403:
+                    error_code = None
+                    try:
+                        error_code = response.json().get("code")
+                    except Exception:
+                        error_code = None
+
+                    if error_code in {50001, 50013}:
+                        self.logger.warning(
+                            "Skipping channel %s due to missing access (code %s). Status Code: %s - %s",
+                            channel_id,
+                            error_code,
+                            response.status_code,
+                            response.text
+                        )
+                        break
+
                 raise FetchError(
                     f"Error fetching messages from channel {channel_id}: "
                     f"{response.status_code} - {response.text}"
