@@ -29,6 +29,12 @@ def main():
         description="Delete Discord messages older than a specified time delta."
     )
     parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show the version number and exit."
+    )
+    parser.add_argument(
         "--include-ids",
         type=str,
         nargs='*',

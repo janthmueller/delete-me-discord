@@ -100,6 +100,9 @@ This command will delete messages older than 1 week and 3 days while preserving 
   - Single value: `--delete-sleep-time 1.75`
   - Range: `--delete-sleep-time 1.5 2`
 
+- `--version`:
+  **Description:** Show the version number and exit.
+
 - `--preserve-n`:
   **Type:** `int`
   **Description:** Number of recent messages to preserve in each channel regardless of `--preserve-last`. Default is `12`.
