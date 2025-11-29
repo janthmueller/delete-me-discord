@@ -154,7 +154,8 @@ class MessageCleaner:
         self,
         messages: Generator[Dict[str, Any], None, None],
         cutoff_time: datetime,
-        delete_sleep_time_range: Tuple[float, float]
+        delete_sleep_time_range: Tuple[float, float],
+        dry_run: bool = False
     ) -> Tuple[int, int]:
         """
         Deletes messages older than the cutoff time.
@@ -163,6 +164,7 @@ class MessageCleaner:
             messages (Generator[Dict[str, Any], None, None]): Generator of message data.
             cutoff_time (datetime): The cutoff datetime; messages older than this will be deleted.
             delete_sleep_time_range (Tuple[float, float]): Range for sleep time between deletion attempts.
+            dry_run (bool): If True, simulate deletions without calling the API.
 
         Returns:
             Tuple[int, int]: Number of messages deleted and ignored.
@@ -188,18 +190,23 @@ class MessageCleaner:
                 preserved_count += 1
                 continue
 
-            self.logger.info("Deleting message %s sent at %s UTC.", message_id, message_time.isoformat())
-            success = self.api.delete_message(
-                channel_id=message["channel_id"],
-                message_id=message_id
-            )
-            if success:
+            if dry_run:
+                self.logger.info("Would delete message %s sent at %s UTC.", message_id, message_time.isoformat())
                 deleted_count += 1
-                sleep_time = random.uniform(*delete_sleep_time_range)
-                self.logger.debug("Sleeping for %.2f seconds after deletion.", sleep_time)
-                time.sleep(sleep_time)  # Sleep between deletions
+                self.logger.debug("Dry run enabled; skipping API delete for %s.", message_id)
             else:
-                self.logger.warning("Failed to delete message %s in channel %s.", message_id, message.get("channel_id"))
+                self.logger.info("Deleting message %s sent at %s UTC.", message_id, message_time.isoformat())
+                success = self.api.delete_message(
+                    channel_id=message["channel_id"],
+                    message_id=message_id
+                )
+                if success:
+                    deleted_count += 1
+                    sleep_time = random.uniform(*delete_sleep_time_range)
+                    self.logger.debug("Sleeping for %.2f seconds after deletion.", sleep_time)
+                    time.sleep(sleep_time)  # Sleep between deletions
+                else:
+                    self.logger.warning("Failed to delete message %s in channel %s.", message_id, message.get("channel_id"))
 
         return deleted_count, preserved_count
 
@@ -233,10 +240,7 @@ class MessageCleaner:
         channels = self.get_all_channels()
 
         if dry_run:
-            self.logger.info("Dry run mode enabled. Messages will not be deleted.")
-            for channel in channels:
-                self.logger.info(channel_str(channel))
-            return total_deleted
+            self.logger.info("Dry run mode enabled. Messages will be fetched and evaluated but not deleted.")
 
         for channel in channels:
             self.logger.debug("Processing channel: %s.", channel_str(channel))
@@ -249,11 +253,18 @@ class MessageCleaner:
             deleted, preserved = self.delete_messages_older_than(
                 messages=messages,
                 cutoff_time=cutoff_time,
-                delete_sleep_time_range=delete_sleep_time_range
+                delete_sleep_time_range=delete_sleep_time_range,
+                dry_run=dry_run
             )
             self.logger.info("Preserved %s messages in %s.", preserved, channel_str(channel))
-            self.logger.info("Deleted %s messages from channel %s.", deleted, channel_str(channel))
+            if dry_run:
+                self.logger.info("Would delete %s messages from channel %s.", deleted, channel_str(channel))
+            else:
+                self.logger.info("Deleted %s messages from channel %s.", deleted, channel_str(channel))
             total_deleted += deleted
 
-        self.logger.info("Total messages deleted: %s", total_deleted)
+        if dry_run:
+            self.logger.info("Total messages that would be deleted: %s", total_deleted)
+        else:
+            self.logger.info("Total messages deleted: %s", total_deleted)
         return total_deleted
