@@ -10,7 +10,7 @@
 >Using automated tools on Discord, may violate Discord's [Terms of Service](https://discord.com/terms) and could result in account suspension or termination. Please use this tool responsibly and understand the potential risks involved.
 ## Features
 
-- **Time-Based Deletion:** Delete messages older than a specified time delta.
+- **Time-Based Deletion:** Delete messages and reactions older than a specified time delta.
 - **Count-Based Preservation:** Preserve a certain number of recent messages regardless of their age.
 - **Selective Channel Processing:** Include or exclude specific channels, guilds, or parent categories.
 - **Dry Run Mode:** Simulate deletions without actually removing any messages.
