@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "delete-me-discord"
-version = "0.0.12"
+version = "1.0.0"
 readme = "README.md"
 
 description = "A tool to delete Discord messages."
