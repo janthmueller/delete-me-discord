@@ -155,7 +155,7 @@ delete-me-discord --max-retries 10 --retry-time-buffer 30 40 --preserve-n 20
 #### 6. Speed up recurring purges by skipping older history
 
 ```bash
-delete-me-discord --fetch-max-age "weeks=1" --max-messages 5000 --preserve-last "weeks=1"
+delete-me-discord --fetch-max-age "weeks=2" --max-messages 5000 --preserve-last "weeks=1"
 ```
 
 ## Configuration
