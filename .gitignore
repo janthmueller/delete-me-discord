@@ -1,4 +1,5 @@
-*.ipynb
+.direnv/
+.venv/
 __pycache__/
-.env
-*test*
+*.egg-info/
+build/
