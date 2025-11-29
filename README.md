@@ -53,6 +53,9 @@ This command will delete messages older than 1 week and 3 days while preserving 
 
 ### Command-Line Options
 
+- `--version`:
+  **Description:** Show the version number and exit.
+
 - `--include-ids`:
   **Type:** `str`
   **Description:** List of channel/guild/parent IDs to include.
@@ -99,9 +102,6 @@ This command will delete messages older than 1 week and 3 days while preserving 
   **Usage:**
   - Single value: `--delete-sleep-time 1.75`
   - Range: `--delete-sleep-time 1.5 2`
-
-- `--version`:
-  **Description:** Show the version number and exit.
 
 - `--preserve-n`:
   **Type:** `int`
