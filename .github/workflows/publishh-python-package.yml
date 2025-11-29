@@ -1,46 +1,42 @@
-name: Publish Python Package
+name: Publish to PyPI
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  build_and_publish:
+  build-and-publish:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install setuptools wheel twine
+          pip install build twine
 
-      - name: Check for existing dist directory
-        run: |
-          if [ -d "dist" ]; then
-            echo "Error: 'dist' directory already exists." >&2
-            exit 1
-          fi
+      - name: Build package
+        run: python -m build
 
-      - name: Build distribution
-        run: |
-          python setup.py sdist bdist_wheel
+      - name: Validate package
+        run: twine check dist/*
 
-      - name: Check distribution
-        run: |
-          twine check dist/*
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.12.4
+        with:
+          password: ${{ secrets.PYPI }}
+          skip-existing: true
 
-      - name: Upload distribution to PyPI
-        run: |
-          twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI }}
