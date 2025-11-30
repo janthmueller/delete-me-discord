@@ -3,7 +3,7 @@
 [![Pepy Total Downloads](https://img.shields.io/pepy/dt/delete-me-discord)](https://pepy.tech/project/delete-me-discord)
 [![GitHub License](https://img.shields.io/github/license/janthmueller/delete-me-discord)](https://github.com/janthmueller/delete-me-discord/blob/main/LICENSE)
 
-**Delete Me Discord** is a command-line tool to delete your own Discord messages (and reactions) with filters and rolling retention controls.
+**Delete Me Discord** is a command-line tool to delete your own Discord messages (and reactions) with filters and retention controls.
 
 > ⚠️ Using automated tools on Discord may violate Discord’s [Terms of Service](https://discord.com/terms). Use at your own risk.
 
@@ -16,14 +16,6 @@
 
 **Who it’s for (and not)**
 - For cleaning up your own messages. Not for deleting others’ messages.
-## Features
-
-- **Time-Based Deletion:** Delete messages and reactions older than a specified time delta.
-- **Count-Based Preservation:** Preserve a certain number of recent messages regardless of their age.
-- **Selective Channel Processing:** Include or exclude specific channels, guilds, or parent categories.
-- **Dry Run Mode:** Simulate deletions without actually removing any messages.
-- **Robust Logging:** Track the script's actions and troubleshoot issues effectively.
-- **Rate Limit Handling:** Automatically handles Discord API rate limits with customizable retry strategies.
 
 ## Table of Contents
 
@@ -80,9 +72,6 @@ Deletes messages older than 1 week and 3 days while keeping at least 10 messages
 
 ### Command-Line Options
 
-<details>
-<summary>Full option reference</summary>
-
 - `--list-guilds`: List guild IDs/names, then exit.
 - `--list-channels`: List channels (grouped by guild/category/parent + DMs), then exit.
 - `--dry-run`: Simulate deletions; no changes made.
@@ -99,8 +88,6 @@ Deletes messages older than 1 week and 3 days while keeping at least 10 messages
 - `--delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
 - `--log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
 - `--version`: Show the version number and exit.
-
-</details>
 
 ## Configuration
 
