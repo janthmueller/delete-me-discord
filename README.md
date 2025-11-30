@@ -16,9 +16,7 @@
 
 ## Installation
 
-You can install `delete-me-discord` using `pip`. Ensure you have Python 3.6 or higher installed.
-
-### Using `pip`
+You can install `delete-me-discord` using `pip`. Ensure you have Python 3.6 or higher installed:
 
 ```bash
 pip install delete-me-discord
@@ -68,7 +66,7 @@ After installation, you can execute the script directly from the command line us
 
 ## Contributing
 
-Contributions are welcome—open an issue or pull request with improvements or bug fixes.
+Contributions are welcome. Open an issue or pull request with improvements or bug fixes.
 
 ## License
 
