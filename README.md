@@ -14,15 +14,6 @@
 
 *\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Quick Start](#quick-start)
-  - [Command-Line Options](#command-line-options)
-- [Contributing](#contributing)
-- [License](#license)
-
 ## Installation
 
 You can install `delete-me-discord` using `pip`. Ensure you have Python 3.6 or higher installed.
