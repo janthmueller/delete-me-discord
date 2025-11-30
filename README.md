@@ -178,6 +178,17 @@ delete-me-discord --max-retries 10 --retry-time-buffer 30 40 --preserve-n 20
 delete-me-discord --fetch-max-age "weeks=2" --max-messages 5000 --preserve-last "weeks=1"
 ```
 
+### Common use cases
+
+- **Clean an entire channel (messages + reactions):**  
+  `delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last "seconds=0" --dry-run` to preview, then drop `--dry-run` to wipe the channel.
+
+- **Keep recent history, auto-expire older messages (rolling retention):**  
+  `delete-me-discord --preserve-last "weeks=2" --preserve-n 20` keeps recent messages (last 20 + last 2 weeks) and expires anything older.
+
+- **Initial purge, then fast daily retention runs:**  
+  First run without `--fetch-max-age` to clear old history. For daily runs, set `--fetch-max-age` to your preserve window + 1 day (e.g., `--preserve-last "weeks=2"` + `--fetch-max-age "weeks=2,days=1"`), so you only fetch the recent slice while keeping your preservation buffer.
+
 ## Configuration
 
 Before using `delete-me-discord`, you need to set up your Discord credentials by defining the following environment variables:
