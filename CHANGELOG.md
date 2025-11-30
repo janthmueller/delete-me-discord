@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.1.0 (2025-11-30)
+
+### Chores
+
+- Added conventional pre commit
+  ([`af215c9`](https://github.com/janthmueller/delete-me-discord/commit/af215c96bf35cd05825807516cca148aef646df6))
+
+### Features
+
+- Add discovery listings and flexible include/exclude carve-outs
+  ([`2c261b6`](https://github.com/janthmueller/delete-me-discord/commit/2c261b6feafe690f8c824edf2687e2547f7240a0))
+
+
 ## v1.0.0 (2025-11-29)
 
 ### Chores
