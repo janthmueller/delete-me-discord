@@ -14,17 +14,12 @@
 
 *\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
 
-**Who it’s for (and not)**
-- For cleaning up your own messages. Not for deleting others’ messages.
-
 ## Table of Contents
 
 - [Installation](#installation)
 - [Usage](#usage)
-  - [Basic Command](#basic-command)
   - [Quick Start](#quick-start)
   - [Command-Line Options](#command-line-options)
-- [Configuration](#configuration)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -38,22 +33,13 @@ You can install `delete-me-discord` using `pip`. Ensure you have Python 3.6 or h
 pip install delete-me-discord
 ```
 
-
 ## Usage
 
 After installation, you can execute the script directly from the command line using the `delete-me-discord` command.
 
-### Basic Command
-
-```bash
-delete-me-discord --preserve-n 10 --preserve-last "weeks=1,days=3"
-```
-
-Deletes messages older than 1 week and 3 days while keeping at least 10 messages per channel.
-
 ### Quick Start
 
-- Export your token first:  
+- Export your token first (See [this guide](https://github.com/victornpb/undiscord/wiki/authToken) to obtain your token):  
   `export DISCORD_TOKEN=<your_token>`
 
 - Find IDs first (safe):  
@@ -88,16 +74,6 @@ Deletes messages older than 1 week and 3 days while keeping at least 10 messages
 - `--delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
 - `--log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
 - `--version`: Show the version number and exit.
-
-## Configuration
-
-Before using `delete-me-discord`, set up your Discord credentials via environment variables (avoid passing tokens on the command line):
-
-- **`DISCORD_TOKEN`**: Your Discord authorization token. See [this guide](https://github.com/victornpb/undiscord/wiki/authToken) to obtain your token.
-- **`DISCORD_USER_ID`** (optional): Your Discord user ID. This ID is used to target messages authored by you. If not provided, the tool will resolve it automatically using your token. You can obtain it by enabling Developer Mode in Discord and right-clicking your username to copy the ID.
-
-**Security Note:**
-Never share your authorization token. Sharing it will allow others to access your account and perform actions on your behalf.
 
 ## Contributing
 
