@@ -60,6 +60,7 @@ This command will delete messages older than 1 week and 3 days while preserving 
   **Type:** `str`
   **Description:** List of channel/guild/parent IDs to include.
   **Usage:** `--include-ids 123456789012345678 234567890123456789`
+  **Note:** Channel or category (parent) IDs in `--include-ids` still run even if their category or guild is excluded, so you can carve out specific paths. If omitted, all IDs are potential candidates (subject to excludes).
 
 - `--exclude-ids`:
   **Type:** `str`
@@ -75,6 +76,17 @@ This command will delete messages older than 1 week and 3 days while preserving 
   **Type:** `flag`
   **Description:** Remove your reactions (emoji) from messages encountered; honors `--dry-run`.
   **Usage:** `--delete-reactions`
+
+- `--list-guilds`:
+  **Type:** `flag`
+  **Description:** List your guild IDs and names, then exit (no deletions).
+  **Note:** Guilds appear here only if the guild ID itself is not excluded (and matches `--include-ids` when provided); channel/category includes do not make a guild show up.
+  **Usage:** `--list-guilds`
+
+- `--list-channels`:
+  **Type:** `flag`
+  **Description:** List channels (grouped by guild and DMs) with IDs and types, then exit (no deletions). Respects `--include-ids`/`--exclude-ids`.
+  **Usage:** `--list-channels`
 
 - `--log-level`:
   **Type:** `str`

@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Generator, Tuple, Optional, Union
 import logging
 
 from .api import DiscordAPI
-from .utils import channel_str
+from .utils import channel_str, should_include_channel
 
 
 class MessageCleaner:
@@ -106,22 +106,14 @@ class MessageCleaner:
         Returns:
             bool: True if the channel should be included, False otherwise.
         """
-        channel_id = channel.get("id")
-        guild_id = channel.get("guild_id")
-        parent_id = channel.get("parent_id")
-
-        # Exclude logic
-        if self.exclude_ids.intersection({channel_id, guild_id, parent_id}):
-            self.logger.debug("Excluding channel: %s.", channel_str(channel))
-            return False
-
-        # Include logic
-        if self.include_ids:
-            if not self.include_ids.intersection({channel_id, guild_id, parent_id}):
-                self.logger.debug("Excluding channel not in include_ids: %s.", channel_str(channel))
-                return False
-
-        return True
+        allowed = should_include_channel(
+            channel=channel,
+            include_ids=self.include_ids,
+            exclude_ids=self.exclude_ids
+        )
+        if not allowed:
+            self.logger.debug("Excluding channel based on include/exclude filters: %s.", channel_str(channel))
+        return allowed
 
     def fetch_all_messages(
         self,

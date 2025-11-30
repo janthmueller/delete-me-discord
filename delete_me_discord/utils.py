@@ -2,7 +2,7 @@
 
 import logging
 from datetime import timedelta, datetime
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set, Optional
 import argparse
 
 class FetchError(Exception):
@@ -41,6 +41,47 @@ def channel_str(channel: Dict[str, Any]) -> str:
         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
     )
     return f"{channel_type} {channel_name} (ID: {channel.get('id')})"
+
+def should_include_channel(
+    channel: Dict[str, Any],
+    include_ids: Set[str],
+    exclude_ids: Set[str],
+) -> bool:
+    """
+    Decide whether a channel should be included based on include/exclude IDs.
+
+    Exclude takes precedence unless the channel itself is explicitly included.
+
+    Returns:
+        bool: True if the channel should be included, False otherwise.
+    """
+    channel_id = channel.get("id")
+    guild_id = channel.get("guild_id")
+    parent_id = channel.get("parent_id")
+
+    # Always honor explicit channel exclusion.
+    if channel_id in exclude_ids:
+        return False
+
+    # Allow channel-level override.
+    if channel_id in include_ids:
+        return True
+
+    # Allow parent/category include to carve out channels even if the guild/parent is excluded.
+    if parent_id and parent_id in include_ids:
+        return True
+
+    # Exclude parent/guild if matched.
+    if parent_id in exclude_ids:
+        return False
+    if guild_id in exclude_ids:
+        return False
+
+    # If include_ids is provided, require a match on channel/guild/parent.
+    if include_ids and not include_ids.intersection({channel_id, guild_id, parent_id}):
+        return False
+
+    return True
 
 
 def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, float]:
