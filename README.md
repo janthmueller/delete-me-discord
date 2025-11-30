@@ -3,11 +3,19 @@
 [![Pepy Total Downloads](https://img.shields.io/pepy/dt/delete-me-discord)](https://pepy.tech/project/delete-me-discord)
 [![GitHub License](https://img.shields.io/github/license/janthmueller/delete-me-discord)](https://github.com/janthmueller/delete-me-discord/blob/main/LICENSE)
 
-**Delete Me Discord** is a command-line tool designed to help Discord users delete their messages across multiple channels based on time or message count criteria.
+**Delete Me Discord** is a command-line tool to delete your own Discord messages (and reactions) with filters and rolling retention controls.
 
+> ⚠️ Using automated tools on Discord may violate Discord’s [Terms of Service](https://discord.com/terms). Use at your own risk.
 
->⚠️**Use at Your Own Risk:**
->Using automated tools on Discord, may violate Discord's [Terms of Service](https://discord.com/terms) and could result in account suspension or termination. Please use this tool responsibly and understand the potential risks involved.
+**TL;DR**
+- Deletes your messages/reactions in bulk.
+- Filters by time/count and include/exclude (channels, categories/parents*, guilds).
+- Dry-run + discovery helpers (`--list-guilds`, `--list-channels`) to target safely.
+
+*\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
+
+**Who it’s for (and not)**
+- For cleaning up your own messages. Not for deleting others’ messages.
 ## Features
 
 - **Time-Based Deletion:** Delete messages and reactions older than a specified time delta.
@@ -22,8 +30,8 @@
 - [Installation](#installation)
 - [Usage](#usage)
   - [Basic Command](#basic-command)
+  - [Quick Start](#quick-start)
   - [Command-Line Options](#command-line-options)
-  - [Examples](#examples)
 - [Configuration](#configuration)
 - [Contributing](#contributing)
 - [License](#license)
@@ -49,149 +57,54 @@ After installation, you can execute the script directly from the command line us
 delete-me-discord --preserve-n 10 --preserve-last "weeks=1,days=3"
 ```
 
-This command will delete messages older than 1 week and 3 days while preserving at least 10 messages in each channel.
+Deletes messages older than 1 week and 3 days while keeping at least 10 messages per channel.
+
+### Quick Start
+
+- Export your token first:  
+  `export DISCORD_TOKEN=<your_token>`
+
+- Find IDs first (safe):  
+  `delete-me-discord --list-guilds` and `delete-me-discord --list-channels`
+
+- Full channel wipe (preview first):  
+  `delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last "seconds=0" --dry-run`  
+  Drop `--dry-run` to execute.
+
+- Rolling retention (preview):  
+  `delete-me-discord --preserve-last "weeks=2" --preserve-n 20 --dry-run`  
+  Drop `--dry-run` to keep recent messages (last 20 + last 2 weeks), expire older.
+
+- Initial purge, then fast daily retention runs:  
+  First run without `--fetch-max-age` to clear old history. For daily runs, set `--fetch-max-age` to your preserve window + 1 day (e.g., `--preserve-last "weeks=2"` + `--fetch-max-age "weeks=2,days=1"`), so you only fetch the recent slice while keeping your preservation buffer.
 
 ### Command-Line Options
 
-- `--version`:
-  **Description:** Show the version number and exit.
+<details>
+<summary>Full option reference</summary>
 
-- `--include-ids`:
-  **Type:** `str`
-  **Description:** List of channel/guild/parent IDs to include.
-  **Usage:** `--include-ids 123456789012345678 234567890123456789`
-  **Note:** Channel or category (parent) IDs in `--include-ids` still run even if their category or guild is excluded, so you can carve out specific paths. If omitted, all IDs are potential candidates (subject to excludes).
+- `--list-guilds`: List guild IDs/names, then exit.
+- `--list-channels`: List channels (grouped by guild/category/parent + DMs), then exit.
+- `--dry-run`: Simulate deletions; no changes made.
+- `--delete-reactions`: Remove your reactions on messages encountered.
+- `--include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
+- `--exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
+- `--preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3`).
+- `--preserve-n`: Always keep the last N messages (default `12`).
+- `--fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1`). Default: no max age.
+- `--max-messages`: Max messages to fetch per channel (default: no limit).
+- `--max-retries`: Retry count for API requests (default `5`).
+- `--retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds).
+- `--fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds).
+- `--delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
+- `--log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
+- `--version`: Show the version number and exit.
 
-- `--exclude-ids`:
-  **Type:** `str`
-  **Description:** List of channel/guild/parent IDs to exclude.
-  **Usage:** `--exclude-ids 345678901234567890 456789012345678901`
-
-- `--dry-run`:
-  **Type:** `flag`
-  **Description:** Perform a dry run without deleting any messages. Useful for testing.
-  **Usage:** `--dry-run`
-
-- `--delete-reactions`:
-  **Type:** `flag`
-  **Description:** Remove your reactions (emoji) from messages encountered; honors `--dry-run`.
-  **Usage:** `--delete-reactions`
-
-- `--list-guilds`:
-  **Type:** `flag`
-  **Description:** List your guild IDs and names, then exit (no deletions).
-  **Note:** Guilds appear here only if the guild ID itself is not excluded (and matches `--include-ids` when provided); channel/category includes do not make a guild show up.
-  **Usage:** `--list-guilds`
-
-- `--list-channels`:
-  **Type:** `flag`
-  **Description:** List channels (grouped by guild and DMs) with IDs and types, then exit (no deletions). Respects `--include-ids`/`--exclude-ids`.
-  **Usage:** `--list-channels`
-
-- `--log-level`:
-  **Type:** `str`
-  **Choices:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
-  **Description:** Set the logging level. Default is `INFO`.
-  **Usage:** `--log-level DEBUG`
-
-- `--max-retries`:
-  **Type:** `int`
-  **Description:** Maximum number of retries for API requests in case of rate limiting. Default is `5`.
-  **Usage:** `--max-retries 10`
-
-- `--retry-time-buffer`:
-  **Type:** `float` or `float float`
-  **Description:** Additional time (in seconds) to wait after rate limit responses. Provide one value or two values for randomness. Default is `[25, 35]`.
-  **Usage:**
-  - Single value: `--retry-time-buffer 30`
-  - Range: `--retry-time-buffer 25 35`
-
-- `--fetch-sleep-time`:
-  **Type:** `float` or `float float`
-  **Description:** Sleep time (in seconds) between message fetch requests. Provide one value or two values for randomness. Default is `[0.2, 0.4]`.
-  **Usage:**
-  - Single value: `--fetch-sleep-time 0.3`
-  - Range: `--fetch-sleep-time 0.2 0.4`
-
-- `--delete-sleep-time`:
-  **Type:** `float` or `float float`
-  **Description:** Sleep time (in seconds) between message deletion attempts. Provide one value or two values for randomness. Default is `[1.5, 2]`.
-  **Usage:**
-  - Single value: `--delete-sleep-time 1.75`
-  - Range: `--delete-sleep-time 1.5 2`
-
-- `--preserve-n`:
-  **Type:** `int`
-  **Description:** Number of recent messages to preserve in each channel regardless of `--preserve-last`. Default is `12`.
-  **Usage:** `--preserve-n 15`
-
-- `--preserve-last`:
-  **Type:** `str`
-  **Description:** Preserves recent messages (and reactions) within the last given delta time (e.g., `"weeks=2,days=3"`) regardless of `--preserve-n`. Default is `weeks=2`.
-  **Usage:** `--preserve-last "weeks=1,days=3"`
-
-- `--fetch-max-age`:
-  **Type:** `str`
-  **Description:** Only fetch messages newer than the given time delta from now (e.g., `"weeks=1,days=2"`). Speeds up recurring purges by skipping older history. If you have never purged a channel before, older messages will remain untouched. Default is no max age.
-  **Usage:** `--fetch-max-age "weeks=1"`
-
-- `--max-messages`:
-  **Type:** `int`
-  **Description:** Maximum number of messages to fetch per channel. Defaults to no limit.
-  **Usage:** `--max-messages 5000`
-
-### Examples
-
-#### 1. Delete Messages Older Than 2 Weeks and Preserve at least Last 10 Messages
-
-```bash
-delete-me-discord --preserve-n 10 --preserve-last "weeks=2"
-```
-
-#### 2. Perform a Dry Run to See Which Messages Would Be Deleted
-
-```bash
-delete-me-discord --dry-run
-```
-
-#### 3. Delete Messages in Specific Channels Only
-
-```bash
-delete-me-discord --include-ids 123456789012345678 234567890123456789 --preserve-last "weeks=1"
-```
-
-#### 4. Exclude Specific Guilds from Deletion
-
-```bash
-delete-me-discord --exclude-ids 345678901234567890 --preserve-n 5
-```
-
-#### 5. Increase Retry Attempts and Adjust Rate Limit Buffer
-
-```bash
-delete-me-discord --max-retries 10 --retry-time-buffer 30 40 --preserve-n 20
-```
-
-#### 6. Speed up recurring purges by skipping older history
-
-```bash
-delete-me-discord --fetch-max-age "weeks=2" --max-messages 5000 --preserve-last "weeks=1"
-```
-
-### Common use cases
-
-- **Clean an entire channel (messages + reactions):**  
-  `delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last "seconds=0" --dry-run` to preview, then drop `--dry-run` to wipe the channel.
-
-- **Keep recent history, auto-expire older messages (rolling retention):**  
-  `delete-me-discord --preserve-last "weeks=2" --preserve-n 20` keeps recent messages (last 20 + last 2 weeks) and expires anything older.
-
-- **Initial purge, then fast daily retention runs:**  
-  First run without `--fetch-max-age` to clear old history. For daily runs, set `--fetch-max-age` to your preserve window + 1 day (e.g., `--preserve-last "weeks=2"` + `--fetch-max-age "weeks=2,days=1"`), so you only fetch the recent slice while keeping your preservation buffer.
+</details>
 
 ## Configuration
 
-Before using `delete-me-discord`, you need to set up your Discord credentials by defining the following environment variables:
+Before using `delete-me-discord`, set up your Discord credentials via environment variables (avoid passing tokens on the command line):
 
 - **`DISCORD_TOKEN`**: Your Discord authorization token. See [this guide](https://github.com/victornpb/undiscord/wiki/authToken) to obtain your token.
 - **`DISCORD_USER_ID`** (optional): Your Discord user ID. This ID is used to target messages authored by you. If not provided, the tool will resolve it automatically using your token. You can obtain it by enabling Developer Mode in Discord and right-clicking your username to copy the ID.
@@ -201,42 +114,7 @@ Never share your authorization token. Sharing it will allow others to access you
 
 ## Contributing
 
-Contributions are welcome! If you'd like to improve `delete-me-discord`, please follow these steps:
-
-1. **Fork the Repository:** Click the "Fork" button on the repository page to create your own fork.
-
-2. **Clone Your Fork:**
-
-   ```bash
-   git clone https://github.com/janthmueller/delete-me-discord.git
-   cd delete-me-discord
-   ```
-
-3. **Create a New Branch:**
-
-   ```bash
-   git checkout -b feature/YourFeatureName
-   ```
-
-4. **Make Your Changes:** Implement your feature or fix bugs.
-
-5. **Commit Your Changes:**
-
-   ```bash
-   git commit -m "Add feature: YourFeatureName"
-   ```
-
-6. **Push to Your Fork:**
-
-   ```bash
-   git push origin feature/YourFeatureName
-   ```
-
-7. **Open a Pull Request:** Navigate to the original repository and click "New Pull Request."
-
-### Reporting Issues
-
-If you encounter any bugs or have suggestions for improvements, please open an issue in the [Issues](https://github.com/janthmueller/delete-me-discord/issues) section of the repository.
+Contributions are welcome—open an issue or pull request with improvements or bug fixes.
 
 ## License
 
