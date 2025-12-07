@@ -180,7 +180,7 @@ class MessageCleaner:
 
             # skip non user messages
             if message["author_id"] != self.user_id:
-                if delete_reactions and message_time < cutoff_time:
+                if delete_reactions and message_time < cutoff_time and deleteable >= self.preserve_n:
                     reactions_removed += self._delete_reactions_for_message(
                         message=message,
                         delete_sleep_time_range=delete_sleep_time_range,
