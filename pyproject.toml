@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "delete-me-discord"
-version = "1.1.0"
+version = "1.1.1"
 readme = "README.md"
 
 description = "Tool to mass delete your Discord messages and reactions with filters and retention controls."

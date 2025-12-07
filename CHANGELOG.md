@@ -2,6 +2,34 @@
 
 <!-- version list -->
 
+## v1.1.1 (2025-12-07)
+
+### Bug Fixes
+
+- Align reaction cleanup with retention window
+  ([`314a697`](https://github.com/janthmueller/delete-me-discord/commit/314a697c2aacc2d5bbe96c992dec568316f668c9))
+
+### Documentation
+
+- Shorten readme
+  ([`34361f2`](https://github.com/janthmueller/delete-me-discord/commit/34361f276089bf8207c34115f47916a66d3cd986))
+
+- Shorten readme
+  ([`11136d9`](https://github.com/janthmueller/delete-me-discord/commit/11136d9496d41aa51b5f29ab6a531b2e37415d7e))
+
+- Shorten readme
+  ([`56898be`](https://github.com/janthmueller/delete-me-discord/commit/56898be1c49c0fdc87cf3a60923e2b21c412896e))
+
+- Shorten readme
+  ([`151f3e2`](https://github.com/janthmueller/delete-me-discord/commit/151f3e282be35bf426b4c76a0c01429d4844c2c8))
+
+- Tighten README and update package description
+  ([`cb11150`](https://github.com/janthmueller/delete-me-discord/commit/cb1115007b32ce10209ceef2748c90bc0236dfd6))
+
+- Use cases
+  ([`f2db31e`](https://github.com/janthmueller/delete-me-discord/commit/f2db31e94745f441d22f6d4e3aa72acacf04708b))
+
+
 ## v1.1.0 (2025-11-30)
 
 ### Chores
