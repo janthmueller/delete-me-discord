@@ -9,7 +9,7 @@ import logging
 import requests
 import urllib.parse
 from .type_enums import MessageType
-from .utils import FetchError
+from .utils import FetchError, format_timestamp
 
 
 class DiscordAPI:
@@ -215,7 +215,7 @@ class DiscordAPI:
                     reached_cutoff = True
                     self.logger.debug(
                         "Reached fetch cutoff (%s) in channel %s.",
-                        fetch_since.isoformat(),
+                        format_timestamp(fetch_since),
                         channel_id
                     )
                     break

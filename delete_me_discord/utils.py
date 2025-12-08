@@ -1,8 +1,9 @@
 # delete_me_discord/utils.py
 
 import logging
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from typing import List, Dict, Any, Tuple, Set, Optional
+from rich.logging import RichHandler
 import argparse
 
 class FetchError(Exception):
@@ -20,9 +21,15 @@ def setup_logging(log_level: str = "INFO") -> None:
         numeric_level = logging.INFO
     logging.basicConfig(
         level=numeric_level,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        handlers=[logging.StreamHandler()]
+        format='%(message)s',
+        handlers=[
+            RichHandler()
+        ],
     )
+
+def format_timestamp(dt: datetime) -> str:
+    """Return a consistent UTC timestamp like [12/08/25 19:05:14]."""
+    return dt.astimezone(timezone.utc).strftime("[%y/%m/%d %H:%M:%S]")
 
 
 def channel_str(channel: Dict[str, Any]) -> str:

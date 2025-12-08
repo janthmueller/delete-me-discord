@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Generator, Tuple, Optional, Union
 import logging
 
 from .api import DiscordAPI
-from .utils import channel_str, should_include_channel
+from .utils import channel_str, should_include_channel, format_timestamp
 
 
 class MessageCleaner:
@@ -194,16 +194,16 @@ class MessageCleaner:
 
             deleteable += 1
             if deleteable < self.preserve_n or message_time >= cutoff_time:
-                self.logger.debug("Preserving message %s sent at %s UTC.", message_id, message_time.isoformat())
+                self.logger.debug("Preserving message %s sent at %s UTC.", message_id, format_timestamp(message_time))
                 preserved_count += 1
                 continue
 
             if dry_run:
-                self.logger.info("Would delete message %s sent at %s UTC.", message_id, message_time.isoformat())
+                self.logger.info("Would delete message %s sent at %s UTC.", message_id, format_timestamp(message_time))
                 deleted_count += 1
                 self.logger.debug("Dry run enabled; skipping API delete for %s.", message_id)
             else:
-                self.logger.info("Deleting message %s sent at %s UTC.", message_id, message_time.isoformat())
+                self.logger.info("Deleting message %s sent at %s UTC.", message_id, format_timestamp(message_time))
                 success = self.api.delete_message(
                     channel_id=message["channel_id"],
                     message_id=message_id
@@ -244,9 +244,9 @@ class MessageCleaner:
         total_deleted = 0
         total_reactions_removed = 0
         cutoff_time = datetime.now(timezone.utc) - self.preserve_last
-        self.logger.info("Deleting messages older than %s UTC.", cutoff_time.isoformat())
+        self.logger.info("Deleting messages older than %s UTC.", format_timestamp(cutoff_time))
         if fetch_since:
-            self.logger.info("Fetching messages not older than %s UTC.", fetch_since.isoformat())
+            self.logger.info("Fetching messages not older than %s UTC.", format_timestamp(fetch_since))
 
         channels = self.get_all_channels()
 
