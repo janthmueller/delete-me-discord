@@ -11,6 +11,10 @@ from rich.console import Console
 from rich.tree import Tree
 from rich.markup import escape
 
+
+def _guild_sort_key(guild):
+    return ((guild.get("name") or "").lower(), guild.get("id"))
+
 try:
     from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as _version
@@ -230,9 +234,6 @@ def _run_discovery_commands(
     include_set = set(include_ids or [])
     exclude_set = set(exclude_ids or [])
 
-    def guild_sort_key(guild):
-        return ((guild.get("name") or "").lower(), guild.get("id"))
-
     if list_guilds:
         try:
             guilds = api.get_guilds()
@@ -240,7 +241,7 @@ def _run_discovery_commands(
             logging.error("Unable to list guilds: %s", e)
             return
         tree = Tree("[blue]Guilds[/]")
-        for guild in sorted(guilds, key=guild_sort_key):
+        for guild in sorted(guilds, key=_guild_sort_key):
             guild_id = guild.get("id")
             if guild_id in exclude_set:
                 continue
@@ -261,14 +262,11 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set, console: Console) 
     """
     channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
 
-    def guild_sort_key(guild):
-        return ((guild.get("name") or "").lower(), guild.get("id"))
-
     def include_channel(channel):
         return should_include_channel(
             channel=channel,
-            include_ids=set(include_set),
-            exclude_ids=set(exclude_set)
+            include_ids=include_set,
+            exclude_ids=exclude_set
         )
 
     def channel_sort_key(channel):
@@ -318,7 +316,7 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set, console: Console) 
         return
 
     guilds_tree = None
-    for guild in sorted(guilds, key=guild_sort_key):
+    for guild in sorted(guilds, key=_guild_sort_key):
         guild_id = guild.get("id")
         guild_name = guild.get("name", "Unknown")
         escaped_guild_name = escape(guild_name)
