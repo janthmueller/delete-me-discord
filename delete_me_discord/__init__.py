@@ -7,6 +7,9 @@ from datetime import timedelta, datetime, timezone
 
 import argparse
 import logging
+from rich.console import Console
+from rich.tree import Tree
+from rich.markup import escape
 
 try:
     from importlib.metadata import PackageNotFoundError
@@ -165,6 +168,18 @@ def main():
             retry_time_buffer=retry_time_buffer_range
         )
 
+        try:
+            current_user = api.get_current_user()
+        except FetchError as e:
+            logging.error("Authentication failed (invalid token?): %s", e)
+            return
+
+        user_id = current_user.get("id")
+        if not user_id:
+            logging.error("Authentication failed: user ID missing in /users/@me response.")
+            return
+        logging.info("Authenticated as %s (%s).", current_user.get("username"), user_id)
+
         if list_guilds or list_channels:
             _run_discovery_commands(
                 api=api,
@@ -177,6 +192,7 @@ def main():
 
         cleaner = MessageCleaner(
             api=api,
+            user_id=user_id,
             include_ids=include_ids,
             exclude_ids=exclude_ids,
             preserve_last=preserve_last,
@@ -210,8 +226,12 @@ def _run_discovery_commands(
     """
     Handle discovery-only commands and exit afterwards.
     """
+    console = Console()
     include_set = set(include_ids or [])
     exclude_set = set(exclude_ids or [])
+
+    def guild_sort_key(guild):
+        return ((guild.get("name") or "").lower(), guild.get("id"))
 
     if list_guilds:
         try:
@@ -219,24 +239,30 @@ def _run_discovery_commands(
         except FetchError as e:
             logging.error("Unable to list guilds: %s", e)
             return
-        if not guilds:
-            print("No guilds found for this account.")
-        for guild in guilds:
+        tree = Tree("[blue]Guilds[/]")
+        for guild in sorted(guilds, key=guild_sort_key):
             guild_id = guild.get("id")
             if guild_id in exclude_set:
                 continue
             if include_set and guild_id not in include_set:
                 continue
-            print(f"Guild: {guild.get('name', 'Unknown')} (ID: {guild.get('id')})")
+            tree.add(f"[bright_white]{escape(guild.get('name', 'Unknown'))}[/] [dim](ID: {guild_id})[/]")
+        if tree.children:
+            console.print(tree)
+        else:
+            console.print("[dim]No guilds matched filters for this account.[/]")
 
     if list_channels:
-        _list_channels(api, include_set, exclude_set)
+        _list_channels(api, include_set, exclude_set, console)
 
-def _list_channels(api: DiscordAPI, include_set, exclude_set) -> None:
+def _list_channels(api: DiscordAPI, include_set, exclude_set, console: Console) -> None:
     """
     List channels grouped by DMs and guilds, respecting include/exclude filters.
     """
     channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
+
+    def guild_sort_key(guild):
+        return ((guild.get("name") or "").lower(), guild.get("id"))
 
     def include_channel(channel):
         return should_include_channel(
@@ -245,13 +271,26 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set) -> None:
             exclude_ids=set(exclude_set)
         )
 
+    def channel_sort_key(channel):
+        type_order = {0: 0, 1: 1, 3: 2}  # GuildText, DM, GroupDM
+        name = channel.get("name")
+        if not name:
+            recipients = channel.get("recipients") or []
+            name = ', '.join([recipient.get("username", "Unknown") for recipient in recipients])
+        return (type_order.get(channel.get("type"), 99), name.lower(), channel.get("id"))
+
     def channel_display(channel):
         channel_type = channel_types.get(channel.get("type"), f"Type {channel.get('type')}")
-        channel_name = channel.get("name") or ', '.join(
+        raw_name = channel.get("name") or ', '.join(
             [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
         )
-        return f"[{channel_type}] {channel_name} (ID: {channel.get('id')})"
+        channel_name = escape(raw_name)
+        type_color = "cyan"
+        name_style = "bright_white"
+        id_style = "dim"
+        return f"[{type_color}]{channel_type}[/] [{name_style}]{channel_name}[/] [{id_style}](ID: {channel.get('id')})[/]"
 
+    dm_tree = None
     try:
         root_channels = api.get_root_channels()
     except FetchError as e:
@@ -267,19 +306,22 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set) -> None:
         included_dms.append(channel)
 
     if included_dms:
-        print("Direct and group DMs:")
-        for channel in included_dms:
-            print(f"  {channel_display(channel)}")
+        dm_tree = Tree("[magenta]Direct and Group DMs[/]")
+        for channel in sorted(included_dms, key=channel_sort_key):
+            dm_tree.add(channel_display(channel))
 
+    # Guild channels
     try:
         guilds = api.get_guilds()
     except FetchError as e:
         logging.error("Unable to list guild channels: %s", e)
         return
 
-    for guild in guilds:
+    guilds_tree = None
+    for guild in sorted(guilds, key=guild_sort_key):
         guild_id = guild.get("id")
         guild_name = guild.get("name", "Unknown")
+        escaped_guild_name = escape(guild_name)
 
         try:
             channels = api.get_guild_channels(guild_id)
@@ -304,16 +346,32 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set) -> None:
         if not filtered_channels:
             continue
 
-        print(f"Guild {guild_name} (ID: {guild_id})")
+        if guilds_tree is None:
+            guilds_tree = Tree("[blue]Guilds[/]")
+
+        guild_node = guilds_tree.add(f"[bright_white]{escaped_guild_name}[/] [dim](ID: {guild_id})[/]")
         grouped = {}
         for channel in filtered_channels:
             grouped.setdefault(channel.get("parent_id"), []).append(channel)
 
-        for parent_id, chans in grouped.items():
-            parent_label = category_names.get(parent_id, "(no category)")
-            print(f"  Category {parent_label} (ID: {parent_id or 'none'})")
-            for channel in chans:
-                print(f"    {channel_display(channel)}")
+        def category_label(parent_id):
+            return category_names.get(parent_id, "(no category)")
+
+        for parent_id, chans in sorted(grouped.items(), key=lambda item: (category_label(item[0]).lower(), item[0] or "")):
+            parent_label = category_label(parent_id)
+            category_node = guild_node.add(f"[yellow]Category[/] {escape(parent_label)} [dim](ID: {parent_id or 'none'})[/]")
+            for channel in sorted(chans, key=channel_sort_key):
+                category_node.add(channel_display(channel))
+
+    printed = False
+    if dm_tree and dm_tree.children:
+        console.print(dm_tree)
+        printed = True
+    if guilds_tree and guilds_tree.children:
+        console.print(guilds_tree)
+        printed = True
+    if not printed:
+        console.print("[dim]No channels matched filters for this account.[/]")
 
 if __name__ == "__main__":
     main()
