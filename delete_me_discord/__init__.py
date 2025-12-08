@@ -212,7 +212,6 @@ def main():
             max_messages=max_messages,
             delete_reactions=delete_reactions
         )
-        logging.info("Script completed. Total messages deleted: %s", total_deleted)
     except FetchError as e:
         logging.error("FetchError occurred: %s", e)
     except ValueError as e:
