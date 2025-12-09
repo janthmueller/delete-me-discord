@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v1.1.2 (2025-12-09)
+
+### Bug Fixes
+
+- Handle range flags after parse (captures the corrected parsing and the clarified error message)
+  ([`ee05ba5`](https://github.com/janthmueller/delete-me-discord/commit/ee05ba510d29f2ffb6de6a255e670d7747504cd7))
+
+### Chores
+
+- Update readme
+  ([`ee7e1a1`](https://github.com/janthmueller/delete-me-discord/commit/ee7e1a1cc4fd8e148de29127a8989792e45d26b0))
+
+- **cli**: Drop redundant final summary log
+  ([`28b956d`](https://github.com/janthmueller/delete-me-discord/commit/28b956db60c74988744fa8bb8d661c2eb865a422))
+
+- **cli**: Reuse guild sort helper across listing commands
+  ([`d120274`](https://github.com/janthmueller/delete-me-discord/commit/d12027425844780da5cd87879d04f68eb1a0c747))
+
+- **cli**: Sort and restyle guild/channel listing output
+  ([`7755958`](https://github.com/janthmueller/delete-me-discord/commit/775595816946068b79c608b8e7d6f68603a54b06))
+
+- **logging**: Use rich handler and format timestamps uniformly
+  ([`89cd536`](https://github.com/janthmueller/delete-me-discord/commit/89cd536e2fa65dcb475f290f5b93eef806a9e0f5))
+
+
 ## v1.1.1 (2025-12-07)
 
 ### Bug Fixes
