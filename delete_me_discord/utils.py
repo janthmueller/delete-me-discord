@@ -120,7 +120,7 @@ def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, floa
             raise ValueError(f"Expected 1 or 2 values for {parameter_name}, got {len(values)}.")
     except ValueError as e:
         raise argparse.ArgumentTypeError(
-            f"Invalid format for {parameter_name}. Provide one value or two values separated by space or comma. Error: {e}"
+            f"Invalid format for {parameter_name}. Provide one value or two values separated by space. Error: {e}"
         ) from e
 
 

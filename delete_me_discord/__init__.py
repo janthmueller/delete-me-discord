@@ -75,7 +75,6 @@ def main():
     )
     parser.add_argument(
         "--retry-time-buffer",
-        type=lambda x: parse_random_range(x, "retry-time-buffer"),
         nargs='+',
         default=[25, 35],
         metavar=('MIN', 'MAX'),
@@ -83,7 +82,6 @@ def main():
     )
     parser.add_argument(
         "--fetch-sleep-time",
-        type=lambda x: parse_random_range(x, "fetch-sleep-time"),
         nargs='+',
         default=[0.2, 0.4],
         metavar=('MIN', 'MAX'),
@@ -91,7 +89,6 @@ def main():
     )
     parser.add_argument(
         "--delete-sleep-time",
-        type=lambda x: parse_random_range(x, "delete-sleep-time"),
         nargs='+',
         default=[1.5, 2],
         metavar=('MIN', 'MAX'),
@@ -148,9 +145,9 @@ def main():
     preserve_n = args.preserve_n
     dry_run = args.dry_run
     max_retries = args.max_retries
-    retry_time_buffer_range = args.retry_time_buffer  # Tuple[float, float]
-    fetch_sleep_time_range = args.fetch_sleep_time  # Tuple[float, float]
-    delete_sleep_time_range = args.delete_sleep_time  # Tuple[float, float]
+    retry_time_buffer_range = parse_random_range(args.retry_time_buffer, "retry-time-buffer")
+    fetch_sleep_time_range = parse_random_range(args.fetch_sleep_time, "fetch-sleep-time")
+    delete_sleep_time_range = parse_random_range(args.delete_sleep_time, "delete-sleep-time")
     fetch_max_age = args.fetch_max_age  # Optional[timedelta]
     max_messages = args.max_messages if args.max_messages is not None else float("inf")
     delete_reactions = args.delete_reactions
