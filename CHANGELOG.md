@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.0 (2025-12-14)
+
+### Features
+
+- **cli**: Add short flags for common options.
+  ([`0ccb4b9`](https://github.com/janthmueller/delete-me-discord/commit/0ccb4b95843be92f3636591e87e191cd1c8e277c))
+
+
 ## v1.1.2 (2025-12-09)
 
 ### Bug Fixes
