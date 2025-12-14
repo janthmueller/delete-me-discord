@@ -47,22 +47,22 @@ After installation, you can execute the script directly from the command line us
 
 ### Command-Line Options
 
-- `--list-guilds`: List guild IDs/names, then exit.
-- `--list-channels`: List channels (grouped by guild/category/parent + DMs), then exit.
-- `--dry-run`: Simulate deletions; no changes made.
-- `--delete-reactions`: Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold).
-- `--include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
-- `--exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
-- `--preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3`).
-- `--preserve-n`: Always keep the last N of your messages (default `12`).
-- `--fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1`). Default: no max age.
-- `--max-messages`: Max messages to fetch per channel (default: no limit).
-- `--max-retries`: Retry count for API requests (default `5`).
-- `--retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds).
-- `--fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds).
-- `--delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
-- `--log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
-- `--version`: Show the version number and exit.
+- `-g, --list-guilds`: List guild IDs/names, then exit.
+- `-c, --list-channels`: List channels (grouped by guild/category/parent + DMs), then exit.
+- `-d, --dry-run`: Simulate deletions; no changes made.
+- `-R, --delete-reactions`: Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold).
+- `-i, --include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
+- `-x, --exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
+- `-p, --preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3`).
+- `-n, --preserve-n`: Always keep the last N of your messages (default `12`).
+- `-a, --fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1`). Default: no max age.
+- `-m, --max-messages`: Max messages to fetch per channel (default: no limit).
+- `-r, --max-retries`: Retry count for API requests (default `5`).
+- `-b, --retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds).
+- `-f, --fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds).
+- `-s, --delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
+- `-l, --log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
+- `-v, --version`: Show the version number and exit.
 
 ## Contributing
 

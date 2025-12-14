@@ -36,101 +36,101 @@ def main():
         description="Delete Discord messages older than a specified time delta."
     )
     parser.add_argument(
-        "--version",
+        "-v", "--version",
         action="version",
         version=f"%(prog)s {__version__}",
         help="Show the version number and exit."
     )
     parser.add_argument(
-        "--include-ids",
+        "-i", "--include-ids",
         type=str,
         nargs='*',
         default=[],
         help="List of channel/guild/parent IDs to include."
     )
     parser.add_argument(
-        "--exclude-ids",
+        "-x", "--exclude-ids",
         type=str,
         nargs='*',
         default=[],
         help="List of channel/guild/parent IDs to exclude."
     )
     parser.add_argument(
-        "--dry-run",
+        "-d", "--dry-run",
         action='store_true',
         help="Perform a dry run without deleting any messages."
     )
     parser.add_argument(
-        "--log-level",
+        "-l", "--log-level",
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level. Default is 'INFO'."
     )
     parser.add_argument(
-        "--max-retries",
+        "-r", "--max-retries",
         type=int,
         default=5,
         help="Maximum number of retries for API requests in case of rate limiting. Default is 5."
     )
     parser.add_argument(
-        "--retry-time-buffer",
+        "-b", "--retry-time-buffer",
         nargs='+',
         default=[25, 35],
         metavar=('MIN', 'MAX'),
         help="Additional time (in seconds) to wait after rate limit responses. Provide one value or two values for randomness. Default is [25, 35]."
     )
     parser.add_argument(
-        "--fetch-sleep-time",
+        "-f", "--fetch-sleep-time",
         nargs='+',
         default=[0.2, 0.4],
         metavar=('MIN', 'MAX'),
         help="Sleep time (in seconds) between message fetch requests. Provide one value or two values for randomness. Default is [0.2, 0.4]."
     )
     parser.add_argument(
-        "--delete-sleep-time",
+        "-s", "--delete-sleep-time",
         nargs='+',
         default=[1.5, 2],
         metavar=('MIN', 'MAX'),
         help="Sleep time (in seconds) between message deletion attempts. Provide one value or two values for randomness. Default is [1.5, 2]."
     )
     parser.add_argument(
-        "--preserve-n",
+        "-n", "--preserve-n",
         type=int,
         default=12,
         metavar='N',
         help="Number of recent messages to preserve in each channel regardless of --preserve-last. Default is 12."
     )
     parser.add_argument(
-        "--preserve-last",
+        "-p", "--preserve-last",
         type=parse_time_delta,
         default=timedelta(weeks=2),
         help="Preserves recent messages (and reactions) within last given delta time 'weeks=2,days=3' regardless of --preserve-n. Default is weeks=2."
     )
     parser.add_argument(
-        "--fetch-max-age",
+        "-a", "--fetch-max-age",
         type=parse_time_delta,
         default=None,
         help="Only fetch messages newer than this time delta from now (e.g., 'weeks=1,days=2'). Speeds up recurring purges by skipping older history. Defaults to no max age."
     )
     parser.add_argument(
-        "--max-messages",
+        "-m", "--max-messages",
         type=int,
         default=None,
         help="Maximum number of messages to fetch per channel. Defaults to no limit."
     )
     parser.add_argument(
-        "--delete-reactions",
+        "-R", "--delete-reactions",
         action='store_true',
         help="Remove your reactions from messages encountered (even if messages are preserved or not deletable)."
     )
     parser.add_argument(
-        "--list-guilds",
+        "-g", "--list-guilds",
         action='store_true',
         help="List guild IDs and names, then exit."
     )
     parser.add_argument(
-        "--list-channels",
+        "-c", "--list-channels",
         action='store_true',
         help="List channel IDs/types (grouped by guild/DMs), then exit."
     )
