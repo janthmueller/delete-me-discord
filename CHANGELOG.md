@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0 (2025-12-23)
+
+### Features
+
+- **cleaner**: Add preserve-n mode mine|all and document usage
+  ([`02b4e52`](https://github.com/janthmueller/delete-me-discord/commit/02b4e52d7fe4537b869e9e7e335b5e4eb6d5b466))
+
+
 ## v1.2.0 (2025-12-14)
 
 ### Features
