@@ -18,7 +18,8 @@ class MessageCleaner:
         include_ids: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
         preserve_last: timedelta = timedelta(weeks=2),
-        preserve_n: int = 0
+        preserve_n: int = 0,
+        preserve_n_mode: str = "mine"
     ):
         """
         Initializes the MessageCleaner.
@@ -30,6 +31,7 @@ class MessageCleaner:
             exclude_ids (Optional[List[str]]): IDs to exclude.
             preserve_last (timedelta): Preserve recent messages in each channel within the last preserve_last regardless of preserve_n.
             preserve_n (int): Number of recent messages to preserve in each channel regardless of preserve_last.
+            preserve_n_mode (str): How to count the last N messages to keep: 'mine' (only your deletable messages) or 'all' (last N messages in the channel).
 
         Raises:
             ValueError: If both include_ids and exclude_ids contain overlapping IDs.
@@ -50,6 +52,9 @@ class MessageCleaner:
         self.exclude_ids = set(exclude_ids) if exclude_ids else set()
         self.preserve_last = preserve_last
         self.preserve_n = preserve_n
+        if preserve_n_mode not in {"mine", "all"}:
+            raise ValueError("preserve_n_mode must be 'mine' or 'all'.")
+        self.preserve_n_mode = preserve_n_mode
         self.logger = logging.getLogger(self.__class__.__name__)
 
         if self.include_ids.intersection(self.exclude_ids):
@@ -171,16 +176,27 @@ class MessageCleaner:
         """
         deleted_count = 0
         preserved_count = 0
-        deleteable = 0
         reactions_removed = 0
+        preserve_window_count = 0
         for message in messages:
             message_id = message["message_id"]
             timestamp_str = message["timestamp"]
             message_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            is_author = message["author_id"] == self.user_id
+            is_deletable = is_author and message["type"].deletable
+
+            # Track how many messages are inside the preservation window depending on mode
+            in_preserve_window = False
+            if self.preserve_n_mode == "all":
+                preserve_window_count += 1
+                in_preserve_window = preserve_window_count <= self.preserve_n
+            elif is_deletable:
+                preserve_window_count += 1
+                in_preserve_window = preserve_window_count <= self.preserve_n
 
             # skip non user messages
-            if message["author_id"] != self.user_id:
-                if delete_reactions and message_time < cutoff_time and deleteable >= self.preserve_n:
+            if not is_author:
+                if delete_reactions and message_time < cutoff_time and not in_preserve_window:
                     reactions_removed += self._delete_reactions_for_message(
                         message=message,
                         delete_sleep_time_range=delete_sleep_time_range,
@@ -192,8 +208,7 @@ class MessageCleaner:
                 self.logger.debug("Skipping non-deletable message of type %s.", message["type"])
                 continue
 
-            deleteable += 1
-            if deleteable < self.preserve_n or message_time >= cutoff_time:
+            if in_preserve_window or message_time >= cutoff_time:
                 self.logger.debug("Preserving message %s sent at %s UTC.", message_id, format_timestamp(message_time))
                 preserved_count += 1
                 continue

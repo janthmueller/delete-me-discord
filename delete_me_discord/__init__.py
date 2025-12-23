@@ -102,6 +102,13 @@ def main():
         help="Number of recent messages to preserve in each channel regardless of --preserve-last. Default is 12."
     )
     parser.add_argument(
+        "--preserve-n-mode",
+        type=str,
+        default="mine",
+        choices=["mine", "all"],
+        help="How to count the last N messages to keep: 'mine' (only your deletable messages) or 'all' (last N messages in the channel, any author). Default is 'mine'."
+    )
+    parser.add_argument(
         "-p", "--preserve-last",
         type=parse_time_delta,
         default=timedelta(weeks=2),
@@ -143,6 +150,7 @@ def main():
     exclude_ids = args.exclude_ids
     preserve_last = args.preserve_last
     preserve_n = args.preserve_n
+    preserve_n_mode = args.preserve_n_mode
     dry_run = args.dry_run
     max_retries = args.max_retries
     retry_time_buffer_range = parse_random_range(args.retry_time_buffer, "retry-time-buffer")
@@ -197,7 +205,8 @@ def main():
             include_ids=include_ids,
             exclude_ids=exclude_ids,
             preserve_last=preserve_last,
-            preserve_n=preserve_n
+            preserve_n=preserve_n,
+            preserve_n_mode=preserve_n_mode
         )
 
         # Start cleaning messages

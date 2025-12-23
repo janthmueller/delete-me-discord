@@ -54,7 +54,8 @@ After installation, you can execute the script directly from the command line us
 - `-i, --include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
 - `-x, --exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
 - `-p, --preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3`).
-- `-n, --preserve-n`: Always keep the last N of your messages (default `12`).
+- `-n, --preserve-n`: Always keep the last N messages (default `12`).
+- `--preserve-n-mode`: How to count the last N messages to keep: `mine` (only your deletable messages; default) or `all` (the last N messages in the channel, any author).
 - `-a, --fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1`). Default: no max age.
 - `-m, --max-messages`: Max messages to fetch per channel (default: no limit).
 - `-r, --max-retries`: Retry count for API requests (default `5`).
