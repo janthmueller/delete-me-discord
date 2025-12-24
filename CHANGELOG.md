@@ -2,6 +2,34 @@
 
 <!-- version list -->
 
+## v1.4.0 (2025-12-24)
+
+### Chores
+
+- Include rich/requests/pytest in nix shell
+  ([`a15b183`](https://github.com/janthmueller/delete-me-discord/commit/a15b18332f4980458035fa57160572934cb50de7))
+
+### Documentation
+
+- Clarify time delta formats and random sleep ranges
+  ([`cb6f4c0`](https://github.com/janthmueller/delete-me-discord/commit/cb6f4c0678e9b395f0736882da0460c2ccd80a97))
+
+### Features
+
+- Add compact time delta format and stricter validation
+  ([`09f0e61`](https://github.com/janthmueller/delete-me-discord/commit/09f0e6104f80471b00ab34d5f50262a91d3b14e0))
+
+### Refactoring
+
+- Extract cli options and discovery helpers
+  ([`c64bdac`](https://github.com/janthmueller/delete-me-discord/commit/c64bdacbe7608168957724be741e5b735c98da03))
+
+### Testing
+
+- Cover time delta parser for legacy/compact formats
+  ([`6610fda`](https://github.com/janthmueller/delete-me-discord/commit/6610fda48d42aca099fd0e8fcb2f2a455d080e1e))
+
+
 ## v1.3.0 (2025-12-23)
 
 ### Features
