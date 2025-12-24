@@ -1,6 +1,7 @@
 # delete_me_discord/utils.py
 
 import logging
+import re
 from datetime import timedelta, datetime, timezone
 from typing import List, Dict, Any, Tuple, Set, Optional
 from rich.logging import RichHandler
@@ -124,38 +125,85 @@ def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, floa
         ) from e
 
 
+_COMPACT_DURATION_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)(?P<unit>[wdhms])", re.IGNORECASE)
+_COMPACT_UNIT_MAP: Dict[str, str] = {
+    "w": "weeks",
+    "d": "days",
+    "h": "hours",
+    "m": "minutes",
+    "s": "seconds",
+}
+_KEY_UNITS = {"weeks", "days", "hours", "minutes", "seconds"}
+
+
 def parse_time_delta(time_str: str) -> timedelta:
     """
-    Parses a time delta string and returns a timedelta object.
+    Parse a time delta string into a timedelta.
 
     Supported formats:
-    - 'weeks=2'
-    - 'days=10'
-    - 'hours=5'
-    - 'minutes=30'
-    - Combinations like 'weeks=1,days=3'
-
-    Args:
-        time_str (str): The time delta string.
-
-    Returns:
-        timedelta: The corresponding timedelta object.
-
-    Raises:
-        argparse.ArgumentTypeError: If the format is incorrect.
+    - Legacy key/value: 'weeks=2,days=3,hours=5'
+    - Compact suffix: '2w3d4h5m6s'
     """
-    try:
-        kwargs = {}
-        parts = time_str.split(',')
-        for part in parts:
-            key, value = part.split('=')
-            key = key.strip().lower()
-            value = int(value.strip())
-            if key not in ['weeks', 'days', 'hours', 'minutes', 'seconds']:
-                raise ValueError(f"Unsupported time unit: {key}")
-            kwargs[key] = value
-        return timedelta(**kwargs)
-    except Exception as e:
-        raise argparse.ArgumentTypeError(
-            f"Invalid time delta format: '{time_str}'. Use format like 'weeks=2,days=3'. Error: {e}"
-        ) from e
+    if not time_str or not time_str.strip():
+        raise argparse.ArgumentTypeError("Time delta cannot be empty.")
+
+    raw = time_str.strip()
+
+    # Special-case plain zero for convenience.
+    if raw in {"0", "0.0"}:
+        return timedelta(0)
+
+    # Legacy key/value format takes precedence when '=' is present.
+    if "=" in raw:
+        try:
+            kwargs: Dict[str, float] = {}
+            parts = [p for p in raw.split(",") if p.strip()]
+            if not parts:
+                raise ValueError("No time components provided.")
+            for part in parts:
+                if "=" not in part:
+                    raise ValueError(f"Missing '=' in segment '{part}'.")
+                key, value = part.split("=", 1)
+                key = key.strip().lower()
+                if key not in _KEY_UNITS:
+                    raise ValueError(f"Unsupported time unit in segment '{part.strip()}'.")
+                try:
+                    amount = float(value.strip())
+                except ValueError as exc:
+                    raise ValueError(f"Invalid number for {key}: '{value.strip()}'") from exc
+                if amount < 0:
+                    raise ValueError("Negative durations are not allowed.")
+                if key in kwargs:
+                    raise ValueError(f"Duplicate unit '{key}' is not allowed.")
+                kwargs[key] = amount
+            return timedelta(**kwargs)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"Invalid time delta format: '{time_str}'. "
+                "Use formats like 'weeks=2,days=3' or '2w3d4h5m6s'. "
+                f"Error: {exc}"
+            ) from exc
+
+    # Compact suffix format (e.g., 1y2w3d4h5m6s).
+    compact_source = raw.replace(" ", "")
+    matches = list(_COMPACT_DURATION_RE.finditer(compact_source))
+    matched_len = sum(len(match.group(0)) for match in matches)
+    if matches and matched_len == len(compact_source):
+        totals: Dict[str, float] = {}
+        for match in matches:
+            unit_key = match.group("unit").lower()
+            if unit_key not in _COMPACT_UNIT_MAP:
+                raise argparse.ArgumentTypeError(f"Unsupported time unit: {match.group('unit')}")
+            target_unit = _COMPACT_UNIT_MAP[unit_key]
+            amount = float(match.group("value"))
+            if amount < 0:
+                raise argparse.ArgumentTypeError("Negative durations are not allowed.")
+            if target_unit in totals:
+                raise argparse.ArgumentTypeError(f"Duplicate unit '{unit_key}' is not allowed.")
+            totals[target_unit] = amount
+        return timedelta(**totals)
+
+    raise argparse.ArgumentTypeError(
+        f"Invalid time delta format: '{time_str}'. "
+        "Use formats like 'weeks=2,days=3' or '2w3d4h5m6s'."
+    )
