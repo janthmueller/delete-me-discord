@@ -1,18 +1,25 @@
 
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.mkShell rec {
-  buildInputs = with pkgs; [
-    python312
-    python312Packages.pip
-    pre-commit
+let
+  python = pkgs.python312.withPackages (ps: [
+    ps.pip
+    ps.requests
+    ps.rich
+    ps.pytest
+  ]);
+in
+pkgs.mkShell {
+  buildInputs = [
+    python
+    pkgs.pre-commit
   ];
 
   shellHook = ''
 
-    # Persistent virtualenv
+    # Persistent virtualenv using the nix-provided Python (with deps baked in)
     if [ ! -d ".venv" ]; then
-        python -m venv .venv --system-site-packages
+        ${python}/bin/python -m venv .venv --system-site-packages
     fi
     source .venv/bin/activate
 
