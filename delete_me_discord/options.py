@@ -89,13 +89,13 @@ def build_parser(version: str) -> argparse.ArgumentParser:
         "-p", "--preserve-last",
         type=parse_time_delta,
         default=timedelta(weeks=2),
-        help="Preserves recent messages (and reactions) within last given delta time 'weeks=2,days=3' regardless of --preserve-n. Default is weeks=2."
+        help="Preserves recent messages (and reactions) within last given delta time (e.g., 'weeks=2,days=3' or '2w3d') regardless of --preserve-n. Default is weeks=2."
     )
     parser.add_argument(
         "-a", "--fetch-max-age",
         type=parse_time_delta,
         default=None,
-        help="Only fetch messages newer than this time delta from now (e.g., 'weeks=1,days=2'). Speeds up recurring purges by skipping older history. Defaults to no max age."
+        help="Only fetch messages newer than this time delta from now (e.g., 'weeks=1,days=3' or '10d'). Speeds up recurring purges by skipping older history. Defaults to no max age."
     )
     parser.add_argument(
         "-m", "--max-messages",

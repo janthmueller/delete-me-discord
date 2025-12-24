@@ -53,17 +53,22 @@ After installation, you can execute the script directly from the command line us
 - `-R, --delete-reactions`: Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold).
 - `-i, --include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
 - `-x, --exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
-- `-p, --preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3`).
+- `-p, --preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3` or `1w3d`).
 - `-n, --preserve-n`: Always keep the last N messages (default `12`).
 - `--preserve-n-mode`: How to count the last N messages to keep: `mine` (only your deletable messages; default) or `all` (the last N messages in the channel, any author).
-- `-a, --fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1`). Default: no max age.
+- `-a, --fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1,days=3` or `10d`). Default: no max age.
 - `-m, --max-messages`: Max messages to fetch per channel (default: no limit).
 - `-r, --max-retries`: Retry count for API requests (default `5`).
-- `-b, --retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds).
-- `-f, --fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds).
-- `-s, --delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds).
+- `-b, --retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds; one number = fixed, two = random range).
+- `-f, --fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds; one number = fixed, two = random range).
+- `-s, --delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds; one number = fixed, two = random range).
 - `-l, --log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
 - `-v, --version`: Show the version number and exit.
+
+**Time delta formats**
+- Legacy key/value: `weeks=2,days=3,hours=1` (units must be unique; no negatives).
+- Compact suffix: `2w3d4h5m6s` (units: w/d/h/m/s; unique; no negatives).
+- A plain `0` or `0.0` is treated as zero duration.
 
 ## Contributing
 
