@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2 (2025-12-31)
+
+### Bug Fixes
+
+- Handle preserve_n zero case in preservation logic
+  ([`0aaa2ab`](https://github.com/janthmueller/delete-me-discord/commit/0aaa2abfa819b91f4ce0c2729d45b5aee21c32c3))
+
+
 ## v1.4.1 (2025-12-31)
 
 ### Bug Fixes
