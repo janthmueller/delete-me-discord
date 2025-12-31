@@ -175,7 +175,7 @@ class MessageCleaner:
             Tuple[int, int, int]: Number of messages deleted, preserved, and reactions removed.
         """
         deleted_count = 0
-        preserved_count = 0
+        preserved_deletable_count = 0
         reactions_removed = 0
         preserve_window_count = 0
         preserve_count_active = self.preserve_n > 0
@@ -192,10 +192,16 @@ class MessageCleaner:
                 preserve_window_count += 1
 
             in_preserve_count_window = preserve_count_active and preserve_window_count <= self.preserve_n
+            in_preserve_window = in_preserve_count_window or message_time >= cutoff_time
 
-            # skip non user messages
+            if in_preserve_window:
+                if is_deletable:
+                    self.logger.debug("Preserving deletable message %s sent at %s UTC.", message_id, format_timestamp(message_time))
+                    preserved_deletable_count += 1
+                continue
+
             if not is_author:
-                if delete_reactions and message_time < cutoff_time and not in_preserve_count_window:
+                if delete_reactions: 
                     reactions_removed += self._delete_reactions_for_message(
                         message=message,
                         delete_sleep_time_range=delete_sleep_time_range,
@@ -207,10 +213,6 @@ class MessageCleaner:
                 self.logger.debug("Skipping non-deletable message of type %s.", message["type"])
                 continue
 
-            if in_preserve_count_window or message_time >= cutoff_time:
-                self.logger.debug("Preserving message %s sent at %s UTC.", message_id, format_timestamp(message_time))
-                preserved_count += 1
-                continue
 
             if dry_run:
                 self.logger.info("Would delete message %s sent at %s UTC.", message_id, format_timestamp(message_time))
@@ -230,7 +232,7 @@ class MessageCleaner:
                 else:
                     self.logger.warning("Failed to delete message %s in channel %s.", message_id, message.get("channel_id"))
 
-        return deleted_count, preserved_count, reactions_removed
+        return deleted_count, preserved_deletable_count, reactions_removed
 
     def clean_messages(
         self,
@@ -282,7 +284,7 @@ class MessageCleaner:
                 dry_run=dry_run,
                 delete_reactions=delete_reactions
             )
-            self.logger.info("Preserved %s messages in %s.", preserved, channel_str(channel))
+            self.logger.info("Preserved %s deletable messages in %s.", preserved, channel_str(channel))
             if dry_run:
                 self.logger.info("Would delete %s messages from channel %s.", deleted, channel_str(channel))
             else:
