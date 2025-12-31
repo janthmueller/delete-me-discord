@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.1 (2025-12-31)
+
+### Bug Fixes
+
+- Shield reactions with preserve_n (mine) correctly
+  ([`ffb68ef`](https://github.com/janthmueller/delete-me-discord/commit/ffb68ef81703a57cc8a7125ccce3e86219dff944))
+
+### Documentation
+
+- **readme**: Drop "+", since it might be interpreted as additive while it actually is logical or
+  ([`db536a5`](https://github.com/janthmueller/delete-me-discord/commit/db536a5de5c110c30943f5c8360eabf5aacad282))
+
+
 ## v1.4.0 (2025-12-24)
 
 ### Chores
