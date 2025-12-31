@@ -178,6 +178,8 @@ class MessageCleaner:
         preserved_count = 0
         reactions_removed = 0
         preserve_window_count = 0
+        preserve_count_active = self.preserve_n > 0
+
         for message in messages:
             message_id = message["message_id"]
             timestamp_str = message["timestamp"]
@@ -186,16 +188,14 @@ class MessageCleaner:
             is_deletable = is_author and message["type"].deletable
 
             # Track how many messages are inside the preservation window depending on mode
-            if self.preserve_n_mode == "all":
-                preserve_window_count += 1
-            elif is_deletable:
+            if preserve_count_active and (self.preserve_n_mode == "all" or is_deletable):
                 preserve_window_count += 1
 
-            in_preserve_window = preserve_window_count <= self.preserve_n
+            in_preserve_count_window = preserve_count_active and preserve_window_count <= self.preserve_n
 
             # skip non user messages
             if not is_author:
-                if delete_reactions and message_time < cutoff_time and not in_preserve_window:
+                if delete_reactions and message_time < cutoff_time and not in_preserve_count_window:
                     reactions_removed += self._delete_reactions_for_message(
                         message=message,
                         delete_sleep_time_range=delete_sleep_time_range,
@@ -207,7 +207,7 @@ class MessageCleaner:
                 self.logger.debug("Skipping non-deletable message of type %s.", message["type"])
                 continue
 
-            if in_preserve_window or message_time >= cutoff_time:
+            if in_preserve_count_window or message_time >= cutoff_time:
                 self.logger.debug("Preserving message %s sent at %s UTC.", message_id, format_timestamp(message_time))
                 preserved_count += 1
                 continue
