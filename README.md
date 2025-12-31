@@ -40,7 +40,7 @@ After installation, you can execute the script directly from the command line us
 
 - Rolling retention (preview):  
   `delete-me-discord --preserve-last "weeks=2" --preserve-n 20 --dry-run`  
-  Drop `--dry-run` to keep recent messages (last 20 + last 2 weeks), expire older.
+  Drop `--dry-run` to keep recent messages, expire older.
 
 - Initial purge, then fast daily retention runs:  
   First run without `--fetch-max-age` to clear old history. For daily runs, set `--fetch-max-age` to your preserve window + 1 day (e.g., `--preserve-last "weeks=2"` + `--fetch-max-age "weeks=2,days=1"`), so you only fetch the recent slice while keeping your preservation buffer.
