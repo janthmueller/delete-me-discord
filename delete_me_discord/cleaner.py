@@ -186,13 +186,12 @@ class MessageCleaner:
             is_deletable = is_author and message["type"].deletable
 
             # Track how many messages are inside the preservation window depending on mode
-            in_preserve_window = False
             if self.preserve_n_mode == "all":
                 preserve_window_count += 1
-                in_preserve_window = preserve_window_count <= self.preserve_n
             elif is_deletable:
                 preserve_window_count += 1
-                in_preserve_window = preserve_window_count <= self.preserve_n
+
+            in_preserve_window = preserve_window_count <= self.preserve_n
 
             # skip non user messages
             if not is_author:
