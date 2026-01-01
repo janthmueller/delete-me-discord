@@ -11,6 +11,7 @@
 - Deletes your messages/reactions in bulk.
 - Filters by time/count and include/exclude (channels, categories/parents*, guilds).
 - Dry-run + discovery helpers (`--list-guilds`, `--list-channels`) to target safely.
+- GitHub Actions example: see the workflow repo at <https://github.com/janthmueller/delete-me-discord-workflow>.
 
 *\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
 
