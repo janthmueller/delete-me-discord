@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-01-01)
+
+### Documentation
+
+- Update readme
+  ([`020f983`](https://github.com/janthmueller/delete-me-discord/commit/020f983ece8ddb0b0337ac3f33878bea82bdd328))
+
+### Features
+
+- Add preserve cache support and merge logic
+  ([`7ae43bd`](https://github.com/janthmueller/delete-me-discord/commit/7ae43bda80f21c1c97fbbc2a50dd64af5deb4173))
+
+### Refactoring
+
+- Clarify preservation window handling and counters
+  ([`0840f55`](https://github.com/janthmueller/delete-me-discord/commit/0840f55fc525282170505d45cc072ef83a06ce4a))
+
+### Testing
+
+- Cover preserve cache merge ordering
+  ([`4f60a8f`](https://github.com/janthmueller/delete-me-discord/commit/4f60a8f94f1584b8a63a9f97b21e286f357c02a0))
+
+
 ## v1.4.2 (2025-12-31)
 
 ### Bug Fixes
