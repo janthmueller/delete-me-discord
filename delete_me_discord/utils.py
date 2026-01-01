@@ -3,7 +3,7 @@
 import logging
 import re
 from datetime import timedelta, datetime, timezone
-from typing import List, Dict, Any, Tuple, Set, Optional
+from typing import List, Dict, Any, Tuple, Set, Optional, Generator
 from rich.logging import RichHandler
 import argparse
 

@@ -3,6 +3,7 @@ import argparse
 from datetime import timedelta
 
 from .utils import parse_time_delta
+from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 
 
 def build_parser(version: str) -> argparse.ArgumentParser:
@@ -117,6 +118,22 @@ def build_parser(version: str) -> argparse.ArgumentParser:
         "-c", "--list-channels",
         action='store_true',
         help="List channel IDs/types (grouped by guild/DMs), then exit."
+    )
+    parser.add_argument(
+        "--preserve-cache",
+        action='store_true',
+        help="Enable preserve cache to re-fetch preserved messages between runs."
+    )
+    parser.add_argument(
+        "--wipe-preserve-cache",
+        action='store_true',
+        help="Delete the preserve cache file and exit."
+    )
+    parser.add_argument(
+        "--preserve-cache-path",
+        type=str,
+        default=DEFAULT_PRESERVE_CACHE_PATH,
+        help="Override preserve cache path (default: ~/.config/delete-me-discord/preserve_cache.json)."
     )
     return parser
 

@@ -1,10 +1,12 @@
 # delete_me_discord/__init__.py
 
+import os
 from .api import DiscordAPI, FetchError
 from .cleaner import MessageCleaner
 from .discovery import run_discovery_commands
 from .options import parse_args
 from .utils import setup_logging, parse_random_range
+from .preserve_cache import PreserveCache
 from datetime import datetime, timezone
 
 import logging
@@ -46,6 +48,13 @@ def main():
     delete_reactions = args.delete_reactions
     list_guilds = args.list_guilds
     list_channels = args.list_channels
+    preserve_cache_enabled = args.preserve_cache
+    wipe_preserve_cache = args.wipe_preserve_cache
+    preserve_cache_path = args.preserve_cache_path
+
+    if dry_run:
+        base, ext = os.path.splitext(preserve_cache_path)
+        preserve_cache_path = f"{base}.dryrun{ext or '.json'}"
 
     fetch_since = None
     if fetch_max_age:
@@ -53,6 +62,19 @@ def main():
 
     if preserve_n < 0:
         logging.error("--preserve-n must be a non-negative integer.")
+        return
+
+
+    # Handle wipe-preserve-cache early and exit.
+    if wipe_preserve_cache:
+        try:
+            if os.path.exists(preserve_cache_path):
+                os.remove(preserve_cache_path)
+                logging.info("Deleted preserve cache at %s.", preserve_cache_path)
+            else:
+                logging.info("No preserve cache found at %s.", preserve_cache_path)
+        except Exception as exc:
+            logging.error("Failed to delete preserve cache at %s: %s", preserve_cache_path, exc)
         return
 
     try:
@@ -84,6 +106,10 @@ def main():
             )
             return
 
+        preserve_cache = PreserveCache(
+            path=preserve_cache_path,
+        ) if preserve_cache_enabled else None
+
         cleaner = MessageCleaner(
             api=api,
             user_id=user_id,
@@ -91,7 +117,8 @@ def main():
             exclude_ids=exclude_ids,
             preserve_last=preserve_last,
             preserve_n=preserve_n,
-            preserve_n_mode=preserve_n_mode
+            preserve_n_mode=preserve_n_mode,
+            preserve_cache = preserve_cache
         )
 
         # Start cleaning messages
@@ -103,6 +130,10 @@ def main():
             max_messages=max_messages,
             delete_reactions=delete_reactions
         )
+        if preserve_cache:
+            preserve_cache.save()
+            logging.info("Preserve cache saved to %s.", preserve_cache_path)
+
     except FetchError as e:
         logging.error("FetchError occurred: %s", e)
     except ValueError as e:

@@ -206,7 +206,7 @@ class DiscordAPI:
 
             batch = response.json()
             if not batch:
-                self.logger.info("No more messages to fetch in channel %s.", channel_id)
+                self.logger.debug("No more messages to fetch in channel %s.", channel_id)
                 break
 
             for message in batch:
@@ -230,7 +230,7 @@ class DiscordAPI:
 
                 fetched_count += 1
                 if fetched_count >= max_messages:
-                    self.logger.info("Reached the maximum of %s messages.", max_messages)
+                    self.logger.debug("Reached the maximum of %s messages.", max_messages)
                     break
 
             if reached_cutoff or fetched_count >= max_messages:
@@ -242,8 +242,72 @@ class DiscordAPI:
             self.logger.debug("Sleeping for %.2f seconds after fetching messages.", sleep_time)
             time.sleep(sleep_time)  # Respectful delay between requests
 
-        self.logger.info("Fetched a total of %s messages from channel %s.", fetched_count, channel_id)
+        self.logger.debug("Fetched a total of %s messages from channel %s.", fetched_count, channel_id)
 
+    def fetch_message_by_id(self, channel_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a single message by ID from a channel.
+
+        Args:
+            channel_id (str): The ID of the channel.
+            message_id (str): The ID of the message.
+
+        Returns:
+            Optional[Dict[str, Any]]: Message data or None if not found/accessible.
+        """
+        url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}"
+        retries = 0
+        while retries <= self.max_retries:
+            try:
+                response = self.session.get(url)
+            except requests.RequestException as e:
+                self.logger.warning("Request failed while fetching message %s in %s: %s", message_id, channel_id, e)
+                return None
+
+            if response.status_code == 200:
+                message = response.json()
+                return {
+                    "message_id": message["id"],
+                    "timestamp": message["timestamp"],
+                    "channel_id": channel_id,
+                    "type": MessageType(message.get("type", 0)),
+                    "author_id": message.get("author", {}).get("id"),
+                    "reactions": message.get("reactions", []),
+                }
+
+            if response.status_code == 404:
+                self.logger.debug("Message %s not found in channel %s.", message_id, channel_id)
+                return None
+            if response.status_code == 403:
+                self.logger.warning("Missing access to message %s in channel %s (403).", message_id, channel_id)
+                return None
+            if response.status_code == 429:
+                retry_after = response.json().get("retry_after", 1)
+                buffer = random.uniform(*self.retry_time_buffer)
+                total_retry_after = retry_after + buffer
+                self.logger.warning(
+                    "Rate limit while fetching message %s in %s. Retrying after %.2f seconds.",
+                    message_id,
+                    channel_id,
+                    total_retry_after,
+                )
+                time.sleep(total_retry_after)
+                retries += 1
+                continue
+
+            self.logger.warning(
+                "Error fetching message %s in channel %s: %s - %s",
+                message_id,
+                channel_id,
+                response.status_code,
+                response.text,
+            )
+            return None
+
+        self.logger.warning(
+            "Max retries exceeded while fetching message %s in channel %s.", message_id, channel_id
+        )
+        return None
 
     def delete_message(
         self,
@@ -271,7 +335,7 @@ class DiscordAPI:
                 return False
 
             if response.status_code == 204:
-                self.logger.info("Deleted message %s in channel %s.", message_id, channel_id)
+                self.logger.debug("Deleted message %s in channel %s.", message_id, channel_id)
                 return True
             elif response.status_code == 429:
                 retry_after = response.json().get("retry_after", 1)
@@ -334,7 +398,7 @@ class DiscordAPI:
                 return False
 
             if response.status_code == 204:
-                self.logger.info("Deleted reaction %s on message %s in channel %s.", emoji_identifier, message_id, channel_id)
+                self.logger.debug("Deleted reaction %s on message %s in channel %s.", emoji_identifier, message_id, channel_id)
                 return True
             elif response.status_code == 429:
                 retry_after = response.json().get("retry_after", 1)
