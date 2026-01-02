@@ -255,25 +255,33 @@ class DiscordAPI:
         Returns:
             Optional[Dict[str, Any]]: Message data or None if not found/accessible.
         """
-        url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}"
+        url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         retries = 0
         while retries <= self.max_retries:
             try:
-                response = self.session.get(url)
+                response = self.session.get(url, params={"around": message_id, "limit": 1})
             except requests.RequestException as e:
                 self.logger.warning("Request failed while fetching message %s in %s: %s", message_id, channel_id, e)
                 return None
 
             if response.status_code == 200:
-                message = response.json()
-                return {
-                    "message_id": message["id"],
-                    "timestamp": message["timestamp"],
-                    "channel_id": channel_id,
-                    "type": MessageType(message.get("type", 0)),
-                    "author_id": message.get("author", {}).get("id"),
-                    "reactions": message.get("reactions", []),
-                }
+                batch = response.json() or []
+                if batch:
+                    message = batch[0]
+                    if str(message.get("id")) != str(message_id):
+                        self.logger.warning(
+                            "Fetched message mismatch: requested %s got %s.", message_id, message.get("id")
+                        )
+                        return None
+                    return {
+                        "message_id": message["id"],
+                        "timestamp": message["timestamp"],
+                        "channel_id": channel_id,
+                        "type": MessageType(message.get("type", 0)),
+                        "author_id": message.get("author", {}).get("id"),
+                        "reactions": message.get("reactions", []),
+                    }
+                return None
 
             if response.status_code == 404:
                 self.logger.debug("Message %s not found in channel %s.", message_id, channel_id)
