@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v1.5.1 (2026-01-02)
+
+### Bug Fixes
+
+- Replace bot-only message fetch with around cursor
+  ([`7d648e3`](https://github.com/janthmueller/delete-me-discord/commit/7d648e35640a37db82b80ac12457d6550e684174))
+
+### Chores
+
+- **docs**: Update readme
+  ([`367966c`](https://github.com/janthmueller/delete-me-discord/commit/367966c887e44a23be4d00a40568f025b69c1b51))
+
+### Documentation
+
+- Link to workflow
+  ([`ac473aa`](https://github.com/janthmueller/delete-me-discord/commit/ac473aa36122d7ac937e07418be1de820243e4b5))
+
+### Testing
+
+- Add preserve cache test
+  ([`0c61ac7`](https://github.com/janthmueller/delete-me-discord/commit/0c61ac708777def5b24d704f6a6731ec6cce81e4))
+
+
 ## v1.5.0 (2026-01-01)
 
 ### Documentation
