@@ -1,0 +1,50 @@
+name: Build binaries (PyInstaller)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: delete-me-discord-linux
+          - os: macos-latest
+            asset_name: delete-me-discord-macos
+          - os: windows-latest
+            asset_name: delete-me-discord-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller .
+
+      - name: Build binary
+        run: pyinstaller delete_me_discord.spec
+
+      - name: Upload artifacts to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/delete-me-discord/delete-me-discord${{ runner.os == 'Windows' && '.exe' || '' }}#${{ matrix.asset_name }}-${{ github.event.release.tag_name }}${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Upload artifacts (non-release runs)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/delete-me-discord/**
