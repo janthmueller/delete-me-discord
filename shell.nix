@@ -1,4 +1,3 @@
-
 { pkgs ? import <nixpkgs> {} }:
 
 let
@@ -7,6 +6,8 @@ let
     ps.requests
     ps.rich
     ps.pytest
+    ps.pyinstaller
+    ps.packaging
   ]);
 in
 pkgs.mkShell {
@@ -14,18 +15,4 @@ pkgs.mkShell {
     python
     pkgs.pre-commit
   ];
-
-  shellHook = ''
-
-    # Persistent virtualenv using the nix-provided Python (with deps baked in)
-    if [ ! -d ".venv" ]; then
-        ${python}/bin/python -m venv .venv --system-site-packages
-    fi
-    source .venv/bin/activate
-
-    # Ensure commit-msg hook is installed
-    if command -v pre-commit >/dev/null 2>&1; then
-      pre-commit install --hook-type commit-msg >/dev/null 2>&1 || true
-    fi
-  '';
 }
