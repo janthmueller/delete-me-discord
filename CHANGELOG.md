@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.5.2 (2026-01-04)
+
+### Bug Fixes
+
+- Centralize api retries and surface auth/permission failures
+  ([`19017b2`](https://github.com/janthmueller/delete-me-discord/commit/19017b2b0c6160ef96377e7165dd6f8e3f679f1c))
+
+### Chores
+
+- Pyinstaller for binaries
+  ([`5dbdea2`](https://github.com/janthmueller/delete-me-discord/commit/5dbdea2579662acbdad9462ce89b6d226d3f7639))
+
+- Update shell.nix
+  ([`814cdde`](https://github.com/janthmueller/delete-me-discord/commit/814cddeaadd603ee440d8f47013b42c42b4d595b))
+
+### Testing
+
+- Cover api error paths to prevent silent skips
+  ([`303eb09`](https://github.com/janthmueller/delete-me-discord/commit/303eb090579f916345553220e445c2f2412d6627))
+
+
 ## v1.5.1 (2026-01-02)
 
 ### Bug Fixes
