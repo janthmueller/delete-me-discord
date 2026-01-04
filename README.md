@@ -15,19 +15,15 @@
 
 *\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
 
+
 ## Installation
 
 Install options:
 - pipx (recommended for CLI isolation): `pipx install delete-me-discord`
-- pip (use a venv): `python -m venv .venv && source .venv/bin/activate && pip install delete-me-discord`
-- Prebuilt binaries: download the asset for your OS from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest), extract, and run from a terminal:
-  - Linux/macOS: `tar -xzf <asset>.tar.gz && ./delete-me-discord --help`
-  - Windows: unzip and run `.\delete-me-discord.exe --help` from PowerShell/CMD
+- pip: `pip install delete-me-discord`
+- Prebuilt binaries: download the asset for your OS from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest), extract, and run from a terminal.
 
 ## Usage
-
-After installation, you can execute the script directly from the command line using the `delete-me-discord` command.
-
 ### Quick Start
 
 - Export your token first (See [this guide](https://github.com/victornpb/undiscord/wiki/authToken) to obtain your token):  
