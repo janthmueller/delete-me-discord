@@ -67,11 +67,25 @@ jobs:
       - name: Build binary
         run: pyinstaller delete_me_discord.spec
 
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ARCHIVE="dist/${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}.zip"
+            powershell -Command "Compress-Archive -Path dist/delete-me-discord/* -DestinationPath $ARCHIVE"
+          else
+            ARCHIVE="dist/${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}.tar.gz"
+            tar -czf "$ARCHIVE" -C dist delete-me-discord
+          fi
+          echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
+
       - name: Upload artifacts to release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: |
-            dist/delete-me-discord/delete-me-discord${{ runner.os == 'Windows' && '.exe' || '' }}#${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}${{ runner.os == 'Windows' && '.exe' || '' }}
+          files: ${{ steps.package.outputs.archive }}#${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}
+          fail_on_unmatched_files: true
