@@ -4,9 +4,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
 
 permissions:
   contents: write
@@ -28,25 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Determine release tag (non-release run)
-        if: github.event_name != 'release'
-        id: release_tag
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const release = await github.rest.repos.getLatestRelease({ owner: context.repo.owner, repo: context.repo.repo });
-            if (!release || !release.data || !release.data.tag_name) {
-              core.setFailed('No releases found to attach artifacts to.');
-            } else {
-              core.setOutput('tag', release.data.tag_name);
-            }
-
       - name: Set release tag env
         run: |
           TAG="${{ github.event_name == 'release' && github.event.release.tag_name || '' }}"
-          if [ -z "$TAG" ]; then
-            TAG="${{ steps.release_tag.outputs.tag }}"
-          fi
           if [ -z "$TAG" ]; then
             echo "RELEASE_TAG not found; failing."
             exit 1
@@ -94,7 +75,23 @@ jobs:
           fi
           echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
 
+      - name: Skip if asset already exists
+        uses: actions/github-script@v7
+        id: asset_check
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const targetName = `${{ matrix.asset_name }}-${tag}`;
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag,
+            });
+            const exists = release.data.assets.some(a => a.name === targetName || a.name.startsWith(targetName));
+            core.setOutput('skip', exists ? 'true' : 'false');
+
       - name: Upload artifacts to release
+        if: steps.asset_check.outputs.skip != 'true'
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
