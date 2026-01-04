@@ -86,6 +86,12 @@ jobs:
             ARCHIVE="dist/${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}.tar.gz"
             tar -czf "$ARCHIVE" -C dist "$BASENAME"
           fi
+          echo "Built archive: $ARCHIVE"
+          ls -l dist || true
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "Archive not found at $ARCHIVE"
+            exit 1
+          fi
           echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts to release
@@ -94,5 +100,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: ${{ steps.package.outputs.archive }}#${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}
+          files: ${{ steps.package.outputs.archive }}
           fail_on_unmatched_files: true
