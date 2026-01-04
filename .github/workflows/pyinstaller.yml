@@ -74,10 +74,17 @@ jobs:
           mkdir -p dist
           if [ "${{ runner.os }}" = "Windows" ]; then
             ARCHIVE="dist/${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}.zip"
-            powershell -Command "Compress-Archive -Path dist/delete-me-discord/* -DestinationPath $ARCHIVE"
+            powershell -Command "Compress-Archive -Path dist\\delete-me-discord\\* -DestinationPath $ARCHIVE"
           else
+            BUILD_DIR=$(find dist -maxdepth 1 -mindepth 1 -type d -name 'delete-me-discord*' | head -n1)
+            if [ -z "$BUILD_DIR" ]; then
+              echo "No build directory found in dist/"
+              ls -l dist || true
+              exit 1
+            fi
+            BASENAME=$(basename "$BUILD_DIR")
             ARCHIVE="dist/${{ matrix.asset_name }}-${{ env.RELEASE_TAG }}.tar.gz"
-            tar -czf "$ARCHIVE" -C dist delete-me-discord
+            tar -czf "$ARCHIVE" -C dist "$BASENAME"
           fi
           echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
 
