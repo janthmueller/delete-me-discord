@@ -17,11 +17,12 @@
 
 ## Installation
 
-You can install `delete-me-discord` using `pip`. Ensure you have Python 3.7 or higher installed:
-
-```bash
-pip install delete-me-discord
-```
+Install options:
+- pipx (recommended for CLI isolation): `pipx install delete-me-discord`
+- pip (use a venv): `python -m venv .venv && source .venv/bin/activate && pip install delete-me-discord`
+- Prebuilt binaries: download the asset for your OS from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest), extract, and run from a terminal:
+  - Linux/macOS: `tar -xzf <asset>.tar.gz && ./delete-me-discord --help`
+  - Windows: unzip and run `.\delete-me-discord.exe --help` from PowerShell/CMD
 
 ## Usage
 
