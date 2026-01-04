@@ -1,7 +1,8 @@
 # delete_me_discord/__init__.py
 
 import os
-from .api import DiscordAPI, FetchError
+from .api import DiscordAPI
+from .utils import AuthenticationError
 from .cleaner import MessageCleaner
 from .discovery import run_discovery_commands
 from .options import parse_args
@@ -77,69 +78,61 @@ def main():
             logging.error("Failed to delete preserve cache at %s: %s", preserve_cache_path, exc)
         return
 
+    # Initialize DiscordAPI with max_retries and retry_time_buffer
+    api = DiscordAPI(
+        max_retries=max_retries,
+        retry_time_buffer=retry_time_buffer_range
+    )
+
     try:
-        # Initialize DiscordAPI with max_retries and retry_time_buffer
-        api = DiscordAPI(
-            max_retries=max_retries,
-            retry_time_buffer=retry_time_buffer_range
-        )
+        current_user = api.get_current_user()
+    except AuthenticationError as e:
+        logging.error("Authentication failed (invalid token?): %s", e)
+        raise SystemExit(1)
 
-        try:
-            current_user = api.get_current_user()
-        except FetchError as e:
-            logging.error("Authentication failed (invalid token?): %s", e)
-            return
+    user_id = current_user.get("id")
+    if not user_id:
+        logging.error("Authentication failed: user ID missing in /users/@me response.")
+        raise SystemExit(1)
+    logging.info("Authenticated as %s (%s).", current_user.get("username"), user_id)
 
-        user_id = current_user.get("id")
-        if not user_id:
-            logging.error("Authentication failed: user ID missing in /users/@me response.")
-            return
-        logging.info("Authenticated as %s (%s).", current_user.get("username"), user_id)
-
-        if list_guilds or list_channels:
-            run_discovery_commands(
-                api=api,
-                list_guilds=list_guilds,
-                list_channels=list_channels,
-                include_ids=include_ids,
-                exclude_ids=exclude_ids
-            )
-            return
-
-        preserve_cache = PreserveCache(
-            path=preserve_cache_path,
-        ) if preserve_cache_enabled else None
-
-        cleaner = MessageCleaner(
+    if list_guilds or list_channels:
+        run_discovery_commands(
             api=api,
-            user_id=user_id,
+            list_guilds=list_guilds,
+            list_channels=list_channels,
             include_ids=include_ids,
-            exclude_ids=exclude_ids,
-            preserve_last=preserve_last,
-            preserve_n=preserve_n,
-            preserve_n_mode=preserve_n_mode,
-            preserve_cache = preserve_cache
+            exclude_ids=exclude_ids
         )
+        return
 
-        # Start cleaning messages
-        total_deleted = cleaner.clean_messages(
-            dry_run=dry_run,
-            fetch_sleep_time_range=fetch_sleep_time_range,
-            delete_sleep_time_range=delete_sleep_time_range,
-            fetch_since=fetch_since,
-            max_messages=max_messages,
-            delete_reactions=delete_reactions
-        )
-        if preserve_cache:
-            preserve_cache.save()
-            logging.info("Preserve cache saved to %s.", preserve_cache_path)
+    preserve_cache = PreserveCache(
+        path=preserve_cache_path,
+    ) if preserve_cache_enabled else None
 
-    except FetchError as e:
-        logging.error("FetchError occurred: %s", e)
-    except ValueError as e:
-        logging.error("ValueError: %s", e)
-    except Exception as e:
-        logging.exception("An unexpected error occurred: %s", e)
+    cleaner = MessageCleaner(
+        api=api,
+        user_id=user_id,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
+        preserve_last=preserve_last,
+        preserve_n=preserve_n,
+        preserve_n_mode=preserve_n_mode,
+        preserve_cache = preserve_cache
+    )
+
+    # Start cleaning messages
+    total_deleted = cleaner.clean_messages(
+        dry_run=dry_run,
+        fetch_sleep_time_range=fetch_sleep_time_range,
+        delete_sleep_time_range=delete_sleep_time_range,
+        fetch_since=fetch_since,
+        max_messages=max_messages,
+        delete_reactions=delete_reactions
+    )
+    if preserve_cache:
+        preserve_cache.save()
+        logging.info("Preserve cache saved to %s.", preserve_cache_path)
 
 if __name__ == "__main__":
     main()

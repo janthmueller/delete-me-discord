@@ -7,8 +7,18 @@ from typing import List, Dict, Any, Tuple, Set, Optional, Generator
 from rich.logging import RichHandler
 import argparse
 
-class FetchError(Exception):
-    """Custom exception for fetch-related errors."""
+
+class AuthenticationError(Exception):
+    """Custom exception for authentication errors (e.g., 401)."""
+
+class ReachedMaxRetries(Exception):
+    """Custom exception for reaching maximum retries."""
+
+class ResourceUnavailable(Exception):
+    """Custom exception for unavailable resources."""
+
+class UnexpectedStatus(Exception):
+    """Custom exception for unexpected/unhandled status codes."""
 
 def setup_logging(log_level: str = "INFO") -> None:
     """

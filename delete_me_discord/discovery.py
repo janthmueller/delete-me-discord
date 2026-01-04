@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.tree import Tree
 
-from .api import DiscordAPI, FetchError
+from .api import DiscordAPI
 from .utils import should_include_channel
 
 
@@ -27,11 +27,7 @@ def run_discovery_commands(
     exclude_set = set(exclude_ids or [])
 
     if list_guilds:
-        try:
-            guilds = api.get_guilds()
-        except FetchError as e:
-            logging.error("Unable to list guilds: %s", e)
-            return
+        guilds = api.get_guilds()
         tree = Tree("[blue]Guilds[/]")
         for guild in sorted(guilds, key=_guild_sort_key):
             guild_id = guild.get("id")
@@ -82,12 +78,7 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set, console: Console) 
         return f"[{type_color}]{channel_type}[/] [{name_style}]{channel_name}[/] [{id_style}](ID: {channel.get('id')})[/]"
 
     dm_tree = None
-    try:
-        root_channels = api.get_root_channels()
-    except FetchError as e:
-        logging.error("Unable to list DM/Group DM channels: %s", e)
-        root_channels = []
-
+    root_channels = api.get_root_channels()
     included_dms = []
     for channel in root_channels:
         if channel.get("type") not in channel_types:
@@ -102,23 +93,14 @@ def _list_channels(api: DiscordAPI, include_set, exclude_set, console: Console) 
             dm_tree.add(channel_display(channel))
 
     # Guild channels
-    try:
-        guilds = api.get_guilds()
-    except FetchError as e:
-        logging.error("Unable to list guild channels: %s", e)
-        return
-
+    guilds = api.get_guilds()
     guilds_tree = None
     for guild in sorted(guilds, key=_guild_sort_key):
         guild_id = guild.get("id")
         guild_name = guild.get("name", "Unknown")
         escaped_guild_name = escape(guild_name)
 
-        try:
-            channels = api.get_guild_channels(guild_id)
-        except FetchError as e:
-            logging.error("  Failed to fetch channels for guild %s: %s", guild_id, e)
-            continue
+        channels = api.get_guild_channels(guild_id)
 
         category_names = {
             c.get("id"): c.get("name") or "Unknown category"
