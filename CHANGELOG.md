@@ -2,6 +2,42 @@
 
 <!-- version list -->
 
+## v1.5.3 (2026-01-10)
+
+### Bug Fixes
+
+- **api**: Retry on transient request errors
+  ([`0303a04`](https://github.com/janthmueller/delete-me-discord/commit/0303a04ed16d91b361962e8b7358625a29443a1c))
+
+- **cli**: Align delete-reactions help text with behavior
+  ([`ee484af`](https://github.com/janthmueller/delete-me-discord/commit/ee484af8977ee2a01d35513bb8f8b9726fd50ffe))
+
+### Chores
+
+- Update pyinstaller workflow
+  ([`55b8f11`](https://github.com/janthmueller/delete-me-discord/commit/55b8f11f6ea57205a55f1ab7ae3815d9e7b15571))
+
+- Update pyinstaller workflow
+  ([`074a2dd`](https://github.com/janthmueller/delete-me-discord/commit/074a2dd7c214872143035206cc0e00e45650398a))
+
+- Update pyinstaller workflow
+  ([`97d167c`](https://github.com/janthmueller/delete-me-discord/commit/97d167c4bb9e02c26aa295bfe418a9c9740b21c5))
+
+- Update pyinstaller workflow
+  ([`0bc4cba`](https://github.com/janthmueller/delete-me-discord/commit/0bc4cba9f95fc432d3e158df9abc03480c7ed9c8))
+
+- Workflows pat trigger
+  ([`f99d44d`](https://github.com/janthmueller/delete-me-discord/commit/f99d44d37c75fcd3bc69df272e1cea0fc2b2f6c5))
+
+### Documentation
+
+- Shorten readme
+  ([`d8a01fe`](https://github.com/janthmueller/delete-me-discord/commit/d8a01fe87bf8a0b441433db706e17deb43126b4c))
+
+- Update install options
+  ([`1b4b27a`](https://github.com/janthmueller/delete-me-discord/commit/1b4b27ac6a290ae437214b6a40a8ff6aeb1c6647))
+
+
 ## v1.5.2 (2026-01-04)
 
 ### Bug Fixes
