@@ -107,7 +107,7 @@ def build_parser(version: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "-R", "--delete-reactions",
         action='store_true',
-        help="Remove your reactions from messages encountered (even if messages are preserved or not deletable)."
+        help="Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold)."
     )
     parser.add_argument(
         "-g", "--list-guilds",
