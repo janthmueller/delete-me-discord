@@ -333,7 +333,20 @@ class DiscordAPI:
         success_code = {"get": 200, "delete": 204}[method]
         attempts = 0
         while attempts <= self.max_retries:
-            response = self.session.request(method=method, url=url, params=params)
+            try:
+                response = self.session.request(method=method, url=url, params=params)
+            except requests.RequestException as exc:
+                buffer = random.uniform(*self.retry_time_buffer)
+                total_retry_after = 1 + buffer
+                self.logger.warning(
+                    "Network error while attempting to %s (%s). Retrying after %.2f seconds.",
+                    description,
+                    exc,
+                    total_retry_after,
+                )
+                time.sleep(total_retry_after)
+                attempts += 1
+                continue
 
             if response.status_code in {200, 204}: # success
                 if response.status_code != success_code:
