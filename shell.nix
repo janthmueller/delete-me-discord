@@ -8,6 +8,7 @@ let
     ps.pytest
     ps.pyinstaller
     ps.packaging
+    ps.pytest-cov
   ]);
 in
 pkgs.mkShell {
@@ -15,4 +16,12 @@ pkgs.mkShell {
     python
     pkgs.pre-commit
   ];
+  shellHook = ''
+    if [ ! -d .venv ]; then
+      python -m venv .venv
+    fi
+    # Keep installs writable and isolated from the Nix store.
+    source .venv/bin/activate
+    export PIP_REQUIRE_VIRTUALENV=1
+  '';
 }
