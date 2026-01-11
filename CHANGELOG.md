@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-01-11)
+
+### Chores
+
+- Update nix shell config
+  ([`d2188ca`](https://github.com/janthmueller/delete-me-discord/commit/d2188ca879f2776f0f7af2b9d6ae714e7f6dbd09))
+
+### Features
+
+- **cli**: Add --json output mode with JSON logs and discovery output
+  ([`6fdfdda`](https://github.com/janthmueller/delete-me-discord/commit/6fdfdda611269a300eb247fd48eb16a902980431))
+
+### Testing
+
+- Add coverage for discovery, cleaner, and CLI orchestration
+  ([`ff74fc7`](https://github.com/janthmueller/delete-me-discord/commit/ff74fc7af837e62470f0cd5bc8a0428eaa351893))
+
+- **api**: Cover request handling and message fetch pagination
+  ([`fe96fd7`](https://github.com/janthmueller/delete-me-discord/commit/fe96fd739a50b70650ba51c5ba6e415750ff0e5b))
+
+- **logging**: Cover JSON log formatter output
+  ([`f4913a1`](https://github.com/janthmueller/delete-me-discord/commit/f4913a15f36e27b243e91011ec72acaaa7368daa))
+
+
 ## v1.5.3 (2026-01-10)
 
 ### Bug Fixes
