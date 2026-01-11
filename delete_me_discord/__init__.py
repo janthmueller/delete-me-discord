@@ -1,5 +1,6 @@
 # delete_me_discord/__init__.py
 
+import json
 import os
 from .api import DiscordAPI
 from .utils import AuthenticationError
@@ -25,15 +26,7 @@ except PackageNotFoundError:
     except Exception:
         __version__ = "0.0.0-dev"
 
-def main():
-    """
-    The main function orchestrating the message cleaning process.
-    """
-    args = parse_args(__version__)
-
-    # Configure logging based on user input
-    setup_logging(log_level=args.log_level)
-
+def _run(args) -> None:
     include_ids = args.include_ids
     exclude_ids = args.exclude_ids
     preserve_last = args.preserve_last
@@ -64,7 +57,6 @@ def main():
     if preserve_n < 0:
         logging.error("--preserve-n must be a non-negative integer.")
         return
-
 
     # Handle wipe-preserve-cache early and exit.
     if wipe_preserve_cache:
@@ -102,7 +94,8 @@ def main():
             list_guilds=list_guilds,
             list_channels=list_channels,
             include_ids=include_ids,
-            exclude_ids=exclude_ids
+            exclude_ids=exclude_ids,
+            json_output=args.json,
         )
         return
 
@@ -133,6 +126,31 @@ def main():
     if preserve_cache:
         preserve_cache.save()
         logging.info("Preserve cache saved to %s.", preserve_cache_path)
+
+
+def main():
+    """
+    The main function orchestrating the message cleaning process.
+    """
+    args = parse_args(__version__)
+
+    # Configure logging based on user input
+    setup_logging(log_level=args.log_level, json_output=args.json)
+
+    try:
+        _run(args)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        if args.json:
+            payload = {
+                "error": str(exc),
+                "type": "exception",
+                "exception": exc.__class__.__name__,
+            }
+            print(json.dumps(payload, ensure_ascii=True))
+            raise SystemExit(1)
+        raise
 
 if __name__ == "__main__":
     main()

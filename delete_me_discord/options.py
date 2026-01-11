@@ -1,17 +1,42 @@
 # delete_me_discord/options.py
 import argparse
+import json
+import sys
 from datetime import timedelta
 
 from .utils import parse_time_delta
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 
 
-def build_parser(version: str) -> argparse.ArgumentParser:
+class JsonArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, json_output: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._json_output = json_output
+
+    def error(self, message):
+        if self._json_output:
+            payload = {
+                "error": message,
+                "type": "argument_error",
+            }
+            print(json.dumps(payload, ensure_ascii=True))
+            raise SystemExit(2)
+        super().error(message)
+
+
+def _argv_has_json(argv) -> bool:
+    if argv is None:
+        argv = sys.argv[1:]
+    return "--json" in argv
+
+
+def build_parser(version: str, json_output: bool = False) -> argparse.ArgumentParser:
     """
     Build the CLI argument parser.
     """
-    parser = argparse.ArgumentParser(
-        description="Delete Discord messages older than a specified time delta."
+    parser = JsonArgumentParser(
+        description="Delete Discord messages older than a specified time delta.",
+        json_output=json_output,
     )
     parser.add_argument(
         "-v", "--version",
@@ -44,6 +69,11 @@ def build_parser(version: str) -> argparse.ArgumentParser:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level. Default is 'INFO'."
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON output (logs and discovery output)."
     )
     parser.add_argument(
         "-r", "--max-retries",
@@ -142,5 +172,6 @@ def parse_args(version: str, argv=None):
     """
     Parse CLI arguments using the provided version string.
     """
-    parser = build_parser(version)
+    json_output = _argv_has_json(argv)
+    parser = build_parser(version, json_output=json_output)
     return parser.parse_args(argv)

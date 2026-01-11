@@ -70,6 +70,7 @@ Install options:
 - `-f, --fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds; one number = fixed, two = random range).
 - `-s, --delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds; one number = fixed, two = random range).
 - `-l, --log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
+- `--json`: Emit JSON output (logs and discovery output).
 - `-v, --version`: Show the version number and exit.
 
 **Time delta formats**

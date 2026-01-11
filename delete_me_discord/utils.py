@@ -1,11 +1,13 @@
 # delete_me_discord/utils.py
 
+import argparse
+import json
 import logging
 import re
-from datetime import timedelta, datetime, timezone
+import sys
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Tuple, Set, Optional, Generator
 from rich.logging import RichHandler
-import argparse
 
 
 class AuthenticationError(Exception):
@@ -20,23 +22,45 @@ class ResourceUnavailable(Exception):
 class UnexpectedStatus(Exception):
     """Custom exception for unexpected/unhandled status codes."""
 
-def setup_logging(log_level: str = "INFO") -> None:
+class JsonLogFormatter(logging.Formatter):
+    """Format logs as JSON lines for sidecar integrations."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        return json.dumps(payload, ensure_ascii=True)
+
+
+def setup_logging(log_level: str = "INFO", json_output: bool = False) -> None:
     """
     Configures the logging settings.
 
     Args:
         log_level (str): The logging level (e.g., 'DEBUG', 'INFO').
+        json_output (bool): Emit JSON logs when True.
     """
     numeric_level = getattr(logging, log_level.upper(), None)
     if not isinstance(numeric_level, int):
         numeric_level = logging.INFO
-    logging.basicConfig(
-        level=numeric_level,
-        format='%(message)s',
-        handlers=[
-            RichHandler()
-        ],
-    )
+    if json_output:
+        handler = logging.StreamHandler(stream=sys.stdout)
+        handler.setFormatter(JsonLogFormatter())
+        logging.basicConfig(
+            level=numeric_level,
+            handlers=[handler],
+        )
+    else:
+        logging.basicConfig(
+            level=numeric_level,
+            format='%(message)s',
+            handlers=[
+                RichHandler()
+            ],
+        )
 
 def format_timestamp(dt: datetime) -> str:
     """Return a consistent UTC timestamp like [12/08/25 19:05:14]."""
