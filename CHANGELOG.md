@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1 (2026-03-02)
+
+### Bug Fixes
+
+- **types**: Expand Discord message type enum from docs
+  ([`32b7199`](https://github.com/janthmueller/delete-me-discord/commit/32b71994621bc31e1485bc8a188eb56546491ef6))
+
+
 ## v1.6.0 (2026-01-11)
 
 ### Chores
