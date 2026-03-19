@@ -7,6 +7,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Tuple, Set, Optional, Generator
+from rich.console import Console
 from rich.logging import RichHandler
 
 
@@ -35,6 +36,9 @@ class JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=True)
 
 
+RICH_CONSOLE = Console()
+
+
 def setup_logging(log_level: str = "INFO", json_output: bool = False) -> None:
     """
     Configures the logging settings.
@@ -58,7 +62,7 @@ def setup_logging(log_level: str = "INFO", json_output: bool = False) -> None:
             level=numeric_level,
             format='%(message)s',
             handlers=[
-                RichHandler()
+                RichHandler(console=RICH_CONSOLE)
             ],
         )
 

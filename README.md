@@ -49,29 +49,41 @@ Install options:
   Drop `--dry-run` to keep the last 2 weeks and last 20 messages; cache avoids “forgotten” preserves when using `fetch-max-age`.
 - Daily guidance: set `--fetch-max-age` to your preserve window + 1 day (e.g., `--preserve-last "weeks=2"` + `--fetch-max-age "weeks=2,days=1"`), so you only fetch the recent slice while keeping your preservation buffer. With `--preserve-cache` + `--preserve-n`, you can also use a smaller window (e.g., `--fetch-max-age 1d`) because at least the last 2 weeks of preserved messages from the previous run are cached; if you skip days, widen `fetch-max-age` to cover the gap.
 
+**Dry-run and cache note**
+- `--dry-run` uses a separate preserve cache file by appending `.dryrun.json` to the active cache path.
+- `--wipe-preserve-cache` operates on the active cache path too, so with `--dry-run` it wipes the dry-run cache, not the normal one.
+
+**Buffered mode note**
+- `--buffer-channel-messages` buffers one channel at a time before evaluating deletions. This enables per-channel buffering/progress output and an approximate execution estimate.
+- Buffered mode still respects fetch limits such as `--max-messages` and `--fetch-max-age`. It does not fetch the full channel history unless your other flags already require that.
+- `est. execute` is only a rough estimate for planned delete/reaction actions. It does not include fetch time, network jitter, or retries.
+
 ### Command-Line Options
 
-- `-g, --list-guilds`: List guild IDs/names, then exit.
-- `-c, --list-channels`: List channels (grouped by guild/category/parent + DMs), then exit.
-- `-d, --dry-run`: Simulate deletions; no changes made.
-- `-R, --delete-reactions`: Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold).
-- `-i, --include-ids`: Channel/guild/parent IDs to include. If omitted, all IDs are eligible except those in `--exclude-ids`. Channel/category (parent) includes punch through higher-level excludes (category/guild). Example: `--include-ids 123 456`
-- `-x, --exclude-ids`: Channel/guild/parent IDs to exclude. Example: `--exclude-ids 789`
-- `-p, --preserve-last`: Keep messages/reactions newer than this delta (default `weeks=2`, e.g., `weeks=1,days=3` or `1w3d`).
-- `-n, --preserve-n`: Always keep the last N messages (default `12`).
-- `--preserve-n-mode`: How to count the last N messages to keep: `mine` (only your deletable messages; default) or `all` (the last N messages in the channel, any author).
-- `--preserve-cache`: Enable cache to refetch preserved messages between runs (useful with `--preserve-n` + `--fetch-max-age`).
-- `--wipe-preserve-cache`: Delete the preserve cache file and exit.
-- `--preserve-cache-path`: Override preserve cache path (default `~/.config/delete-me-discord/preserve_cache.json`).
-- `-a, --fetch-max-age`: Only fetch newer than this delta (e.g., `weeks=1,days=3` or `10d`). Default: no max age.
-- `-m, --max-messages`: Max messages to fetch per channel (default: no limit).
-- `-r, --max-retries`: Retry count for API requests (default `5`).
-- `-b, --retry-time-buffer`: Extra wait after rate limits (default `25 35` seconds; one number = fixed, two = random range).
-- `-f, --fetch-sleep-time`: Sleep between fetch requests (default `0.2 0.4` seconds; one number = fixed, two = random range).
-- `-s, --delete-sleep-time`: Sleep between deletions (default `1.5 2` seconds; one number = fixed, two = random range).
-- `-l, --log-level`: `DEBUG`|`INFO`|`WARNING`|`ERROR`|`CRITICAL` (default `INFO`).
-- `--json`: Emit JSON output (logs and discovery output).
-- `-v, --version`: Show the version number and exit.
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-g` | `--list-guilds` | off | List guild IDs and names, then exit. |
+| `-c` | `--list-channels` | off | List channels grouped by guild/category/parent plus DMs, then exit. |
+| `-d` | `--dry-run` | off | Simulate deletions without making changes. Also switches preserve-cache operations to a separate `.dryrun.json` file. |
+| `-R` | `--delete-reactions` | off | Remove your reactions on messages encountered once the deletion window is reached. |
+| `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent IDs. Channel and parent includes punch through higher-level excludes. |
+| `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent IDs from processing. |
+| `-p` | `--preserve-last` | `weeks=2` | Keep messages and reactions newer than this delta, for example `weeks=1,days=3` or `1w3d`. |
+| `-n` | `--preserve-n` | `12` | Always keep the last N messages in each channel. |
+| `-` | `--preserve-n-mode` | `mine` | Count preserved messages as only your deletable messages (`mine`) or all recent messages in the channel (`all`). |
+| `-` | `--preserve-cache` | off | Persist preserved message IDs between runs. Most useful with `--preserve-n` and `--fetch-max-age`. |
+| `-` | `--wipe-preserve-cache` | off | Delete the active preserve cache file and exit. |
+| `-` | `--preserve-cache-path` | `~/.config/delete-me-discord/preserve_cache.json` | Override the preserve cache path. |
+| `-a` | `--fetch-max-age` | unlimited | Fetch only messages newer than this delta, for example `weeks=1,days=3` or `10d`. |
+| `-m` | `--max-messages` | unlimited | Maximum number of messages to fetch per channel. |
+| `-` | `--buffer-channel-messages` | off | Buffer one channel at a time before evaluation. Useful for per-channel progress and approximate execution estimates, at the cost of higher per-channel memory usage. |
+| `-r` | `--max-retries` | `5` | Maximum retry attempts for rate-limited or retryable API requests. |
+| `-b` | `--retry-time-buffer` | `25 35` | Extra wait after rate limits. One value is fixed, two values define a random range in seconds. |
+| `-f` | `--fetch-sleep-time` | `0.2 0.4` | Sleep between fetch requests. One value is fixed, two values define a random range in seconds. |
+| `-s` | `--delete-sleep-time` | `1.5 2` | Sleep between deletions. One value is fixed, two values define a random range in seconds. |
+| `-l` | `--log-level` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `-` | `--json` | off | Emit JSON output for logs and discovery output. |
+| `-v` | `--version` | n/a | Show the version and exit. |
 
 **Time delta formats**
 - Legacy key/value: `weeks=2,days=3,hours=1` (units must be unique; no negatives).

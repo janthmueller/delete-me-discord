@@ -135,6 +135,11 @@ def build_parser(version: str, json_output: bool = False) -> argparse.ArgumentPa
         help="Maximum number of messages to fetch per channel. Defaults to no limit."
     )
     parser.add_argument(
+        "--buffer-channel-messages",
+        action='store_true',
+        help="Fetch and buffer one channel fully before evaluation. Uses more memory but enables per-channel totals for future progress reporting."
+    )
+    parser.add_argument(
         "-R", "--delete-reactions",
         action='store_true',
         help="Remove your reactions on messages encountered once the deletion window is reached (older than the cutoff and past the preserve-n threshold)."

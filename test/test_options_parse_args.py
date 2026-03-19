@@ -28,6 +28,7 @@ def test_parse_args_defaults():
     assert args.preserve_last == timedelta(weeks=2)
     assert args.fetch_max_age is None
     assert args.max_messages is None
+    assert args.buffer_channel_messages is False
     assert args.delete_reactions is False
     assert args.list_guilds is False
     assert args.list_channels is False

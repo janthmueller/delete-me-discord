@@ -27,6 +27,7 @@ def _base_args(tmp_path, **overrides):
         delete_sleep_time=["0", "0"],
         fetch_max_age=None,
         max_messages=None,
+        buffer_channel_messages=False,
         delete_reactions=False,
         list_guilds=False,
         list_channels=False,
@@ -128,6 +129,37 @@ def test_main_creates_cache_and_runs_cleaner(tmp_path, monkeypatch):
     assert cache_info["path"].endswith(".dryrun.json")
     assert cache_info["saved"] == 1
     assert cleaner_info["preserve_cache"] is not None
+
+
+def test_main_passes_buffer_channel_messages(tmp_path, monkeypatch):
+    args = _base_args(tmp_path, buffer_channel_messages=True)
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    cleaner_kwargs = {}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            cleaner_kwargs["init"] = kwargs
+
+        def clean_messages(self, **kwargs):
+            cleaner_kwargs["run"] = kwargs
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord.main()
+    assert cleaner_kwargs["run"]["buffer_channel_messages"] is True
+    assert cleaner_kwargs["run"]["show_progress"] is True
 
 
 def test_main_exits_on_negative_preserve_n(tmp_path, monkeypatch):
