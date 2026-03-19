@@ -444,6 +444,7 @@ def test_clean_messages_non_dry_run_summary(monkeypatch):
 
     def fake_delete_messages_older_than(**kwargs):
         return [], {
+            "message_count": 0,
             "deleted_count": 1,
             "preserved_deletable_count": 2,
             "reactions_removed_count": 3,
@@ -460,6 +461,78 @@ def test_clean_messages_non_dry_run_summary(monkeypatch):
         delete_reactions=True,
     )
     assert total == 1
+
+
+def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "_prepare_channel_messages", lambda **kwargs: iter(()))
+    monkeypatch.setattr(
+        cleaner,
+        "delete_messages_older_than",
+        lambda **kwargs: (
+            [],
+            {
+                "message_count": 0,
+                "deleted_count": 0,
+                "preserved_deletable_count": 0,
+                "reactions_removed_count": 0,
+                "preserved_reactions_count": 0,
+            },
+        ),
+    )
+
+    monotonic_values = iter([10.0, 12.0, 16.0, 19.0])
+    monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
+
+    with caplog.at_level("INFO"):
+        total = cleaner.clean_messages(
+            dry_run=False,
+            fetch_sleep_time_range=(0, 0),
+            delete_sleep_time_range=(0, 0),
+            fetch_since=None,
+            max_messages=10,
+            delete_reactions=False,
+        )
+
+    assert total == 0
+    assert "Processed channel in 00:00:04." in caplog.text
+    assert "Completed in 00:00:09." in caplog.text
+
+
+def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message("1", "me", now - timedelta(days=20)),
+        make_message(
+            "2",
+            "other",
+            now - timedelta(days=21),
+            deletable=False,
+            reactions=[{"me": True, "emoji": {"name": "x"}}],
+        ),
+    ]
+
+    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
+    monotonic_values = iter([10.0, 11.0, 12.0, 13.0, 15.0, 16.0])
+    monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
+
+    with caplog.at_level("INFO"):
+        total = cleaner.clean_messages(
+            dry_run=True,
+            fetch_sleep_time_range=(0, 0),
+            delete_sleep_time_range=(1, 1),
+            fetch_since=None,
+            max_messages=10,
+            buffer_channel_messages=False,
+            delete_reactions=True,
+        )
+
+    assert total == 1
+    assert "  - Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scanned in=00:00:04, est. execute=00:00:02, est. total=00:00:06" in caplog.text
+    assert "Summary: Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scanned in=00:00:06, est. execute=00:00:02, est. total=00:00:08" in caplog.text
 
 
 def test_delete_reactions_skips_non_owner():
