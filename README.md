@@ -54,10 +54,10 @@ Install options:
 - `--wipe-preserve-cache` operates on the active cache path too, so with `--dry-run` it wipes the dry-run cache, not the normal one.
 
 **Buffered mode note**
-- `--buffer-channel-messages` buffers one channel at a time before evaluating deletions. This enables per-channel buffering/progress output and an approximate execution estimate.
+- `--buffer-channel-messages` buffers one channel at a time before evaluating deletions. This enables per-channel buffering/timing output and an approximate execution estimate.
 - Buffered mode still respects fetch limits such as `--max-messages` and `--fetch-max-age`. It does not fetch the full channel history unless your other flags already require that.
-- `est. execute` is only a rough estimate for planned delete/reaction actions. It does not include fetch time, network jitter, or retries.
-- In `--dry-run`, logs can also show `scanned in` and `est. total`. `scanned in` is the actual dry-run scan time, while `est. total` is `scanned in + est. execute`.
+- `est. execute time` is only a rough estimate for planned delete/reaction actions. It does not include fetch time, network jitter, or retries.
+- In `--dry-run`, logs can also show `scan time` and `est. total time`. `scan time` is the actual dry-run scan time, while `est. total time` is `scan time + est. execute time`.
 
 ### Command-Line Options
 

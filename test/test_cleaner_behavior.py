@@ -56,7 +56,7 @@ def test_delete_messages_preserve_n_mine():
         make_message("3", "me", now - timedelta(days=12)),
         make_message("4", "me", now - timedelta(days=13)),
     ]
-    preserved, stats = cleaner.delete_messages_older_than(
+    preserved, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -77,7 +77,7 @@ def test_delete_messages_preserve_n_all_counts_non_deletable():
         make_message("3", "me", now - timedelta(days=12)),
         make_message("4", "me", now - timedelta(days=13)),
     ]
-    preserved, stats = cleaner.delete_messages_older_than(
+    preserved, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -99,7 +99,7 @@ def test_delete_messages_reaction_removal_counts():
     messages = [
         make_message("1", "other", now - timedelta(days=10), deletable=False, reactions=reactions),
     ]
-    _, stats = cleaner.delete_messages_older_than(
+    _, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -116,7 +116,7 @@ def test_delete_messages_preserve_last_window():
         make_message("1", "me", now - timedelta(days=1)),
         make_message("2", "me", now - timedelta(days=10)),
     ]
-    preserved, stats = cleaner.delete_messages_older_than(
+    preserved, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now - timedelta(days=5),
         delete_sleep_time_range=(0, 0),
@@ -152,7 +152,7 @@ def test_delete_messages_non_dry_run_deletes():
     messages = [
         make_message("1", "me", now - timedelta(days=10)),
     ]
-    _, stats = cleaner.delete_messages_older_than(
+    _, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -188,7 +188,7 @@ def test_delete_messages_reaction_removal_non_dry_run():
     messages = [
         make_message("1", "other", now - timedelta(days=10), deletable=False, reactions=reactions),
     ]
-    _, stats = cleaner.delete_messages_older_than(
+    _, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -261,7 +261,7 @@ def test_prepare_channel_messages_buffers_single_channel(monkeypatch):
 
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(source_messages))
 
-    prepared = cleaner._prepare_channel_messages(
+    prepared, buffer_elapsed = cleaner._prepare_channel_messages(
         channel=channel,
         fetch_sleep_time_range=(0, 0),
         fetch_since=None,
@@ -271,6 +271,7 @@ def test_prepare_channel_messages_buffers_single_channel(monkeypatch):
 
     assert isinstance(prepared, list)
     assert [message["message_id"] for message in prepared] == ["2", "1"]
+    assert isinstance(buffer_elapsed, float)
 
 
 def test_clean_messages_buffered_mode_keeps_delete_behavior(monkeypatch):
@@ -316,7 +317,7 @@ def test_delete_messages_handles_delete_failure():
     messages = [
         make_message("1", "me", now - timedelta(days=10)),
     ]
-    _, stats = cleaner.delete_messages_older_than(
+    _, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -346,7 +347,7 @@ def test_delete_reactions_handles_failure():
     messages = [
         make_message("1", "other", now - timedelta(days=10), deletable=False, reactions=reactions),
     ]
-    _, stats = cleaner.delete_messages_older_than(
+    _, stats, _ = cleaner.delete_messages_older_than(
         messages=iter(messages),
         cutoff_time=now,
         delete_sleep_time_range=(0, 0),
@@ -413,7 +414,7 @@ def test_clean_messages_non_dry_run_summary(monkeypatch):
             "preserved_deletable_count": 2,
             "reactions_removed_count": 3,
             "preserved_reactions_count": 4,
-        }
+        }, 0.0
 
     monkeypatch.setattr(cleaner, "delete_messages_older_than", lambda **kwargs: fake_delete_messages_older_than(**kwargs))
     total = cleaner.clean_messages(
@@ -427,10 +428,35 @@ def test_clean_messages_non_dry_run_summary(monkeypatch):
     assert total == 1
 
 
+def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(monkeypatch, caplog):
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [make_message("1", "me", now - timedelta(days=20))]
+
+    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
+
+    with caplog.at_level("INFO"):
+        total = cleaner.clean_messages(
+            dry_run=False,
+            fetch_sleep_time_range=(0, 0),
+            delete_sleep_time_range=(1, 1),
+            fetch_since=None,
+            max_messages=10,
+            buffer_channel_messages=True,
+            delete_reactions=False,
+        )
+
+    assert total == 1
+    assert "  - Buffered messages=1, scan time=" in caplog.text
+    assert "est. execute time=00:00:01" in caplog.text
+    assert "Planned " not in caplog.text
+
+
 def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
     cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
     monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
-    monkeypatch.setattr(cleaner, "_prepare_channel_messages", lambda **kwargs: iter(()))
+    monkeypatch.setattr(cleaner, "_prepare_channel_messages", lambda **kwargs: (iter(()), None))
     monkeypatch.setattr(
         cleaner,
         "delete_messages_older_than",
@@ -443,6 +469,7 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
                 "reactions_removed_count": 0,
                 "preserved_reactions_count": 0,
             },
+            0.0,
         ),
     )
 
@@ -460,8 +487,8 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
         )
 
     assert total == 0
-    assert "Processed channel in 00:00:04." in caplog.text
-    assert "Completed in 00:00:09." in caplog.text
+    assert "  - Deleted messages=0, preserved messages=0, total time=00:00:04" in caplog.text
+    assert "Total time=00:00:09." in caplog.text
 
 
 def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
@@ -495,8 +522,35 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
         )
 
     assert total == 1
-    assert "  - Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scanned in=00:00:04, est. execute=00:00:02, est. total=00:00:06" in caplog.text
-    assert "Summary: Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scanned in=00:00:06, est. execute=00:00:02, est. total=00:00:08" in caplog.text
+    assert "  - Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scan time=00:00:04, est. execute time=00:00:02, est. total time=00:00:06" in caplog.text
+    assert "Summary: Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scan time=00:00:06, est. execute time=00:00:02, est. total time=00:00:08" in caplog.text
+
+
+def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monkeypatch, caplog):
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message("1", "me", now - timedelta(days=20)),
+        make_message("2", "me", now - timedelta(days=21)),
+    ]
+
+    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
+
+    with caplog.at_level("INFO"):
+        total = cleaner.clean_messages(
+            dry_run=True,
+            fetch_sleep_time_range=(0, 0),
+            delete_sleep_time_range=(1, 1),
+            fetch_since=None,
+            max_messages=10,
+            buffer_channel_messages=True,
+            delete_reactions=False,
+        )
+
+    assert total == 2
+    assert "buffered messages=2" in caplog.text
+    assert "  - Buffered messages=" not in caplog.text
 
 
 def test_delete_reactions_skips_non_owner():

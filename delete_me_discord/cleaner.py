@@ -166,7 +166,7 @@ class MessageCleaner:
         dry_run: bool = False,
         delete_reactions: bool = False,
         channel_plan: Optional[ChannelPlan] = None,
-    ) -> Tuple[List[str], dict[str, int]]:
+    ) -> Tuple[List[str], dict[str, int], float]:
         """
         Execute planned actions for one channel and collect per-channel stats.
 
@@ -179,7 +179,7 @@ class MessageCleaner:
             channel_plan (Optional[ChannelPlan]): Optional precomputed channel plan.
 
         Returns:
-            Tuple[List[str], dict[str, int]]: List of preserved message IDs and statistics dictionary.
+            Tuple[List[str], dict[str, int], float]: Preserved message IDs, statistics, and action-phase elapsed time.
         """
         preserved_msg_ids = []
         stats = {
@@ -232,21 +232,7 @@ class MessageCleaner:
                     stats["reactions_removed_count"] += 1
         action_elapsed = time.monotonic() - action_start
 
-        if not dry_run:
-            summary = (
-                f"  - Deleted messages={stats['deleted_count']}, "
-                f"preserved messages={stats['preserved_deletable_count']}"
-            )
-            if delete_reactions:
-                summary += (
-                    f", deleted reactions={stats['reactions_removed_count']}, "
-                    f"preserved reactions={stats['preserved_reactions_count']}"
-                )
-            if channel_plan is not None:
-                summary += f", execute time={self._format_duration(action_elapsed)}"
-            self.logger.info(summary)
-
-        return preserved_msg_ids, stats
+        return preserved_msg_ids, stats, action_elapsed
 
     def clean_messages(
         self,
@@ -294,12 +280,13 @@ class MessageCleaner:
         for channel in channels:
             channel_started_at = time.monotonic()
             self.logger.info("Processing channel: %s.", channel_str(channel))
-            messages = self._prepare_channel_messages(
+            messages, buffer_elapsed = self._prepare_channel_messages(
                 channel=channel,
                 fetch_sleep_time_range=fetch_sleep_time_range,
                 fetch_since=fetch_since,
                 max_messages=max_messages,
                 buffer_channel_messages=buffer_channel_messages,
+                dry_run=dry_run,
             )
             channel_plan = None
             if buffer_channel_messages:
@@ -308,13 +295,13 @@ class MessageCleaner:
                     cutoff_time=cutoff_time,
                     delete_reactions=delete_reactions,
                 )
-                self._log_channel_plan(
-                    channel=channel,
-                    channel_plan=channel_plan,
-                    dry_run=dry_run,
-                    delete_sleep_time_range=delete_sleep_time_range,
-                )
-            preserved_msg_ids, stats = self.delete_messages_older_than(
+                if not dry_run:
+                    self._log_buffered_channel_pre_execution(
+                        buffer_elapsed=buffer_elapsed or 0.0,
+                        channel_plan=channel_plan,
+                        delete_sleep_time_range=delete_sleep_time_range,
+                    )
+            preserved_msg_ids, stats, action_elapsed = self.delete_messages_older_than(
                 messages=messages,
                 cutoff_time=cutoff_time,
                 delete_sleep_time_range=delete_sleep_time_range,
@@ -352,17 +339,28 @@ class MessageCleaner:
                         f", delete reactions={stats['reactions_removed_count']}, "
                         f"preserve reactions={stats['preserved_reactions_count']}"
                     )
+                if channel_plan is not None:
+                    channel_summary += f", buffered messages={channel_plan.buffered_message_count}"
                 channel_summary += (
-                    f", scanned in={self._format_duration(channel_elapsed)}, "
-                    f"est. execute={channel_execute_estimate}, "
-                    f"est. total={channel_total_estimate}"
+                    f", scan time={self._format_duration(channel_elapsed)}, "
+                    f"est. execute time={channel_execute_estimate}, "
+                    f"est. total time={channel_total_estimate}"
                 )
                 self.logger.info(channel_summary)
             else:
-                self.logger.info(
-                    "Processed channel in %s.",
-                    self._format_duration(channel_elapsed),
+                channel_summary = (
+                    f"  - Deleted messages={stats['deleted_count']}, "
+                    f"preserved messages={stats['preserved_deletable_count']}"
                 )
+                if delete_reactions:
+                    channel_summary += (
+                        f", deleted reactions={stats['reactions_removed_count']}, "
+                        f"preserved reactions={stats['preserved_reactions_count']}"
+                    )
+                if channel_plan is not None:
+                    channel_summary += f", execute time={self._format_duration(action_elapsed)}"
+                channel_summary += f", total time={self._format_duration(channel_elapsed)}"
+                self.logger.info(channel_summary)
 
         run_elapsed = time.monotonic() - run_started_at
         if dry_run:
@@ -380,9 +378,9 @@ class MessageCleaner:
                     f"preserve reactions={total_stats['preserved_reactions_count']}"
                 )
             total_summary += (
-                f", scanned in={self._format_duration(run_elapsed)}, "
-                f"est. execute={self._format_duration(execute_estimate_seconds)}, "
-                f"est. total={self._format_duration(run_elapsed + execute_estimate_seconds)}"
+                f", scan time={self._format_duration(run_elapsed)}, "
+                f"est. execute time={self._format_duration(execute_estimate_seconds)}, "
+                f"est. total time={self._format_duration(run_elapsed + execute_estimate_seconds)}"
             )
             self.logger.info(total_summary)
         else:
@@ -398,7 +396,7 @@ class MessageCleaner:
             self.logger.info(total_summary)
 
         self.logger.info(
-            "Completed in %s.",
+            "Total time=%s.",
             self._format_duration(run_elapsed),
         )
 
@@ -411,7 +409,8 @@ class MessageCleaner:
         fetch_since: Optional[datetime],
         max_messages: Union[int, float],
         buffer_channel_messages: bool,
-    ) -> Iterable[DiscordMessage]:
+        dry_run: bool = False,
+    ) -> Tuple[Iterable[DiscordMessage], Optional[float]]:
         """Prepare one channel's message stream, optionally buffering it fully first."""
         messages: Iterable[DiscordMessage] = self.fetch_all_messages(
             channel=channel,
@@ -432,13 +431,8 @@ class MessageCleaner:
             )
         if buffer_channel_messages:
             buffered_messages, buffer_elapsed = self._buffer_channel_messages(messages=messages)
-            self.logger.info(
-                "Buffered %s messages in %s.",
-                len(buffered_messages),
-                self._format_duration(buffer_elapsed),
-            )
-            return buffered_messages
-        return messages
+            return buffered_messages, buffer_elapsed
+        return messages, None
 
     def _buffer_channel_messages(
         self,
@@ -546,26 +540,17 @@ class MessageCleaner:
             actions=tuple(actions),
         )
 
-    def _log_channel_plan(
+    def _log_buffered_channel_pre_execution(
         self,
-        channel: DiscordChannel,
+        buffer_elapsed: float,
         channel_plan: ChannelPlan,
-        dry_run: bool,
         delete_sleep_time_range: Tuple[float, float],
     ) -> None:
-        """Log a concise summary of the buffered channel plan."""
-        total_messages = channel_plan.buffered_message_count
-        delete_count = sum(1 for action in channel_plan.actions if action.kind == ActionKind.DELETE_MESSAGE)
-        reaction_count = sum(1 for action in channel_plan.actions if action.kind == ActionKind.DELETE_REACTION)
-        action_count = channel_plan.action_count
-        mode = "Would execute" if dry_run else "Planned"
+        """Log one concise pre-execution summary line for buffered real runs."""
         self.logger.info(
-            "%s %s actions across %s buffered messages (%s deletions, %s reactions, est. execute %s).",
-            mode,
-            action_count,
-            total_messages,
-            delete_count,
-            reaction_count,
+            "  - Buffered messages=%s, scan time=%s, est. execute time=%s.",
+            channel_plan.buffered_message_count,
+            self._format_duration(buffer_elapsed),
             self._format_duration(self._estimate_action_duration(channel_plan, delete_sleep_time_range)),
         )
 
