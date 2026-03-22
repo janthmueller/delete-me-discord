@@ -159,7 +159,6 @@ def test_main_passes_buffer_channel_messages(tmp_path, monkeypatch):
 
     delete_me_discord.main()
     assert cleaner_kwargs["run"]["buffer_channel_messages"] is True
-    assert cleaner_kwargs["run"]["show_progress"] is True
 
 
 def test_main_exits_on_negative_preserve_n(tmp_path, monkeypatch):

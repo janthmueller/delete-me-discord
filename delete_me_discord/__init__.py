@@ -123,7 +123,6 @@ def _run(args) -> None:
         fetch_since=fetch_since,
         max_messages=max_messages,
         buffer_channel_messages=buffer_channel_messages,
-        show_progress=buffer_channel_messages and not args.json,
         delete_reactions=delete_reactions
     )
     if preserve_cache:

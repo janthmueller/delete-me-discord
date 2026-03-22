@@ -273,42 +273,6 @@ def test_prepare_channel_messages_buffers_single_channel(monkeypatch):
     assert [message["message_id"] for message in prepared] == ["2", "1"]
 
 
-def test_prepare_channel_messages_buffers_with_progress(monkeypatch):
-    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
-    channel = {"id": "c1", "type": 0, "name": "chan"}
-    now = datetime.now(timezone.utc)
-    source_messages = [
-        make_message("2", "me", now),
-        make_message("1", "me", now - timedelta(seconds=1)),
-    ]
-
-    class FakeStatus:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, description):
-            self.description = description
-
-    monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(source_messages))
-    monkeypatch.setattr(cleaner.progress, "buffering_context", lambda **kwargs: FakeStatus())
-    monkeypatch.setattr(cleaner.progress, "update_buffering", lambda *args, **kwargs: None)
-
-    prepared = cleaner._prepare_channel_messages(
-        channel=channel,
-        fetch_sleep_time_range=(0, 0),
-        fetch_since=None,
-        max_messages=10,
-        buffer_channel_messages=True,
-        show_progress=True,
-    )
-
-    assert isinstance(prepared, list)
-    assert [message["message_id"] for message in prepared] == ["2", "1"]
-
-
 def test_clean_messages_buffered_mode_keeps_delete_behavior(monkeypatch):
     cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
     now = datetime.now(timezone.utc)

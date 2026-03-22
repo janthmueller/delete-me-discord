@@ -8,7 +8,6 @@ import logging
 
 from .api import DiscordAPI
 from .models import ActionKind, ChannelPlan, DiscordChannel, DiscordEmoji, DiscordMessage, MessageDecision, MessageFacts, PlannedAction
-from .progress import CleanerProgress
 from .utils import channel_str, should_include_channel, format_timestamp
 from .preserve_cache import PreserveCache
 
@@ -62,7 +61,6 @@ class MessageCleaner:
         self.preserve_n_mode = preserve_n_mode
         self.logger = logging.getLogger(self.__class__.__name__)
         self.preserve_cache = preserve_cache
-        self.progress = CleanerProgress()
 
         if self.include_ids.intersection(self.exclude_ids):
             raise ValueError("Include and exclude IDs must be disjoint.")
@@ -168,8 +166,6 @@ class MessageCleaner:
         dry_run: bool = False,
         delete_reactions: bool = False,
         channel_plan: Optional[ChannelPlan] = None,
-        show_progress: bool = False,
-        progress_description: Optional[str] = None,
     ) -> Tuple[List[str], dict[str, int]]:
         """
         Execute planned actions for one channel and collect per-channel stats.
@@ -181,8 +177,6 @@ class MessageCleaner:
             dry_run (bool): If True, simulate deletions without calling the API.
             delete_reactions (bool): If True, remove the user's reactions on messages encountered.
             channel_plan (Optional[ChannelPlan]): Optional precomputed channel plan.
-            show_progress (bool): If True, render a per-channel progress bar for planned actions.
-            progress_description (Optional[str]): Label to display for the progress task.
 
         Returns:
             Tuple[List[str], dict[str, int]]: List of preserved message IDs and statistics dictionary.
@@ -207,43 +201,35 @@ class MessageCleaner:
         total_actions = plan.action_count
 
         action_start = time.monotonic()
-        with self.progress.action_progress(
-            enabled=show_progress and not dry_run,
-            total_actions=total_actions,
-            description=progress_description or "Channel actions",
-        ) as progress_state:
-            progress, task_id = progress_state
-            for decision in plan.decisions:
-                stats["message_count"] += 1
-                facts = decision.facts
-                message = facts.message
-                message_id = message["message_id"]
-                message_time = facts.message_time
+        for decision in plan.decisions:
+            stats["message_count"] += 1
+            facts = decision.facts
+            message = facts.message
+            message_id = message["message_id"]
+            message_time = facts.message_time
 
-                if decision.preserve_message and facts.is_deletable:
-                    self.logger.debug("Preserving deletable message %s sent at %s UTC.", message_id, format_timestamp(message_time))
-                    stats["preserved_deletable_count"] += 1
-                    preserved_msg_ids.append(message_id)
-                    continue
+            if decision.preserve_message and facts.is_deletable:
+                self.logger.debug("Preserving deletable message %s sent at %s UTC.", message_id, format_timestamp(message_time))
+                stats["preserved_deletable_count"] += 1
+                preserved_msg_ids.append(message_id)
+                continue
 
-                if decision.preserve_reaction_count > 0:
-                    stats["preserved_reactions_count"] += decision.preserve_reaction_count
-                    preserved_msg_ids.append(message_id)
-                    continue
+            if decision.preserve_reaction_count > 0:
+                stats["preserved_reactions_count"] += decision.preserve_reaction_count
+                preserved_msg_ids.append(message_id)
+                continue
 
-                for action in decision.actions:
-                    executed = self._execute_action(
-                        action=action,
-                        delete_sleep_time_range=delete_sleep_time_range,
-                        dry_run=dry_run,
-                    )
-                    if action.kind == ActionKind.DELETE_MESSAGE:
-                        if executed:
-                            stats["deleted_count"] += 1
-                    elif action.kind == ActionKind.DELETE_REACTION and executed:
-                        stats["reactions_removed_count"] += 1
-                    if progress is not None and task_id is not None:
-                        progress.advance(task_id, 1)
+            for action in decision.actions:
+                executed = self._execute_action(
+                    action=action,
+                    delete_sleep_time_range=delete_sleep_time_range,
+                    dry_run=dry_run,
+                )
+                if action.kind == ActionKind.DELETE_MESSAGE:
+                    if executed:
+                        stats["deleted_count"] += 1
+                elif action.kind == ActionKind.DELETE_REACTION and executed:
+                    stats["reactions_removed_count"] += 1
         action_elapsed = time.monotonic() - action_start
 
         if not dry_run:
@@ -270,7 +256,6 @@ class MessageCleaner:
         fetch_since: Optional[datetime] = None,
         max_messages: Union[int, float] = float("inf"),
         buffer_channel_messages: bool = False,
-        show_progress: bool = False,
         delete_reactions: bool = False
     ) -> int:
         """
@@ -283,7 +268,6 @@ class MessageCleaner:
             fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
             max_messages (Union[int, float]): Maximum number of messages to fetch per channel.
             buffer_channel_messages (bool): If True, fully buffer one channel before evaluation.
-            show_progress (bool): If True, render per-channel progress for buffered mode.
             delete_reactions (bool): If True, remove the user's reactions on messages encountered.
 
         Returns:
@@ -316,7 +300,6 @@ class MessageCleaner:
                 fetch_since=fetch_since,
                 max_messages=max_messages,
                 buffer_channel_messages=buffer_channel_messages,
-                show_progress=show_progress and buffer_channel_messages,
             )
             channel_plan = None
             if buffer_channel_messages:
@@ -337,8 +320,6 @@ class MessageCleaner:
                 delete_sleep_time_range=delete_sleep_time_range,
                 dry_run=dry_run,
                 channel_plan=channel_plan,
-                show_progress=show_progress and buffer_channel_messages,
-                progress_description="Actions",
                 delete_reactions=delete_reactions
             )
             if self.preserve_cache:
@@ -430,7 +411,6 @@ class MessageCleaner:
         fetch_since: Optional[datetime],
         max_messages: Union[int, float],
         buffer_channel_messages: bool,
-        show_progress: bool = False,
     ) -> Iterable[DiscordMessage]:
         """Prepare one channel's message stream, optionally buffering it fully first."""
         messages: Iterable[DiscordMessage] = self.fetch_all_messages(
@@ -451,11 +431,7 @@ class MessageCleaner:
                 cached_ids=cached_ids
             )
         if buffer_channel_messages:
-            buffered_messages, buffer_elapsed = self._buffer_channel_messages(
-                channel=channel,
-                messages=messages,
-                show_progress=show_progress,
-            )
+            buffered_messages, buffer_elapsed = self._buffer_channel_messages(messages=messages)
             self.logger.info(
                 "Buffered %s messages in %s.",
                 len(buffered_messages),
@@ -466,21 +442,11 @@ class MessageCleaner:
 
     def _buffer_channel_messages(
         self,
-        channel: DiscordChannel,
         messages: Iterable[DiscordMessage],
-        show_progress: bool,
     ) -> Tuple[List[DiscordMessage], float]:
         """Buffer one channel into memory and return the buffered messages plus elapsed time."""
         started_at = time.monotonic()
-        if not show_progress:
-            return list(messages), time.monotonic() - started_at
-
-        buffered_messages: List[DiscordMessage] = []
-        with self.progress.buffering_context(enabled=show_progress) as live:
-            for message in messages:
-                buffered_messages.append(message)
-                self.progress.update_buffering(live, len(buffered_messages))
-        return buffered_messages, time.monotonic() - started_at
+        return list(messages), time.monotonic() - started_at
 
     def _build_channel_plan(
         self,
