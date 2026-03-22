@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-03-22)
+
+### Features
+
+- **cleaner**: Add buffered channel planning and progress
+  ([`f5aa43c`](https://github.com/janthmueller/delete-me-discord/commit/f5aa43c578eeb7aa607e27e8e09f52ba5d430ac4))
+
+### Refactoring
+
+- **cleaner**: Align channel timing summaries
+  ([`11b5866`](https://github.com/janthmueller/delete-me-discord/commit/11b5866a96a81b5eacf576b225d4a35e5838c430))
+
+- **cleaner**: Improve dry-run timing summaries
+  ([`6b02ca7`](https://github.com/janthmueller/delete-me-discord/commit/6b02ca798a11875558ad28eed956f7a68a8de120))
+
+- **cleaner**: Remove live progress rendering
+  ([`4d0c836`](https://github.com/janthmueller/delete-me-discord/commit/4d0c8360f69371f54a9cba2dc07a85bea7b646b8))
+
+- **cleaner**: Simplify buffered timing output
+  ([`c333138`](https://github.com/janthmueller/delete-me-discord/commit/c333138b4661a4e004bf5fca6f703a02528a78ad))
+
+
 ## v1.6.1 (2026-03-02)
 
 ### Bug Fixes
