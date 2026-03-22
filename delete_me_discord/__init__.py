@@ -39,6 +39,7 @@ def _run(args) -> None:
     delete_sleep_time_range = parse_random_range(args.delete_sleep_time, "delete-sleep-time")
     fetch_max_age = args.fetch_max_age  # Optional[timedelta]
     max_messages = args.max_messages if args.max_messages is not None else float("inf")
+    buffer_channel_messages = args.buffer_channel_messages
     delete_reactions = args.delete_reactions
     list_guilds = args.list_guilds
     list_channels = args.list_channels
@@ -121,6 +122,7 @@ def _run(args) -> None:
         delete_sleep_time_range=delete_sleep_time_range,
         fetch_since=fetch_since,
         max_messages=max_messages,
+        buffer_channel_messages=buffer_channel_messages,
         delete_reactions=delete_reactions
     )
     if preserve_cache:

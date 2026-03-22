@@ -4,10 +4,11 @@ import os
 import time
 import random
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Generator, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 import logging
 import requests
 import urllib.parse
+from .models import DiscordChannel, DiscordEmoji, DiscordMessage
 from .type_enums import MessageType
 from .utils import AuthenticationError, format_timestamp, ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
 
@@ -63,7 +64,7 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/users/@me/guilds"
         return self._request(url, description="fetch guilds")
 
-    def get_guild_channels(self, guild_id: str) -> List[Dict[str, Any]]:
+    def get_guild_channels(self, guild_id: str) -> List[DiscordChannel]:
         """
         Fetches channels for a specific guild.
 
@@ -71,7 +72,7 @@ class DiscordAPI:
             guild_id (str): The ID of the guild.
 
         Returns:
-            List[Dict[str, Any]]: List of channels in the guild.
+            List[DiscordChannel]: List of channels in the guild.
 
         Raises:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
@@ -79,7 +80,7 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/guilds/{guild_id}/channels"
         return self._request(url, description=f"fetch channels for guild {guild_id}")
 
-    def get_guild_channels_multiple(self, guild_ids: List[str]) -> List[Dict[str, Any]]:
+    def get_guild_channels_multiple(self, guild_ids: List[str]) -> List[DiscordChannel]:
         """
         Fetches channels for multiple guilds.
 
@@ -87,7 +88,7 @@ class DiscordAPI:
             guild_ids (List[str]): List of guild IDs.
 
         Returns:
-            List[Dict[str, Any]]: Aggregated list of channels from all guilds.
+            List[DiscordChannel]: Aggregated list of channels from all guilds.
         """
         all_channels = []
         for guild_id in guild_ids:
@@ -99,12 +100,12 @@ class DiscordAPI:
                 self.logger.warning("Skipping guild %s as it is unavailable. Error: %s", guild_id, str(e))
         return all_channels
 
-    def get_root_channels(self) -> List[Dict[str, Any]]:
+    def get_root_channels(self) -> List[DiscordChannel]:
         """
         Fetches root (DM) channels.
 
         Returns:
-            List[Dict[str, Any]]: List of root channels.
+            List[DiscordChannel]: List of root channels.
 
         Raises:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
@@ -131,9 +132,9 @@ class DiscordAPI:
         max_messages: Union[int, float] = float("inf"),
         fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.2),
         fetch_since: Optional[datetime] = None
-    ) -> Generator[Dict[str, Any], None, None]:
+    ) -> Generator[DiscordMessage, None, None]:
         """
-        Fetches messages from a channel, optionally filtering by author.
+        Fetch messages from a channel in newest-to-oldest order.
 
         Args:
             channel_id (str): The ID of the channel.
@@ -142,7 +143,7 @@ class DiscordAPI:
             fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
 
         Yields:
-            Dict[str, Any]: Message data.
+            DiscordMessage: Normalized message payload.
         """
         url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         fetched_count = 0
@@ -174,14 +175,14 @@ class DiscordAPI:
                         channel_id
                     )
                     break
-                yield {
-                    "message_id": message["id"],
-                    "timestamp": message["timestamp"],
-                    "channel_id": channel_id,
-                    "type": MessageType(message.get("type", 0)),
-                    "author_id": message.get("author", {}).get("id"),
-                    "reactions": message.get("reactions", []),
-                }
+                yield DiscordMessage(
+                    message_id=message["id"],
+                    timestamp=message["timestamp"],
+                    channel_id=channel_id,
+                    type=MessageType(message.get("type", 0)),
+                    author_id=message.get("author", {}).get("id"),
+                    reactions=message.get("reactions", []),
+                )
 
                 fetched_count += 1
                 if fetched_count >= max_messages:
@@ -199,7 +200,7 @@ class DiscordAPI:
 
         self.logger.debug("Fetched a total of %s messages from channel %s.", fetched_count, channel_id)
 
-    def fetch_message_by_id(self, channel_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+    def fetch_message_by_id(self, channel_id: str, message_id: str) -> Optional[DiscordMessage]:
         """
         Fetch a single message by ID from a channel.
 
@@ -208,7 +209,7 @@ class DiscordAPI:
             message_id (str): The ID of the message.
 
         Returns:
-            Optional[Dict[str, Any]]: Message data or None if not found/accessible.
+            Optional[DiscordMessage]: Normalized message payload or None if not found/accessible.
         """
         url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         try:
@@ -226,14 +227,14 @@ class DiscordAPI:
             self.logger.warning(f"Message %s not found in channel %s.", message_id, channel_id)
             return None
 
-        return {
-                "message_id": message["id"],
-                "timestamp": message["timestamp"],
-                "channel_id": channel_id,
-                "type": MessageType(message.get("type", 0)),
-                "author_id": message.get("author", {}).get("id"),
-                "reactions": message.get("reactions", []),
-                }
+        return DiscordMessage(
+            message_id=message["id"],
+            timestamp=message["timestamp"],
+            channel_id=channel_id,
+            type=MessageType(message.get("type", 0)),
+            author_id=message.get("author", {}).get("id"),
+            reactions=message.get("reactions", []),
+        )
 
 
     def delete_message(
@@ -264,7 +265,7 @@ class DiscordAPI:
         self,
         channel_id: str,
         message_id: str,
-        emoji: Dict[str, Any]
+        emoji: DiscordEmoji
     ) -> bool:
         """
         Deletes the authenticated user's reaction from a message.
@@ -273,6 +274,7 @@ class DiscordAPI:
             channel_id (str): ID of the channel containing the message.
             message_id (str): ID of the message.
             emoji (Dict[str, Any]): Emoji dict from the message reaction object.
+            emoji (DiscordEmoji): Emoji dict from the message reaction object.
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -292,12 +294,12 @@ class DiscordAPI:
         return True
 
 
-    def _format_emoji_identifier(self, emoji: Dict[str, Any]) -> Optional[str]:
+    def _format_emoji_identifier(self, emoji: DiscordEmoji) -> Optional[str]:
         """
         Formats an emoji dict into the identifier string required by the Discord API.
 
         Args:
-            emoji (Dict[str, Any]): Emoji dictionary containing 'name' and optionally 'id'.
+            emoji (DiscordEmoji): Emoji dictionary containing 'name' and optionally 'id'.
 
         Returns:
             Optional[str]: The formatted emoji identifier or None if insufficient data.
