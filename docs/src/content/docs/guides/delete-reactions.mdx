@@ -1,0 +1,36 @@
+---
+title: Delete Reactions
+description: Remove your reactions alongside message cleanup.
+---
+
+Use [`--delete-reactions`](../../reference/cli-options/#--delete-reactions) when you want the tool to remove your own reactions in addition to deleting your messages.
+
+## What it does
+
+When the tool encounters a message in scope, it can remove reactions that belong to you if the message itself is not being deleted.
+
+## Important behavior
+
+- If a message will be deleted, its reactions are not treated as separate work items.
+- If a message is preserved, your reactions on that message may also be preserved.
+- Reaction removal is always about your own reactions, not other users' reactions.
+
+## Example
+
+```bash
+delete-me-discord --include-ids <channel_id> --delete-reactions --dry-run
+```
+
+In dry-run mode, the summary shows both:
+
+- `delete reactions=...`
+- `preserve reactions=...`
+
+## When to use it
+
+Use it when you want cleanup to cover both:
+
+- your message history
+- your reaction history
+
+If you want to understand how the timing and summaries are presented, see [Log Output](../../reference/log-output/).

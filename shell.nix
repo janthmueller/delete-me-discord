@@ -15,6 +15,8 @@ pkgs.mkShell {
   buildInputs = [
     python
     pkgs.pre-commit
+    pkgs.nodejs_20
+    pkgs.pnpm
   ];
   shellHook = ''
     if [ ! -d .venv ]; then
@@ -23,5 +25,7 @@ pkgs.mkShell {
     # Keep installs writable and isolated from the Nix store.
     source .venv/bin/activate
     export PIP_REQUIRE_VIRTUALENV=1
+    export PNPM_HOME="$PWD/.pnpm-home"
+    export PATH="$PNPM_HOME:$PATH"
   '';
 }

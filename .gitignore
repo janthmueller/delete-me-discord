@@ -7,3 +7,7 @@ build/
 TODO.md
 COMPARISON.md
 scripts/
+docs/node_modules/
+docs/.astro/
+docs/dist/
+.pnpm-home/

@@ -1,0 +1,101 @@
+---
+title: Log Output
+description: How to interpret timing and planning output from the CLI.
+---
+
+The CLI does not always show the same kind of output.
+
+What you see depends mainly on:
+
+- your [`--log-level`](../cli-options/#--log-level)
+- whether you are in [`--dry-run`](../cli-options/#--dry-run)
+- whether you enabled [`--buffer-channel-messages`](../cli-options/#--buffer-channel-messages)
+- whether you enabled [`--json`](../cli-options/#--json)
+
+## Log level comes first
+
+The selected [`--log-level`](../cli-options/#--log-level) determines how much output is shown at all.
+
+- `INFO` is the normal user-facing mode and is what the examples in these docs assume.
+- `DEBUG` adds lower-level diagnostic output.
+- higher levels such as `WARNING` or `ERROR` suppress routine informational lines.
+
+## What is always shown
+
+In normal terminal output at `INFO` level, the CLI shows the basic run flow:
+
+- authentication
+- the active deletion cutoff
+- which channel is currently being processed
+- a final summary
+- `Total time`
+
+That gives you a high-level view even in the default lazy mode.
+
+## Dry-run output
+
+In `--dry-run`, the CLI reports what it *would* do instead of deleting anything.
+
+Each channel gets a summary line with:
+
+- messages that would be deleted
+- messages that would be preserved
+- reactions that would be deleted or preserved, when [`--delete-reactions`](../cli-options/#--delete-reactions) is enabled
+- `scan time`
+- `est. execute time`
+- `est. total time`
+
+At the end of the run, the CLI also prints a final summary with the same categories.
+
+Dry-run is the best mode for checking whether your flags do what you expect before running an actual deletion.
+
+## Buffered mode output
+
+With [`--buffer-channel-messages`](../cli-options/#--buffer-channel-messages), the CLI fetches one channel up front before evaluating it.
+
+In deletion mode, that adds a pre-execution timing line per channel with:
+
+- `buffered messages`
+- `scan time`
+- `est. execute time`
+
+This is useful when you want to understand the next channel before the delete phase starts.
+
+In `--dry-run`, buffered mode usually does not add much practical value. Dry-run already reports the important planning and timing information without it.
+
+## Deletion mode output
+
+In a real deletion run, each channel ends with a result summary line.
+
+That line includes:
+
+- deleted messages
+- preserved messages
+- deleted reactions and preserved reactions, when reaction deletion is enabled
+- `total time`
+
+If buffered mode is enabled, the per-channel summary also includes `execute time`.
+
+## Meaning of the timing fields
+
+- `scan time`: how long it took to fetch and evaluate the channel or run
+- `est. execute time`: rough estimate for how long delete/reaction actions would take
+- `est. total time`: `scan time + est. execute time`
+- `execute time`: measured action time during a real buffered deletion run
+- `Total time`: actual wall-clock time for the whole command
+
+The estimates are rough. They are based on planned delete/reaction actions plus the configured delete sleep timing, not on exact future API latency.
+
+## JSON mode
+
+Use `--json` when you want machine-readable output instead of terminal-oriented log lines.
+
+This is the right mode for wrappers and integrations.
+
+In `--json` mode:
+
+- terminal-oriented formatting is disabled
+- each log entry is emitted as a JSON object
+- the human-readable summaries are replaced by structured log messages
+
+If you are running the tool manually in a terminal, the default non-JSON output is easier to read.

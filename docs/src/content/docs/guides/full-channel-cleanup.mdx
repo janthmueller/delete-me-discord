@@ -1,0 +1,47 @@
+---
+title: Full Channel Cleanup
+description: Safely wipe one channel or DM with a dry-run first.
+---
+
+Use this workflow when you want to clean a single DM or channel as completely as possible.
+
+## Recommended process
+
+1. Discover IDs first.
+2. Scope the run to one target with [`--include-ids`](../../reference/cli-options/#--include-ids).
+3. Run [`--dry-run`](../../reference/cli-options/#--dry-run).
+4. Execute only after the plan looks correct.
+
+## Discover the target
+
+```bash
+delete-me-discord --list-guilds
+delete-me-discord --list-channels
+```
+
+## Preview a full wipe
+
+```bash
+delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+```
+
+This means:
+
+- only the selected target is processed
+- no recent messages are preserved
+- no "last N messages" are preserved
+- your reactions are removed where applicable
+
+## Execute the wipe
+
+Drop `--dry-run` once you are satisfied:
+
+```bash
+delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0
+```
+
+## Notes
+
+- [`--max-messages`](../../reference/cli-options/#--max-messages) can be useful if you want to test on a smaller slice first.
+- If you want better per-channel timing visibility for a manual run, add [`--buffer-channel-messages`](../../reference/cli-options/#--buffer-channel-messages).
+- If you only want a rolling cleanup instead of a full wipe, use [Rolling Retention](../rolling-retention/).

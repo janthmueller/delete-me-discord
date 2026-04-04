@@ -1,0 +1,63 @@
+---
+title: Buffered Mode
+description: Fetch one channel up front before evaluation.
+---
+
+Enable buffered mode with:
+
+```bash
+delete-me-discord --buffer-channel-messages ...
+```
+
+Buffered mode changes the per-channel flow from:
+
+- fetch lazily while evaluating
+
+to:
+
+- fetch one channel first
+- build the plan for that buffered slice
+- then execute against that plan
+
+## When it is useful
+
+- manual deletion runs where you want to understand one channel before the delete phase starts
+- runs where seeing `buffered messages`, `scan time`, and a pre-execution estimate is useful
+- channels where the default lazy mode feels too opaque
+
+## What it changes
+
+- one channel is fetched fully before evaluation
+- the tool can report `buffered messages` and `scan time` for that channel
+- in deletion mode, the tool can show `est. execute time` before it starts deleting messages or reactions
+
+## When you usually do not need it
+
+In `--dry-run`, buffered mode is usually not necessary.
+
+Dry-run already reports the main planning information without buffered mode:
+
+- what would be deleted
+- what would be preserved
+- `scan time`
+- `est. execute time`
+- `est. total time`
+
+Buffered mode does not change the deletion decision in `--dry-run`. It mainly changes how the channel is scanned internally.
+
+## What it does not change
+
+- it still respects [`--max-messages`](../../reference/cli-options/#--max-messages)
+- it still respects [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age)
+- it does not fetch the entire history unless your other flags already require that
+
+## Tradeoff
+
+Buffered mode uses more memory per channel than the default lazy mode.
+
+If you want the exact flag definition, see [`--buffer-channel-messages`](../../reference/cli-options/#--buffer-channel-messages).
+
+## See also
+
+- [Log Output](../../reference/log-output/)
+- [Rolling Retention](../rolling-retention/)

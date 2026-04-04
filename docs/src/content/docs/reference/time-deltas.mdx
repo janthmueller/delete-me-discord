@@ -1,0 +1,65 @@
+---
+title: Time Deltas
+description: Supported time delta formats for retention and fetch flags.
+---
+
+The CLI accepts two time delta styles.
+
+These formats are used by flags such as `--preserve-last` and `--fetch-max-age`.
+
+## Legacy key/value
+
+```text
+weeks=2,days=3,hours=1
+```
+
+Rules:
+
+- units must be unique
+- negative values are not allowed
+- unit names use full words such as `weeks`, `days`, `hours`, `minutes`, and `seconds`
+
+Common examples:
+
+- `weeks=1`
+- `days=14`
+- `hours=12,minutes=30`
+
+## Compact suffix
+
+```text
+2w3d4h5m6s
+```
+
+Supported suffixes:
+
+| Suffix | Meaning |
+| --- | --- |
+| `w` | weeks |
+| `d` | days |
+| `h` | hours |
+| `m` | minutes |
+| `s` | seconds |
+
+Common examples:
+
+- `1w`
+- `14d`
+- `12h30m`
+- `2w3d`
+
+## Choosing a format
+
+Both formats are equivalent. Use whichever one you find easier to read.
+
+- The legacy `key=value` style is more explicit.
+- The compact suffix style is shorter and faster to type.
+
+## Zero
+
+Both `0` and `0.0` are treated as zero duration.
+
+## See also
+
+- [CLI Options](../cli-options/)
+- [Rolling Retention](../../guides/rolling-retention/)

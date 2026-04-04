@@ -1,0 +1,120 @@
+---
+title: CLI Options
+description: Reference for the main delete-me-discord command-line flags.
+---
+
+This page is the main lookup reference for the CLI. For workflow-oriented guidance, use the guides section.
+
+## Discovery
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-g` | `--list-guilds` | off | List guild IDs and names, then exit. |
+| `-c` | `--list-channels` | off | List channels grouped by guild/category/parent plus DMs, then exit. |
+
+## Safety and targeting
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-d` | `--dry-run` | off | Simulate deletions without making changes. Also switches preserve-cache operations to a separate `.dryrun.json` file. |
+| `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent IDs. Channel and parent includes punch through higher-level excludes. |
+| `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent IDs from processing. |
+
+## Retention
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-p` | `--preserve-last` | `weeks=2` | Keep messages and reactions newer than this delta. |
+| `-n` | `--preserve-n` | `12` | Always keep the last N messages in each channel. |
+| `-` | `--preserve-n-mode` | `mine` | Count preserved messages as only your deletable messages (`mine`) or all recent messages in the channel (`all`). |
+| `-` | `--preserve-cache` | off | Persist preserved message IDs between runs. Most useful with `--preserve-n` and `--fetch-max-age`. |
+| `-` | `--wipe-preserve-cache` | off | Delete the active preserve cache file and exit. |
+| `-` | `--preserve-cache-path` | `~/.config/delete-me-discord/preserve_cache.json` | Override the preserve cache path. |
+
+## Fetch and execution
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-a` | `--fetch-max-age` | unlimited | Fetch only messages newer than this delta. |
+| `-m` | `--max-messages` | unlimited | Maximum number of messages to fetch per channel. |
+| `-` | `--buffer-channel-messages` | off | Buffer one channel at a time before evaluation. Useful for per-channel timing output and approximate execution estimates, at the cost of higher per-channel memory usage. |
+| `-R` | `--delete-reactions` | off | Remove your reactions on messages encountered once the deletion window is reached. |
+
+## Timing and retries
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-r` | `--max-retries` | `5` | Maximum retry attempts for retryable API requests. |
+| `-b` | `--retry-time-buffer` | `25 35` | Extra wait after rate limits. One value is fixed, two values define a random range in seconds. |
+| `-f` | `--fetch-sleep-time` | `0.2 0.4` | Sleep between fetch requests. One value is fixed, two values define a random range in seconds. |
+| `-s` | `--delete-sleep-time` | `1.5 2` | Sleep between deletions. One value is fixed, two values define a random range in seconds. |
+
+## Output
+
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-l` | `--log-level` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `-` | `--json` | off | Emit JSON output for logs and discovery output. |
+| `-v` | `--version` | n/a | Show the version and exit. |
+
+## Key options
+
+### `--preserve-last`
+
+Keeps messages and reactions newer than a given time delta.
+
+Examples:
+
+- `--preserve-last "weeks=2"`
+- `--preserve-last "1w3d"`
+- `--preserve-last "0"` to preserve nothing by age
+
+Use this when you want a time-based retention window such as "keep the last 2 weeks".
+
+### `--preserve-n`
+
+Always keeps the last N messages in each channel, independent of [`--preserve-last`](#--preserve-last).
+
+Examples:
+
+- `--preserve-n 20` keeps the last 20 qualifying messages in each channel
+- `--preserve-n 0` disables count-based preservation
+
+Use this when you want to make sure each channel keeps some recent context even if your time window is aggressive.
+
+### `--preserve-n-mode`
+
+Controls how [`--preserve-n`](#--preserve-n) is counted.
+
+- `mine`: count only your own deletable messages
+- `all`: count all recent messages in the channel
+
+Use `mine` when you want to preserve your own recent messages only. Use `all` when channel context matters more than authorship.
+
+### `--preserve-cache`
+
+Stores preserved message IDs between runs so repeated runs with a limited fetch window can still respect earlier preserve decisions.
+
+This matters most when you combine:
+
+- [`--preserve-n`](#--preserve-n)
+- [`--fetch-max-age`](#--fetch-max-age)
+- recurring cleanup runs
+
+### `--fetch-max-age`
+
+Limits how much history is fetched from each channel.
+
+This improves speed, but it also means the tool only sees a slice of history unless you widen the fetch window or use preserve-cache strategically.
+
+### `--buffer-channel-messages`
+
+Fetches one channel into memory before evaluation instead of walking it lazily.
+
+Use this when you want stronger per-channel timing visibility in a manual run and do not mind the extra per-channel buffering cost.
+
+## See also
+
+- [Time Deltas](../time-deltas/)
+- [Preserve Cache](../preserve-cache/)
+- [Log Output](../log-output/)

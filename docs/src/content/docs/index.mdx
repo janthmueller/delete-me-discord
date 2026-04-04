@@ -1,0 +1,56 @@
+---
+title: Overview
+description: Use Delete Me Discord safely with dry-run planning, retention controls, and channel-level filtering.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Use at your own risk">
+Using automated tools on Discord may violate Discord's Terms of Service.
+</Aside>
+
+Delete Me Discord is a command-line tool for deleting your own Discord messages and reactions with explicit filters and retention controls.
+
+It is designed around a cautious workflow:
+
+- discover targets first
+- scope runs explicitly
+- preview behavior with `--dry-run`
+- only then execute
+
+## What it can do
+
+- delete your own messages in DMs and guild text channels
+- remove your own reactions alongside message cleanup
+- target specific channels, guilds, or parent/category IDs
+- keep recent history via time- and count-based retention
+- support repeated cleanup runs with preserve-cache
+- provide dry-run planning and timing summaries before you commit to a run
+
+## Start here
+
+- Use [Installation](./getting-started/installation/) to pick `pipx`, `pip`, or a binary.
+- Use [Authentication](./getting-started/authentication/) to configure your token.
+- Use [First Run](./getting-started/first-run/) for the safest dry-run workflow.
+
+## Common workflows
+
+- [Full Channel Cleanup](./guides/full-channel-cleanup/) for one-off manual cleanup of a DM or channel
+- [Rolling Retention](./guides/rolling-retention/) for repeated cleanup while keeping a recent window
+- [Delete Reactions](./guides/delete-reactions/) when reaction cleanup matters too
+- [Buffered Mode](./guides/buffered-mode/) when you want stronger per-channel timing visibility
+
+## Core ideas
+
+- [`--dry-run`](./reference/cli-options/#--dry-run) scans and plans without deleting.
+- [`--preserve-last`](./reference/cli-options/#--preserve-last) keeps messages newer than a given time delta.
+- [`--preserve-n`](./reference/cli-options/#--preserve-n) keeps the last N messages per channel.
+- [`--fetch-max-age`](./reference/cli-options/#--fetch-max-age) limits the fetched slice of history.
+- [`--buffer-channel-messages`](./reference/cli-options/#--buffer-channel-messages) fetches one channel up front before evaluation, which enables better per-channel timing summaries for manual runs.
+
+## Reference
+
+- [CLI Options](./reference/cli-options/) for the full flag surface
+- [Time Deltas](./reference/time-deltas/) for accepted duration formats
+- [Log Output](./reference/log-output/) for interpreting run summaries
+- [Preserve Cache](./reference/preserve-cache/) for repeated-run behavior

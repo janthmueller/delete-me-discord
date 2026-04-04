@@ -1,0 +1,17 @@
+{
+  "name": "delete-me-discord-docs",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.8.1",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "astro": "^5.0.0",
+    "@astrojs/starlight": "^0.30.0"
+  }
+}

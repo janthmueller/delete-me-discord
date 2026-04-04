@@ -12,6 +12,7 @@
 - Filters by time/count and include/exclude (channels, categories/parents*, guilds).
 - Dry-run + discovery helpers (`--list-guilds`, `--list-channels`) to target safely.
 - GitHub Actions example: see the [workflow](https://github.com/janthmueller/delete-me-discord-workflow).
+- Full documentation: [janthmueller.github.io/delete-me-discord](https://janthmueller.github.io/delete-me-discord/)
 
 *\*Discord’s API uses `parent_id` for categories; we use “category” and “parent” interchangeably.*
 
@@ -33,7 +34,7 @@ Install options:
   `delete-me-discord --list-guilds` and `delete-me-discord --list-channels`
 
 - Full channel wipe (preview first):  
-  `delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last "seconds=0" --dry-run`  
+  `delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run`  
   Drop `--dry-run` to execute.
 
 **Rolling retention (keep recent, expire older)**  

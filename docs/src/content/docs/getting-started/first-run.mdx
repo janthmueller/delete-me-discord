@@ -1,0 +1,47 @@
+---
+title: First Run
+description: Safest first-run workflow using discovery and dry-run mode.
+---
+
+The safest first run is deliberately narrow: discover IDs, choose one target, and preview the result in [`--dry-run`](../../reference/cli-options/#--dry-run).
+
+## 1. Discover IDs first
+
+```bash
+delete-me-discord --list-guilds
+delete-me-discord --list-channels
+```
+
+This gives you the IDs you need for [`--include-ids`](../../reference/cli-options/#--include-ids) and helps avoid deleting from the wrong place.
+
+## 2. Start with dry-run
+
+```bash
+delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+```
+
+This example targets one channel, includes reaction cleanup, and preserves nothing. It is useful as a preview for a full wipe of that single channel.
+
+## 3. Execute only after the plan looks right
+
+Drop `--dry-run` once you are satisfied with the output.
+
+## How to read the dry-run output
+
+Dry-run now reports per-channel planning details such as:
+
+- messages and reactions that would be deleted
+- `scan time`
+- `est. execute time`
+- `est. total time`
+
+## Recommended progression
+
+1. Start with one `--include-ids` target.
+2. Use `--dry-run`.
+3. Adjust [`--preserve-last`](../../reference/cli-options/#--preserve-last), [`--preserve-n`](../../reference/cli-options/#--preserve-n), and [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age).
+4. Only then expand scope or remove `--dry-run`.
+
+If you want a one-off cleanup of a single target, continue with [Full Channel Cleanup](../../guides/full-channel-cleanup/).
+
+If you want repeated cleanup over time, continue with [Rolling Retention](../../guides/rolling-retention/).

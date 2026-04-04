@@ -1,0 +1,30 @@
+---
+title: Authentication
+description: Configure the Discord token used by the CLI.
+---
+
+`delete-me-discord` authenticates with Discord through your user token.
+
+Set your Discord token before running the tool:
+
+```bash
+export DISCORD_TOKEN=<your_token>
+```
+
+The tool can fetch the current user via the token. If needed, you can also set `DISCORD_USER_ID`, but normal use should not require it.
+
+## Finding your token
+
+You can use this external guide to obtain your Discord token:
+
+- [How to obtain the Discord auth token](https://github.com/victornpb/undiscord/wiki/authToken)
+
+## Notes
+
+- Keep the token private. Anyone with the token can act as your Discord user.
+- Prefer exporting it in the shell for the current session instead of hardcoding it in scripts.
+- Be aware that using automated tooling on Discord may violate Discord's Terms of Service.
+
+## Next step
+
+Continue with [First Run](../first-run/) to validate your filters and retention settings safely in `--dry-run`.
