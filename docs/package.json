@@ -13,5 +13,10 @@
   "dependencies": {
     "astro": "^5.0.0",
     "@astrojs/starlight": "^0.30.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "^6.4.2"
+    }
   }
 }
