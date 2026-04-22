@@ -11,12 +11,7 @@
     "check": "astro check"
   },
   "dependencies": {
-    "astro": "^5.0.0",
-    "@astrojs/starlight": "^0.30.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "vite": "^6.4.2"
-    }
+    "astro": "^6.1.6",
+    "@astrojs/starlight": "^0.38.2"
   }
 }

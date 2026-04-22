@@ -15,7 +15,7 @@ pkgs.mkShell {
   buildInputs = [
     python
     pkgs.pre-commit
-    pkgs.nodejs_20
+    pkgs.nodejs_22
     pkgs.pnpm
   ];
   shellHook = ''

@@ -11,9 +11,13 @@ export default defineConfig({
       description: 'Documentation for the Delete Me Discord CLI.',
       customCss: ['./src/styles/custom.css'],
       tableOfContents: false,
-      social: {
-        github: 'https://github.com/janthmueller/delete-me-discord',
-      },
+      social: [
+        {
+          icon: 'github',
+          label: 'GitHub',
+          href: 'https://github.com/janthmueller/delete-me-discord',
+        },
+      ],
       sidebar: [
         {
           label: 'Start Here',
