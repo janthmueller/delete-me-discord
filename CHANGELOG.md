@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v1.7.1 (2026-04-22)
+
+### Bug Fixes
+
+- **cli**: Clarify missing token error
+  ([`ec4051b`](https://github.com/janthmueller/delete-me-discord/commit/ec4051b01deaa486b93da113c60db33dfffe3e47))
+
+### Chores
+
+- **ci**: Upgrade PyPI publish action to v1.13.0
+  ([`5363c18`](https://github.com/janthmueller/delete-me-discord/commit/5363c18e4a79fcd727bd226f548282063b5fcca8))
+
+- **docs**: Pin patched vite in docs lockfile
+  ([`710a5fc`](https://github.com/janthmueller/delete-me-discord/commit/710a5fca2a4f74d525a9a138c72db4562995f4c1))
+
+### Documentation
+
+- Add Starlight site and GitHub Pages deployment
+  ([`c1c4a51`](https://github.com/janthmueller/delete-me-discord/commit/c1c4a51f1b68df9e7ad3890f4b2218807b5ab9c9))
+
+- Simplify README and move details to docs site
+  ([`3efc689`](https://github.com/janthmueller/delete-me-discord/commit/3efc689462fe2e77bdd05ed8766dc563233bffe8))
+
+- Trim authentication page wording
+  ([`b205437`](https://github.com/janthmueller/delete-me-discord/commit/b20543793969f7f87b04dc6855c05637e93212a7))
+
+
 ## v1.7.0 (2026-03-22)
 
 ### Features
