@@ -38,7 +38,7 @@ class DiscordAPI:
         """
         self._token = token or os.getenv("DISCORD_TOKEN")
         if not self._token:
-            raise ValueError("Discord token not provided. Set DISCORD_TOKEN environment variable or pass as an argument.")
+            raise ValueError("Discord token not provided. Set the DISCORD_TOKEN environment variable.")
 
         self.max_retries = max_retries
         self.retry_time_buffer = retry_time_buffer  # (min_buffer, max_buffer)

@@ -107,7 +107,7 @@ def test_request_reaches_max_retries_on_500(monkeypatch):
 
 def test_api_requires_token(monkeypatch):
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Set the DISCORD_TOKEN environment variable"):
         DiscordAPI(token=None)
 
 

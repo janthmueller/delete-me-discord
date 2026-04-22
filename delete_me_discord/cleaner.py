@@ -39,7 +39,7 @@ class MessageCleaner:
 
         Raises:
             ValueError: If both include_ids and exclude_ids contain overlapping IDs.
-            ValueError: If user_id is not provided and not set in environment variables.
+            ValueError: If user_id cannot be resolved from arguments, environment variables, or the API token.
         """
         self.api = api
         self.user_id = user_id or os.getenv("DISCORD_USER_ID")
@@ -50,7 +50,7 @@ class MessageCleaner:
             except Exception:
                 self.user_id = None
         if not self.user_id:
-            raise ValueError("User ID not provided. Set DISCORD_USER_ID environment variable, pass as an argument, or ensure the token can fetch /users/@me.")
+            raise ValueError("User ID not provided. Set DISCORD_USER_ID or ensure the token can fetch /users/@me.")
 
         self.include_ids = set(include_ids) if include_ids else set()
         self.exclude_ids = set(exclude_ids) if exclude_ids else set()
