@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.8.1 (2026-04-26)
+
+### Bug Fixes
+
+- **logging**: Redact preserve cache exceptions
+  ([`ecfdd41`](https://github.com/janthmueller/delete-me-discord/commit/ecfdd4172298ac6bfc90a5ad275b5b8995ff3fff))
+
+### Documentation
+
+- Fix redact-sensitive CLI example
+  ([`4cf6133`](https://github.com/janthmueller/delete-me-discord/commit/4cf613371c7f5202df7341248850fdb27e36d173))
+
+
 ## v1.8.0 (2026-04-26)
 
 ### Features
