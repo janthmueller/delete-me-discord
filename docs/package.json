@@ -10,6 +10,11 @@
     "preview": "astro preview",
     "check": "astro check"
   },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.10"
+    }
+  },
   "dependencies": {
     "astro": "^6.1.6",
     "@astrojs/starlight": "^0.38.2"
