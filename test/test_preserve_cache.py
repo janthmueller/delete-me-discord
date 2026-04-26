@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+import pytest
 
 # Ensure project root is importable when running tests without installation.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from delete_me_discord.preserve_cache import PreserveCache
+from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 
 
 def test_preserve_cache_loads_and_saves_ids(tmp_path):
@@ -50,3 +52,38 @@ def test_preserve_cache_respects_custom_path(tmp_path):
         raw = json.load(f)
     assert raw["schema_version"] == cache.SCHEMA_VERSION
     assert raw["channels"]["chan"] == ["x"]
+
+
+def test_preserve_cache_schema_error_redacts_path_when_enabled(tmp_path):
+    cache_path = tmp_path / "sensitive-cache.json"
+    cache_path.write_text(json.dumps({"schema_version": 999, "channels": {}}), encoding="utf-8")
+
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        with pytest.raises(ValueError) as exc:
+            PreserveCache(path=str(cache_path))
+    finally:
+        set_redaction_config(RedactionConfig())
+
+    message = str(exc.value)
+    assert "***" in message
+    assert str(cache_path) not in message
+
+
+def test_preserve_cache_invalid_channel_entry_redacts_channel_id_when_enabled(tmp_path):
+    cache_path = tmp_path / "preserve_cache.json"
+    cache_path.write_text(
+        json.dumps({"schema_version": PreserveCache.SCHEMA_VERSION, "channels": {"123456789012345678": "bad"}}),
+        encoding="utf-8",
+    )
+
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        with pytest.raises(ValueError) as exc:
+            PreserveCache(path=str(cache_path))
+    finally:
+        set_redaction_config(RedactionConfig())
+
+    message = str(exc.value)
+    assert "***5678" in message
+    assert "123456789012345678" not in message

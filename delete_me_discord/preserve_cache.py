@@ -49,7 +49,7 @@ class PreserveCache:
         if schema_version != self.SCHEMA_VERSION:
             raise ValueError(
                 f"Preserve cache schema mismatch (found {schema_version}, expected {self.SCHEMA_VERSION}). "
-                f"Delete the cache file ({self.path}) or run with --wipe-preserve-cache or --preserve-cache-path "
+                f"Delete the cache file ({sensitive(self.path, full=True)}) or run with --wipe-preserve-cache or --preserve-cache-path "
                 f"to use a fresh file."
             )
 
@@ -59,7 +59,7 @@ class PreserveCache:
         # We expect keys as strings and values as lists of IDs.
         for k, v in channels.items():
             if not isinstance(v, list):
-                raise ValueError(f"Preserve cache entry for channel {k} must be a list of IDs.")
+                raise ValueError(f"Preserve cache entry for channel {sensitive(k)} must be a list of IDs.")
         self.data["channels"] = channels
 
     def get_ids(self, channel_id: str) -> List[str]:

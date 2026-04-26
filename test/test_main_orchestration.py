@@ -336,3 +336,26 @@ def test_main_json_exception_output(tmp_path, monkeypatch, capsys):
     assert exc.value.code == 1
     payload = capsys.readouterr().out.strip()
     assert '"type": "exception"' in payload
+
+
+def test_main_json_exception_output_keeps_redacted_preserve_cache_message(tmp_path, monkeypatch, capsys):
+    args = _base_args(tmp_path, json=True, redact_sensitive=RedactionConfig(enabled=True, prefix=0, suffix=4))
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    def boom(*args, **kwargs):
+        raise ValueError(f"bad path {delete_me_discord.sensitive('/tmp/example-secret-path', full=True)}")
+
+    monkeypatch.setattr(delete_me_discord, "_run", boom)
+
+    set_redaction_config(args.redact_sensitive)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            delete_me_discord.main()
+        assert exc.value.code == 1
+        payload = capsys.readouterr().out.strip()
+        assert '"type": "exception"' in payload
+        assert "/tmp/example-secret-path" not in payload
+        assert "***" in payload
+    finally:
+        set_redaction_config(RedactionConfig())
