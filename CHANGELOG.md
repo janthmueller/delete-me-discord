@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.7.2 (2026-04-26)
+
+### Bug Fixes
+
+- **packaging**: Require Python 3.10 or newer
+  ([`16ad4b6`](https://github.com/janthmueller/delete-me-discord/commit/16ad4b6f308fe0a8b6eb2312502beb861724425f))
+
+### Chores
+
+- **ci**: Align supported Python versions
+  ([`94f4ed6`](https://github.com/janthmueller/delete-me-discord/commit/94f4ed621cb38da319d4b7c520b7632119b69a4a))
+
+### Documentation
+
+- Upgrade docs toolchain
+  ([`a60021f`](https://github.com/janthmueller/delete-me-discord/commit/a60021f038156fe783c09ff9503bfb8cdc3ee125))
+
+
 ## v1.7.1 (2026-04-22)
 
 ### Bug Fixes
