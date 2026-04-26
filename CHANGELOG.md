@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3 (2026-04-26)
+
+### Bug Fixes
+
+- **packaging**: Remove stale setup.py version guard
+  ([`0a8b34e`](https://github.com/janthmueller/delete-me-discord/commit/0a8b34e3d68c137909ad69819cf9810b2017cb7f))
+
+
 ## v1.7.2 (2026-04-26)
 
 ### Bug Fixes
