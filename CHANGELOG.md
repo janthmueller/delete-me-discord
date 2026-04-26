@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-04-26)
+
+### Features
+
+- **logging**: Redact sensitive values in logs
+  ([`cf07a64`](https://github.com/janthmueller/delete-me-discord/commit/cf07a6428b06dfb6b062ea28c853c358fa4d2096))
+
+
 ## v1.7.3 (2026-04-26)
 
 ### Bug Fixes
