@@ -1,6 +1,7 @@
 import pytest
 
 from delete_me_discord.api import DiscordAPI
+from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.utils import (
     AuthenticationError,
     ResourceUnavailable,
@@ -91,10 +92,52 @@ def test_fetch_messages_skips_on_resource_unavailable():
     assert session.calls == 1
 
 
-def test_delete_own_reaction_returns_false_on_malformed_emoji(caplog):
+def test_delete_own_reaction_encodes_identifier_in_url(caplog):
     session = FakeSession(FakeResponse(204, None))
     api = make_api(session)
     caplog.set_level("WARNING")
-    result = api.delete_own_reaction(channel_id="c1", message_id="m1", emoji={})
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        result = api.delete_own_reaction(
+            channel_id="123456789012345678",
+            message_id="123456789012345679",
+            emoji={"name": "sample_emoji", "id": "999999"},
+        )
+    finally:
+        set_redaction_config(RedactionConfig())
+    assert result is True
+    assert session.last_url.endswith("/reactions/sample_emoji%3A999999/@me")
+
+
+def test_delete_own_reaction_malformed_emoji_log_is_redacted(caplog):
+    session = FakeSession(FakeResponse(204, None))
+    api = make_api(session)
+    caplog.set_level("WARNING")
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        result = api.delete_own_reaction(channel_id="c1", message_id="m1", emoji={})
+    finally:
+        set_redaction_config(RedactionConfig())
     assert result is False
     assert any("missing emoji identifier" in rec.message for rec in caplog.records)
+
+
+def test_delete_own_reaction_unavailable_log_redacts_emoji_and_ids(monkeypatch, caplog):
+    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
+    caplog.set_level("WARNING")
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        result = api.delete_own_reaction(
+            "123456789012345678",
+            "123456789012345679",
+            emoji={"name": "sample_emoji"},
+        )
+    finally:
+        set_redaction_config(RedactionConfig())
+
+    assert result is False
+    assert "Skipping deletion of reaction *** from message ***5679 in channel ***5678 (unavailable: gone)." in caplog.text
+    assert "sample_emoji" not in caplog.text
+    assert "123456789012345678" not in caplog.text
+    assert "123456789012345679" not in caplog.text

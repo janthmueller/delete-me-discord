@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Tuple, Set, Optional, Generator
 from rich.console import Console
 from rich.logging import RichHandler
 
+from .privacy import RedactionConfig, sensitive, set_redaction_config
+
 
 class AuthenticationError(Exception):
     """Custom exception for authentication errors (e.g., 401)."""
@@ -39,14 +41,20 @@ class JsonLogFormatter(logging.Formatter):
 RICH_CONSOLE = Console()
 
 
-def setup_logging(log_level: str = "INFO", json_output: bool = False) -> None:
+def setup_logging(
+    log_level: str = "INFO",
+    json_output: bool = False,
+    redaction_config: Optional[RedactionConfig] = None,
+) -> None:
     """
     Configures the logging settings.
 
     Args:
         log_level (str): The logging level (e.g., 'DEBUG', 'INFO').
         json_output (bool): Emit JSON logs when True.
+        redaction_config (Optional[RedactionConfig]): Sensitive-value redaction settings.
     """
+    set_redaction_config(redaction_config)
     numeric_level = getattr(logging, log_level.upper(), None)
     if not isinstance(numeric_level, int):
         numeric_level = logging.INFO
@@ -86,7 +94,39 @@ def channel_str(channel: Dict[str, Any]) -> str:
     channel_name = channel.get("name") or ', '.join(
         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
     )
-    return f"{channel_type} {channel_name} (ID: {channel.get('id')})"
+    return f"{channel_type} {sensitive(channel_name, full=True)} (ID: {sensitive(channel.get('id', 'unknown'))})"
+
+
+def parse_redaction_spec(values: List[str]) -> RedactionConfig:
+    """
+    Parse redaction args in space-separated form.
+
+    Examples:
+    - [] fully masks sensitive values
+    - ["0", "4"] keeps the last 4 characters
+    - ["4", "4"] keeps the first and last 4 characters
+    """
+    if values == []:
+        return RedactionConfig(enabled=True)
+
+    parts = [part.strip() for part in values if part.strip()]
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(
+            "Invalid redact-sensitive format. Use '--redact-sensitive' for full masking or provide two integers like '0 4'."
+        )
+
+    try:
+        prefix = int(parts[0])
+        suffix = int(parts[1])
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Invalid redact-sensitive format. Prefix and suffix must be integers."
+        ) from exc
+
+    if prefix < 0 or suffix < 0:
+        raise argparse.ArgumentTypeError("Redaction prefix and suffix must be non-negative integers.")
+
+    return RedactionConfig(enabled=True, prefix=prefix, suffix=suffix)
 
 def should_include_channel(
     channel: Dict[str, Any],

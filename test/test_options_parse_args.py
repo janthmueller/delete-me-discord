@@ -35,6 +35,7 @@ def test_parse_args_defaults():
     assert args.preserve_cache is False
     assert args.wipe_preserve_cache is False
     assert args.json is False
+    assert args.redact_sensitive is None
 
 
 def test_parse_args_json_flag():
@@ -56,3 +57,33 @@ def test_parse_args_non_json_error_output(capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "unrecognized arguments" in err
+
+
+def test_parse_args_redact_sensitive_default_mask():
+    args = parse_args("1.0.0", argv=["--redact-sensitive"])
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 0
+
+
+def test_parse_args_redact_sensitive_custom_window():
+    args = parse_args("1.0.0", argv=["--redact-sensitive", "4", "4"])
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 4
+    assert args.redact_sensitive.suffix == 4
+
+
+def test_parse_args_redact_sensitive_rejects_invalid_spec(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=["--redact-sensitive", "4"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "two integers" in err
+
+
+def test_parse_args_redact_sensitive_rejects_comma_form(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=["--redact-sensitive", "0,4"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "two integers" in err

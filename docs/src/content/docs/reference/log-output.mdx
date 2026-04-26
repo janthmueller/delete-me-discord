@@ -11,6 +11,7 @@ What you see depends mainly on:
 - whether you are in [`--dry-run`](../cli-options/#--dry-run)
 - whether you enabled [`--buffer-channel-messages`](../cli-options/#--buffer-channel-messages)
 - whether you enabled [`--json`](../cli-options/#--json)
+- whether you enabled [`--redact-sensitive`](../cli-options/#--redact-sensitive)
 
 ## Log level comes first
 
@@ -99,3 +100,26 @@ In `--json` mode:
 - the human-readable summaries are replaced by structured log messages
 
 If you are running the tool manually in a terminal, the default non-JSON output is easier to read.
+
+## Sensitive value redaction
+
+Use [`--redact-sensitive`](../cli-options/#--redact-sensitive) when you want to share logs without exposing private names, IDs, or local paths.
+
+When redaction is enabled:
+
+- IDs are shown with the configured prefix/suffix window.
+- Human-readable sensitive values are fully hidden as `***`.
+
+Examples:
+
+- `--redact-sensitive`:
+  - channel ID -> `***`
+  - username -> `***`
+- `--redact-sensitive 0 4`:
+  - channel ID -> `***5678`
+  - username -> `***`
+- `--redact-sensitive 4 4`:
+  - channel ID -> `1234***5678`
+  - channel name -> `***`
+
+This applies to normal CLI logs and JSON logs. It does not change discovery output from [`--list-guilds`](../cli-options/#discovery) or [`--list-channels`](../cli-options/#discovery), because those commands are specifically meant to show names and IDs.

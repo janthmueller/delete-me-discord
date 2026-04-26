@@ -55,6 +55,7 @@ This page is the main lookup reference for the CLI. For workflow-oriented guidan
 | --- | --- | --- | --- |
 | `-l` | `--log-level` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `-` | `--json` | off | Emit JSON output for logs and discovery output. |
+| `-` | `--redact-sensitive [PREFIX SUFFIX]` | off | Redact sensitive values in normal logs. Without values, IDs are shown as `***`, while names, emoji labels, and paths are fully hidden as `***`. |
 | `-v` | `--version` | n/a | Show the version and exit. |
 
 ## Key options
@@ -112,6 +113,38 @@ This improves speed, but it also means the tool only sees a slice of history unl
 Fetches one channel into memory before evaluation instead of walking it lazily.
 
 Use this when you want stronger per-channel timing visibility in a manual run and do not mind the extra per-channel buffering cost.
+
+### `--redact-sensitive`
+
+Redacts sensitive values in normal CLI logs and JSON logs.
+
+Examples:
+
+- `--redact-sensitive` fully masks IDs as `***`
+- `--redact-sensitive 0 4` keeps only the last 4 characters of IDs, such as `***5678`
+- `--redact-sensitive 4 4` keeps the first and last 4 characters of IDs, such as `1234***5678`
+
+The split is intentional:
+
+- IDs use the configured prefix/suffix window.
+- Human-readable sensitive values are fully hidden as `***`.
+
+This currently affects operational logs such as:
+
+- authenticated user lines
+- usernames
+- channel and DM names
+- guild, channel, message, and user IDs
+- emoji names and reaction identifiers in reaction-related logs
+- preserve-cache paths
+
+Examples of the resulting output:
+
+- username or channel name: `***`
+- channel ID with `--redact-sensitive 0 4`: `***5678`
+- message ID with `--redact-sensitive 4 4`: `1234***5678`
+
+Discovery output from [`--list-guilds`](#discovery) and [`--list-channels`](#discovery) is intentionally left unchanged, because those commands exist to reveal IDs and names. The flag is for operational logging, not discovery output.
 
 ## See also
 

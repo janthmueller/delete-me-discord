@@ -50,6 +50,8 @@ delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 -
 
 Drop `--dry-run` only after the plan looks right.
 
+If you want to share logs or screenshots, add `--redact-sensitive`. For example, `--redact-sensitive 0,4` keeps only the last 4 characters of IDs while fully hiding names and local paths.
+
 ## Common Use Cases
 
 Full channel cleanup:

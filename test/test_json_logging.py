@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from delete_me_discord.utils import JsonLogFormatter
+from delete_me_discord.privacy import RedactionConfig, sensitive, set_redaction_config
 
 
 def test_json_log_formatter_outputs_required_keys():
@@ -28,3 +29,23 @@ def test_json_log_formatter_outputs_required_keys():
     assert payload["logger"] == "test"
     assert payload["message"] == "hello"
     assert "timestamp" in payload
+
+
+def test_json_log_formatter_redacts_sensitive_values():
+    formatter = JsonLogFormatter()
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=12,
+            msg="channel=%s",
+            args=(sensitive("123456789012345678"),),
+            exc_info=None,
+        )
+        payload = json.loads(formatter.format(record))
+    finally:
+        set_redaction_config(RedactionConfig())
+
+    assert payload["message"] == "channel=***5678"

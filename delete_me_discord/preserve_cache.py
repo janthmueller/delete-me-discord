@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from typing import Dict, List, Any
+from .privacy import sensitive
 
 DEFAULT_PRESERVE_CACHE_PATH = os.path.join(
     os.path.expanduser("~"),
@@ -35,10 +36,10 @@ class PreserveCache:
 
     def _load(self) -> None:
         if not os.path.exists(self.path):
-            self.logger.info("Preserve cache not found at %s; a new one will be created on save.", self.path)
+            self.logger.info("Preserve cache not found at %s; a new one will be created on save.", sensitive(self.path, full=True))
             return
 
-        self.logger.info("Loading preserve cache from %s.", self.path)
+        self.logger.info("Loading preserve cache from %s.", sensitive(self.path, full=True))
         with open(self.path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         if not isinstance(raw, dict):
@@ -79,5 +80,5 @@ class PreserveCache:
             with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, sort_keys=True)
         except Exception as exc:  # pragma: no cover - defensive
-            self.logger.error("Failed to write preserve cache at %s: %s", self.path, exc)
+            self.logger.error("Failed to write preserve cache at %s: %s", sensitive(self.path, full=True), exc)
             raise

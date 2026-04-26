@@ -9,6 +9,7 @@ from .discovery import run_discovery_commands
 from .options import parse_args
 from .utils import setup_logging, parse_random_range
 from .preserve_cache import PreserveCache
+from .privacy import sensitive
 from datetime import datetime, timezone
 
 import logging
@@ -64,11 +65,11 @@ def _run(args) -> None:
         try:
             if os.path.exists(preserve_cache_path):
                 os.remove(preserve_cache_path)
-                logging.info("Deleted preserve cache at %s.", preserve_cache_path)
+                logging.info("Deleted preserve cache at %s.", sensitive(preserve_cache_path, full=True))
             else:
-                logging.info("No preserve cache found at %s.", preserve_cache_path)
+                logging.info("No preserve cache found at %s.", sensitive(preserve_cache_path, full=True))
         except Exception as exc:
-            logging.error("Failed to delete preserve cache at %s: %s", preserve_cache_path, exc)
+            logging.error("Failed to delete preserve cache at %s: %s", sensitive(preserve_cache_path, full=True), exc)
         return
 
     # Initialize DiscordAPI with max_retries and retry_time_buffer
@@ -87,7 +88,11 @@ def _run(args) -> None:
     if not user_id:
         logging.error("Authentication failed: user ID missing in /users/@me response.")
         raise SystemExit(1)
-    logging.info("Authenticated as %s (%s).", current_user.get("username"), user_id)
+    logging.info(
+        "Authenticated as %s (%s).",
+        sensitive(current_user.get("username", "unknown"), full=True),
+        sensitive(user_id),
+    )
 
     if list_guilds or list_channels:
         run_discovery_commands(
@@ -127,7 +132,7 @@ def _run(args) -> None:
     )
     if preserve_cache:
         preserve_cache.save()
-        logging.info("Preserve cache saved to %s.", preserve_cache_path)
+        logging.info("Preserve cache saved to %s.", sensitive(preserve_cache_path, full=True))
 
 
 def main():
@@ -137,7 +142,11 @@ def main():
     args = parse_args(__version__)
 
     # Configure logging based on user input
-    setup_logging(log_level=args.log_level, json_output=args.json)
+    setup_logging(
+        log_level=args.log_level,
+        json_output=args.json,
+        redaction_config=getattr(args, "redact_sensitive", None),
+    )
 
     try:
         _run(args)

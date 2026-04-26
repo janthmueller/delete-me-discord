@@ -11,6 +11,8 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 from delete_me_discord.cleaner import MessageCleaner
+from delete_me_discord.models import ActionKind, PlannedAction
+from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 
 
 class DummyType:
@@ -355,6 +357,41 @@ def test_delete_reactions_handles_failure():
         delete_reactions=True,
     )
     assert stats["reactions_removed_count"] == 0
+
+
+def test_delete_reaction_logs_redact_emoji_name_and_ids(caplog):
+    cleaner = MessageCleaner(
+        api=DummyAPI(),
+        user_id="me",
+        preserve_last=timedelta(weeks=2),
+        preserve_n=0,
+        preserve_n_mode="mine",
+    )
+    action = PlannedAction(
+        kind=ActionKind.DELETE_REACTION,
+        channel_id="123456789012345678",
+        message_id="123456789012345679",
+        message_time=datetime.now(timezone.utc),
+        emoji={"name": "sample_emoji"},
+    )
+
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        with caplog.at_level("DEBUG"):
+            executed = cleaner._execute_action(
+                action=action,
+                delete_sleep_time_range=(0, 0),
+                dry_run=True,
+            )
+    finally:
+        set_redaction_config(RedactionConfig())
+
+    assert executed is True
+    assert "Would remove reaction *** from message ***5679 in channel ***5678." in caplog.text
+    assert "sample_emoji" not in caplog.text
+    assert "123456789012345678" not in caplog.text
+    assert "123456789012345679" not in caplog.text
+
 
 
 def test_init_fetches_user_id_from_api():

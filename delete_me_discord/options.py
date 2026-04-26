@@ -4,7 +4,7 @@ import json
 import sys
 from datetime import timedelta
 
-from .utils import parse_time_delta
+from .utils import parse_redaction_spec, parse_time_delta
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 
 
@@ -74,6 +74,13 @@ def build_parser(version: str, json_output: bool = False) -> argparse.ArgumentPa
         "--json",
         action="store_true",
         help="Emit JSON output (logs and discovery output)."
+    )
+    parser.add_argument(
+        "--redact-sensitive",
+        nargs="*",
+        default=None,
+        metavar="N",
+        help="Redact sensitive values in normal logs. Without values, fully masks them. Provide two integers like '--redact-sensitive 0 4' to keep part of IDs visible."
     )
     parser.add_argument(
         "-r", "--max-retries",
@@ -179,4 +186,10 @@ def parse_args(version: str, argv=None):
     """
     json_output = _argv_has_json(argv)
     parser = build_parser(version, json_output=json_output)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.redact_sensitive is not None:
+        try:
+            args.redact_sensitive = parse_redaction_spec(args.redact_sensitive)
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
+    return args

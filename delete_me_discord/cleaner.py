@@ -9,6 +9,7 @@ import logging
 from .api import DiscordAPI
 from .models import ActionKind, ChannelPlan, DiscordChannel, DiscordEmoji, DiscordMessage, MessageDecision, MessageFacts, PlannedAction
 from .utils import channel_str, should_include_channel, format_timestamp
+from .privacy import sensitive
 from .preserve_cache import PreserveCache
 
 
@@ -209,7 +210,11 @@ class MessageCleaner:
             message_time = facts.message_time
 
             if decision.preserve_message and facts.is_deletable:
-                self.logger.debug("Preserving deletable message %s sent at %s UTC.", message_id, format_timestamp(message_time))
+                self.logger.debug(
+                    "Preserving deletable message %s sent at %s UTC.",
+                    sensitive(message_id),
+                    format_timestamp(message_time),
+                )
                 stats["preserved_deletable_count"] += 1
                 preserved_msg_ids.append(message_id)
                 continue
@@ -589,15 +594,15 @@ class MessageCleaner:
             if dry_run:
                 self.logger.debug(
                     "Would delete message %s sent at %s UTC.",
-                    action.message_id,
+                    sensitive(action.message_id),
                     format_timestamp(action.message_time),
                 )
-                self.logger.debug("Dry run enabled; skipping API delete for %s.", action.message_id)
+                self.logger.debug("Dry run enabled; skipping API delete for %s.", sensitive(action.message_id))
                 return True
 
             self.logger.debug(
                 "Deleting message %s sent at %s UTC.",
-                action.message_id,
+                sensitive(action.message_id),
                 format_timestamp(action.message_time),
             )
             success = self.api.delete_message(
@@ -609,7 +614,11 @@ class MessageCleaner:
                 self.logger.debug("Sleeping for %.2f seconds after deletion.", sleep_time)
                 time.sleep(sleep_time)
             else:
-                self.logger.warning("Failed to delete message %s in channel %s.", action.message_id, action.channel_id)
+                self.logger.warning(
+                    "Failed to delete message %s in channel %s.",
+                    sensitive(action.message_id),
+                    sensitive(action.channel_id),
+                )
             return success
 
         emoji: DiscordEmoji = action.emoji or {}
@@ -617,9 +626,9 @@ class MessageCleaner:
         if dry_run:
             self.logger.debug(
                 "Would remove reaction %s from message %s in channel %s.",
-                emoji_name,
-                action.message_id,
-                action.channel_id,
+                sensitive(emoji_name, full=True),
+                sensitive(action.message_id),
+                sensitive(action.channel_id),
             )
             return True
 
@@ -635,9 +644,9 @@ class MessageCleaner:
         else:
             self.logger.warning(
                 "Failed to delete reaction %s on message %s in channel %s.",
-                emoji_name,
-                action.message_id,
-                action.channel_id,
+                sensitive(emoji_name, full=True),
+                sensitive(action.message_id),
+                sensitive(action.channel_id),
             )
         return success
 

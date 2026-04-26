@@ -11,6 +11,7 @@ import urllib.parse
 from .models import DiscordChannel, DiscordEmoji, DiscordMessage
 from .type_enums import MessageType
 from .utils import AuthenticationError, format_timestamp, ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
+from .privacy import sensitive
 
 
 class DiscordAPI:
@@ -78,7 +79,7 @@ class DiscordAPI:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
         """
         url = f"{self.BASE_URL}/guilds/{guild_id}/channels"
-        return self._request(url, description=f"fetch channels for guild {guild_id}")
+        return self._request(url, description=f"fetch channels for guild {sensitive(guild_id)}")
 
     def get_guild_channels_multiple(self, guild_ids: List[str]) -> List[DiscordChannel]:
         """
@@ -95,9 +96,9 @@ class DiscordAPI:
             try:
                 channels = self.get_guild_channels(guild_id)
                 all_channels.extend(channels)
-                self.logger.debug("Fetched %s channels from guild %s.", len(channels), guild_id)
+                self.logger.debug("Fetched %s channels from guild %s.", len(channels), sensitive(guild_id))
             except ResourceUnavailable as e:
-                self.logger.warning("Skipping guild %s as it is unavailable. Error: %s", guild_id, str(e))
+                self.logger.warning("Skipping guild %s as it is unavailable. Error: %s", sensitive(guild_id), str(e))
         return all_channels
 
     def get_root_channels(self) -> List[DiscordChannel]:
@@ -156,13 +157,13 @@ class DiscordAPI:
                 params["before"] = last_message_id
 
             try:
-                response = self._request(url, description=f"fetch messages in channel {channel_id}", params=params)
+                response = self._request(url, description=f"fetch messages in channel {sensitive(channel_id)}", params=params)
             except ResourceUnavailable as e:
-                self.logger.warning("Skipping channel %s (unavailable: %s).", channel_id, e)
+                self.logger.warning("Skipping channel %s (unavailable: %s).", sensitive(channel_id), e)
                 break
             
             if not response:
-                self.logger.debug("No more messages to fetch in channel %s.", channel_id)
+                self.logger.debug("No more messages to fetch in channel %s.", sensitive(channel_id))
                 break
 
             for message in response:
@@ -172,7 +173,7 @@ class DiscordAPI:
                     self.logger.debug(
                         "Reached fetch cutoff (%s) in channel %s.",
                         format_timestamp(fetch_since),
-                        channel_id
+                        sensitive(channel_id)
                     )
                     break
                 yield DiscordMessage(
@@ -198,7 +199,7 @@ class DiscordAPI:
             self.logger.debug("Sleeping for %.2f seconds after fetching messages.", sleep_time)
             time.sleep(sleep_time)  # Respectful delay between requests
 
-        self.logger.debug("Fetched a total of %s messages from channel %s.", fetched_count, channel_id)
+        self.logger.debug("Fetched a total of %s messages from channel %s.", fetched_count, sensitive(channel_id))
 
     def fetch_message_by_id(self, channel_id: str, message_id: str) -> Optional[DiscordMessage]:
         """
@@ -213,18 +214,23 @@ class DiscordAPI:
         """
         url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         try:
-            response = self._request(url, description=f"fetch message {message_id} in channel {channel_id}", method="get", params={"around": message_id, "limit": 1})
+            response = self._request(
+                url,
+                description=f"fetch message {sensitive(message_id)} in channel {sensitive(channel_id)}",
+                method="get",
+                params={"around": message_id, "limit": 1},
+            )
         except ResourceUnavailable as e:
-            self.logger.warning("Skipping channel %s (unavailable: %s).", channel_id, e)
+            self.logger.warning("Skipping channel %s (unavailable: %s).", sensitive(channel_id), e)
             return None
 
         if not response:
-            self.logger.debug("Message %s not found in channel %s.", message_id, channel_id)
+            self.logger.debug("Message %s not found in channel %s.", sensitive(message_id), sensitive(channel_id))
             return None
 
         message = response[0]
         if message.get("id") != message_id:
-            self.logger.warning(f"Message %s not found in channel %s.", message_id, channel_id)
+            self.logger.warning("Message %s not found in channel %s.", sensitive(message_id), sensitive(channel_id))
             return None
 
         return DiscordMessage(
@@ -254,9 +260,18 @@ class DiscordAPI:
         """
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}"
         try:
-            self._request(delete_url, description=f"delete message {message_id} in channel {channel_id}", method="delete")
+            self._request(
+                delete_url,
+                description=f"delete message {sensitive(message_id)} in channel {sensitive(channel_id)}",
+                method="delete",
+            )
         except ResourceUnavailable as e:
-            self.logger.warning("Skipping deletion of message %s in channel %s (unavailable: %s).", message_id, channel_id, e)
+            self.logger.warning(
+                "Skipping deletion of message %s in channel %s (unavailable: %s).",
+                sensitive(message_id),
+                sensitive(channel_id),
+                e,
+            )
             return False
         return True
         
@@ -281,15 +296,31 @@ class DiscordAPI:
         """
         emoji_identifier = self._format_emoji_identifier(emoji)
         if not emoji_identifier:
-            self.logger.warning("Skipping delete reaction: missing emoji identifier in payload: %s", emoji)
+            self.logger.warning(
+                "Skipping delete reaction: missing emoji identifier in payload %s.",
+                sensitive(emoji, full=True),
+            )
             return False
 
         encoded_identifier = urllib.parse.quote(emoji_identifier)
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_identifier}/@me"
         try:
-            self._request(delete_url, description=f"delete reaction {emoji_identifier} from message {message_id} in channel {channel_id}", method="delete")
+            self._request(
+                delete_url,
+                description=(
+                    f"delete reaction {sensitive(emoji_identifier, full=True)} from message {sensitive(message_id)} "
+                    f"in channel {sensitive(channel_id)}"
+                ),
+                method="delete",
+            )
         except ResourceUnavailable as e:
-            self.logger.warning("Skipping deletion of reaction %s from message %s in channel %s (unavailable: %s).", emoji_identifier, message_id, channel_id, e)
+            self.logger.warning(
+                "Skipping deletion of reaction %s from message %s in channel %s (unavailable: %s).",
+                sensitive(emoji_identifier, full=True),
+                sensitive(message_id),
+                sensitive(channel_id),
+                e,
+            )
             return False
         return True
 
