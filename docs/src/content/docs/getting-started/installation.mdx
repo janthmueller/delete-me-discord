@@ -1,11 +1,44 @@
 ---
 title: Installation
-description: Install Delete Me Discord with pipx, pip, or a prebuilt binary.
+description: Install Delete Me Discord with pipx, pip, Nix, or a prebuilt binary.
 ---
 
 Choose the install method that best matches how you want to run the CLI.
 
 Python-based installs require Python 3.10 or newer.
+
+## Nix
+
+If you already use Nix with flakes enabled, you can run the CLI directly from the repository:
+
+```bash
+nix run github:janthmueller/delete-me-discord -- --help
+```
+
+For declarative use in your own flake, add the repository as an input:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    delete-me-discord.url = "github:janthmueller/delete-me-discord";
+  };
+}
+```
+
+Then reference the package in Home Manager or NixOS:
+
+```nix
+home.packages = [
+  delete-me-discord.packages.${pkgs.system}.default
+];
+```
+
+```nix
+environment.systemPackages = [
+  delete-me-discord.packages.${pkgs.system}.default
+];
+```
 
 ## pipx
 
