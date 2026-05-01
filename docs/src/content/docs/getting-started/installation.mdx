@@ -7,6 +7,28 @@ Choose the install method that best matches how you want to run the CLI.
 
 Python-based installs require Python 3.10 or newer.
 
+## pipx
+
+Recommended for CLI isolation:
+
+```bash
+pipx install delete-me-discord
+```
+
+## pip
+
+```bash
+pip install delete-me-discord
+```
+
+Use this if you already manage Python environments yourself.
+
+## Prebuilt binaries
+
+Download the asset for your OS from the latest GitHub release, extract it, and run it from a terminal.
+
+- [Latest GitHub release](https://github.com/janthmueller/delete-me-discord/releases/latest)
+
 ## Nix
 
 If you already use Nix with flakes enabled, you can run the CLI directly from the repository:
@@ -39,28 +61,6 @@ environment.systemPackages = [
   delete-me-discord.packages.${pkgs.system}.default
 ];
 ```
-
-## pipx
-
-Recommended for CLI isolation:
-
-```bash
-pipx install delete-me-discord
-```
-
-## pip
-
-```bash
-pip install delete-me-discord
-```
-
-Use this if you already manage Python environments yourself.
-
-## Prebuilt binaries
-
-Download the asset for your OS from the latest GitHub release, extract it, and run it from a terminal.
-
-- [Latest GitHub release](https://github.com/janthmueller/delete-me-discord/releases/latest)
 
 ## Verify
 
