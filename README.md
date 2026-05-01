@@ -21,10 +21,10 @@
 Choose one:
 
 - Python installs require Python 3.10 or newer.
-- `nix run github:janthmueller/delete-me-discord -- --help`
 - `pipx install delete-me-discord`
 - `pip install delete-me-discord`
 - Download a prebuilt binary from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest)
+- `nix run github:janthmueller/delete-me-discord -- --help`
 
 ## Quick Start
 
