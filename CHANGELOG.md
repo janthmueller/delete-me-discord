@@ -2,6 +2,35 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-05-01)
+
+### Bug Fixes
+
+- **test**: Support Python 3.10 TOML parsing
+  ([`73d7f9c`](https://github.com/janthmueller/delete-me-discord/commit/73d7f9cb598477e5c7b9197f6a4d74fb7eee2bb2))
+
+### Chores
+
+- **docs**: Update postcss to 8.5.10
+  ([`21fdcc8`](https://github.com/janthmueller/delete-me-discord/commit/21fdcc88eb23e24aa3d6a807eeab8e6d022770c4))
+
+- **nix**: Add flake-based packaging and dev shell
+  ([`431db7b`](https://github.com/janthmueller/delete-me-discord/commit/431db7b2bb991e16a5a35599d1235361fd6cf800))
+
+### Documentation
+
+- Reorder installation options
+  ([`b909ec6`](https://github.com/janthmueller/delete-me-discord/commit/b909ec6d0ae7d1da3a27c8d917c35200b64d2c25))
+
+- Reorder README installation options
+  ([`6a2f805`](https://github.com/janthmueller/delete-me-discord/commit/6a2f8057510e91677d82c5f0db4986de079f8862))
+
+### Features
+
+- **cli**: Add dmd alias
+  ([`4e21d80`](https://github.com/janthmueller/delete-me-discord/commit/4e21d80a6d62fe4e31aa4f52b11a3c5c5b9e51c0))
+
+
 ## v1.8.1 (2026-04-26)
 
 ### Bug Fixes
