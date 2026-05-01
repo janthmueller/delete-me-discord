@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.0.1 (2026-05-01)
+
+### Bug Fixes
+
+- **cli**: Rename auth config path to config path
+  ([`7ef5bfe`](https://github.com/janthmueller/delete-me-discord/commit/7ef5bfe9912c8fe0ab2ad4638bc93b91c07b827e))
+
+
 ## v2.0.0 (2026-05-01)
 
 ### Documentation
