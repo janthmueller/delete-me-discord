@@ -6,7 +6,7 @@ description: Fetch one channel up front before evaluation.
 Enable buffered mode with:
 
 ```bash
-dmd --buffer-channel-messages ...
+dmd clean --buffer-per-channel ...
 ```
 
 Buffered mode changes the per-channel flow from:
@@ -38,7 +38,7 @@ In `--dry-run`, buffered mode is usually not necessary.
 Dry-run already reports the main planning information without buffered mode:
 
 - what would be deleted
-- what would be preserved
+- what would be kept
 - `scan time`
 - `est. execute time`
 - `est. total time`
@@ -47,15 +47,15 @@ Buffered mode does not change the deletion decision in `--dry-run`. It mainly ch
 
 ## What it does not change
 
-- it still respects [`--max-messages`](../../reference/cli-options/#--max-messages)
-- it still respects [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age)
+- it still respects `--max-messages`
+- it still respects `--fetch-within`
 - it does not fetch the entire history unless your other flags already require that
 
 ## Tradeoff
 
 Buffered mode uses more memory per channel than the default lazy mode.
 
-If you want the exact flag definition, see [`--buffer-channel-messages`](../../reference/cli-options/#--buffer-channel-messages).
+If you want the exact flag definition, see [CLI Options](../../reference/cli-options/).
 
 ## See also
 

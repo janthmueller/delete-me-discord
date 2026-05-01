@@ -13,23 +13,23 @@ The goal is simple:
 
 The key flags behind this workflow are:
 
-- [`--preserve-last`](../../reference/cli-options/#--preserve-last)
-- [`--preserve-n`](../../reference/cli-options/#--preserve-n)
-- [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age)
-- optionally [`--preserve-cache`](../../reference/cli-options/#--preserve-cache)
+- `--keep-within`
+- `--keep-last`
+- `--fetch-within`
+- optionally `--preserve-cache`
 
 ## Time-only retention
 
 Initial run:
 
 ```bash
-dmd --preserve-n 0 --preserve-last "weeks=2" --dry-run
+dmd clean --keep-last 0 --keep-within "weeks=2" --dry-run
 ```
 
 Recurring daily run:
 
 ```bash
-dmd --preserve-n 0 --preserve-last "weeks=2" --fetch-max-age "weeks=2,days=1" --dry-run
+dmd clean --keep-last 0 --keep-within "weeks=2" --fetch-within "weeks=2,days=1" --dry-run
 ```
 
 ## Time and count retention
@@ -37,25 +37,25 @@ dmd --preserve-n 0 --preserve-last "weeks=2" --fetch-max-age "weeks=2,days=1" --
 Initial run:
 
 ```bash
-dmd --preserve-last "weeks=2" --preserve-n 20 --preserve-cache --dry-run
+dmd clean --keep-within "weeks=2" --keep-last 20 --preserve-cache --dry-run
 ```
 
 Recurring daily run:
 
 ```bash
-dmd --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
+dmd clean --keep-within "weeks=2" --keep-last 20 --fetch-within "weeks=2,days=1" --preserve-cache --dry-run
 ```
 
 ## Guidance
 
-For recurring runs, set `--fetch-max-age` slightly wider than your retention window so the tool can still see the transition boundary cleanly.
+For recurring runs, set `--fetch-within` slightly wider than your retention window so the tool can still see the transition boundary cleanly.
 
 Examples:
 
-- keep the last 2 weeks: use [`--preserve-last`](../../reference/cli-options/#--preserve-last) with `--preserve-last "weeks=2"`
-- process only the recent slice on recurring runs: use [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age) with `--fetch-max-age "weeks=2,days=1"`
-- keep a minimum number of recent messages too: add [`--preserve-n`](../../reference/cli-options/#--preserve-n)
+- keep the last 2 weeks: use `--keep-within "weeks=2"`
+- process only the recent slice on recurring runs: use `--fetch-within "weeks=2,days=1"`
+- keep a minimum number of recent messages too: add `--keep-last`
 
-If you also use `--preserve-n`, the [Preserve Cache](../../reference/preserve-cache/) page explains why caching preserved IDs helps repeated runs stay stable.
+If you also use `--keep-last`, the [Preserve Cache](../../reference/preserve-cache/) page explains why caching kept IDs helps repeated runs stay stable.
 
 If you are unsure about the accepted time formats, see [Time Deltas](../../reference/time-deltas/).

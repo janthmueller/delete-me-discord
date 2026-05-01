@@ -1,81 +1,83 @@
 ---
 title: Log Output
-description: How to interpret timing and planning output from the CLI.
+description: How to interpret v2 terminal and JSON output.
 ---
 
 The CLI does not always show the same kind of output.
 
 What you see depends mainly on:
 
-- your [`--log-level`](../cli-options/#--log-level)
-- whether you are in [`--dry-run`](../cli-options/#--dry-run)
-- whether you enabled [`--buffer-channel-messages`](../cli-options/#--buffer-channel-messages)
-- whether you enabled [`--json`](../cli-options/#--json)
-- whether you enabled [`--redact-sensitive`](../cli-options/#--redact-sensitive)
+- whether you are in `--dry-run`
+- your verbosity level (`-v`, `-vv`, `-vvv`)
+- whether you enabled `--buffer-per-channel`
+- whether you enabled `--json`
+- whether you enabled `--redact-sensitive`
 
-## Log level comes first
+## Verbosity levels
 
-The selected [`--log-level`](../cli-options/#--log-level) determines how much output is shown at all.
+### Default
 
-- `INFO` is the normal user-facing mode and is what the examples in these docs assume.
-- `DEBUG` adds lower-level diagnostic output.
-- higher levels such as `WARNING` or `ERROR` suppress routine informational lines.
-
-## What is always shown
-
-In normal terminal output at `INFO` level, the CLI shows the basic run flow:
+Shows the high-level run flow:
 
 - authentication
-- the active deletion cutoff
-- which channel is currently being processed
-- a final summary
-- `Total time`
+- active deletion cutoff, when applicable
+- channel processing
+- per-channel summaries
+- final summary
 
-That gives you a high-level view even in the default lazy mode.
+### Event Level
+
+`-v` adds message and reaction action events:
+
+- `Would delete message ...`
+- `Would delete reaction ...`
+- `Deleting message ...`
+- `Deleting reaction ...`
+
+### Detail Level
+
+`-vv` adds detail lines:
+
+- `Content: ...`
+- `Reaction: ...`
+- `Reactions: ...`
+
+### Operational Level
+
+`-vvv` adds operational diagnostics:
+
+- fetch summaries
+- wait timing between fetch batches
+- retry/rate-limit related diagnostics
 
 ## Dry-run output
 
 In `--dry-run`, the CLI reports what it *would* do instead of deleting anything.
 
-Each channel gets a summary line with:
+Each channel ends with:
 
-- messages that would be deleted
-- messages that would be preserved
-- reactions that would be deleted or preserved, when [`--delete-reactions`](../cli-options/#--delete-reactions) is enabled
-- `scan time`
-- `est. execute time`
-- `est. total time`
+- a summary line
+- a timing line with:
+  - `scan time`
+  - `est. execute time`
+  - `est. total time`
 
-At the end of the run, the CLI also prints a final summary with the same categories.
-
-Dry-run is the best mode for checking whether your flags do what you expect before running an actual deletion.
-
-## Buffered mode output
-
-With [`--buffer-channel-messages`](../cli-options/#--buffer-channel-messages), the CLI fetches one channel up front before evaluating it.
-
-In deletion mode, that adds a pre-execution timing line per channel with:
-
-- `buffered messages`
-- `scan time`
-- `est. execute time`
-
-This is useful when you want to understand the next channel before the delete phase starts.
-
-In `--dry-run`, buffered mode usually does not add much practical value. Dry-run already reports the important planning and timing information without it.
+The final run summary uses the same two-line structure.
 
 ## Deletion mode output
 
-In a real deletion run, each channel ends with a result summary line.
+In a real deletion run, each channel ends with:
 
-That line includes:
+- a summary line
+- a timing line with:
+  - `total time`
+  - and `execute time` when buffered mode is enabled
 
-- deleted messages
-- preserved messages
-- deleted reactions and preserved reactions, when reaction deletion is enabled
-- `total time`
+## Buffered mode
 
-If buffered mode is enabled, the per-channel summary also includes `execute time`.
+With `--buffer-per-channel`, the CLI fetches one channel up front before evaluating it.
+
+This is most useful when you want stronger per-channel timing visibility in a manual run.
 
 ## Meaning of the timing fields
 
@@ -83,43 +85,27 @@ If buffered mode is enabled, the per-channel summary also includes `execute time
 - `est. execute time`: rough estimate for how long delete/reaction actions would take
 - `est. total time`: `scan time + est. execute time`
 - `execute time`: measured action time during a real buffered deletion run
-- `Total time`: actual wall-clock time for the whole command
+- `total time`: actual wall-clock time for that executed channel
 
-The estimates are rough. They are based on planned delete/reaction actions plus the configured delete sleep timing, not on exact future API latency.
+The estimates are rough. They are based on planned delete/reaction actions plus the configured delete sleep timing, not exact future API latency.
 
 ## JSON mode
 
 Use `--json` when you want machine-readable output instead of terminal-oriented log lines.
 
-This is the right mode for wrappers and integrations.
-
 In `--json` mode:
 
 - terminal-oriented formatting is disabled
 - each log entry is emitted as a JSON object
-- the human-readable summaries are replaced by structured log messages
-
-If you are running the tool manually in a terminal, the default non-JSON output is easier to read.
+- entries still include timestamp, level, logger, and message
 
 ## Sensitive value redaction
 
-Use [`--redact-sensitive`](../cli-options/#--redact-sensitive) when you want to share logs without exposing private names, IDs, or local paths.
+Use `--redact-sensitive` when you want to share logs without exposing private names, IDs, or local paths.
 
 When redaction is enabled:
 
-- IDs are shown with the configured prefix/suffix window.
-- Human-readable sensitive values are fully hidden as `***`.
+- IDs use the configured prefix/suffix window
+- human-readable sensitive values are fully hidden as `***`
 
-Examples:
-
-- `--redact-sensitive`:
-  - channel ID -> `***`
-  - username -> `***`
-- `--redact-sensitive 0 4`:
-  - channel ID -> `***5678`
-  - username -> `***`
-- `--redact-sensitive 4 4`:
-  - channel ID -> `1234***5678`
-  - channel name -> `***`
-
-This applies to normal CLI logs and JSON logs. It does not change discovery output from [`--list-guilds`](../cli-options/#discovery) or [`--list-channels`](../cli-options/#discovery), because those commands are specifically meant to show names and IDs.
+This applies to normal CLI logs and JSON logs. It does not change discovery output from `dmd list guilds` or `dmd list channels`.

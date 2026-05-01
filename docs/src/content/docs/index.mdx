@@ -15,12 +15,8 @@ It is designed around a cautious workflow:
 
 - discover targets first
 - scope runs explicitly
-- preview behavior with `--dry-run`
+- preview behavior with `dmd clean --dry-run`
 - only then execute
-
-Python installs require Python 3.10 or newer.
-
-If you already use Nix with flakes enabled, you can also run the tool directly via `nix run github:janthmueller/delete-me-discord`.
 
 ## What it can do
 
@@ -46,11 +42,11 @@ If you already use Nix with flakes enabled, you can also run the tool directly v
 
 ## Core ideas
 
-- [`--dry-run`](./reference/cli-options/#--dry-run) scans and plans without deleting.
-- [`--preserve-last`](./reference/cli-options/#--preserve-last) keeps messages newer than a given time delta.
-- [`--preserve-n`](./reference/cli-options/#--preserve-n) keeps the last N messages per channel.
-- [`--fetch-max-age`](./reference/cli-options/#--fetch-max-age) limits the fetched slice of history.
-- [`--buffer-channel-messages`](./reference/cli-options/#--buffer-channel-messages) fetches one channel up front before evaluation, which enables better per-channel timing summaries for manual runs.
+- `--dry-run` scans and plans without deleting.
+- `--keep-within` keeps messages newer than a given time delta.
+- `--keep-last` keeps the last N messages per channel.
+- `--fetch-within` limits the fetched slice of history.
+- `--buffer-per-channel` fetches one channel up front before evaluation, which enables better per-channel timing summaries for manual runs.
 
 ## Reference
 

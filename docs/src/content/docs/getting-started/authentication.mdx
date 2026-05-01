@@ -5,13 +5,29 @@ description: Configure the Discord token used by the CLI.
 
 `delete-me-discord` and `dmd` authenticate with Discord through your user token.
 
-Set your Discord token before running the tool:
+The simplest path is to store the token once:
+
+```bash
+dmd login
+```
+
+You can also use a token from the environment:
 
 ```bash
 export DISCORD_TOKEN=<your_token>
 ```
 
-The tool can fetch the current user via the token.
+Or override it for a single command:
+
+```bash
+dmd clean --token <your_token> --dry-run
+```
+
+The active token can be checked with:
+
+```bash
+dmd whoami
+```
 
 ## Finding your token
 
@@ -22,7 +38,7 @@ You can use this external guide to obtain your Discord token:
 ## Notes
 
 - Keep the token private. Anyone with the token can act as your Discord user.
-- Prefer exporting it in the shell for the current session instead of hardcoding it in scripts.
+- Prefer `dmd login` or a session-local environment variable instead of hardcoding it in scripts.
 - Be aware that using automated tooling on Discord may violate Discord's Terms of Service.
 
 ## Next step

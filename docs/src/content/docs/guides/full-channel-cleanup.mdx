@@ -8,40 +8,40 @@ Use this workflow when you want to clean a single DM or channel as completely as
 ## Recommended process
 
 1. Discover IDs first.
-2. Scope the run to one target with [`--include-ids`](../../reference/cli-options/#--include-ids).
-3. Run [`--dry-run`](../../reference/cli-options/#--dry-run).
+2. Scope the run to one target with `--include-ids`.
+3. Run `--dry-run`.
 4. Execute only after the plan looks correct.
 
 ## Discover the target
 
 ```bash
-dmd --list-guilds
-dmd --list-channels
+dmd list guilds
+dmd list channels
 ```
 
 ## Preview a full wipe
 
 ```bash
-dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd clean --include-ids <channel_id> --dry-run
 ```
 
 This means:
 
 - only the selected target is processed
-- no recent messages are preserved
-- no "last N messages" are preserved
-- your reactions are removed where applicable
+- no recent messages are kept unless you set `--keep-within`
+- no "last N messages" are kept unless you set `--keep-last`
+- your reactions are removed by default
 
 ## Execute the wipe
 
 Drop `--dry-run` once you are satisfied:
 
 ```bash
-dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0
+dmd clean --include-ids <channel_id>
 ```
 
 ## Notes
 
-- [`--max-messages`](../../reference/cli-options/#--max-messages) can be useful if you want to test on a smaller slice first.
-- If you want better per-channel timing visibility for a manual run, add [`--buffer-channel-messages`](../../reference/cli-options/#--buffer-channel-messages).
+- `--max-messages` can be useful if you want to test on a smaller slice first.
+- If you want better per-channel timing visibility for a manual run, add `--buffer-per-channel`.
 - If you only want a rolling cleanup instead of a full wipe, use [Rolling Retention](../rolling-retention/).

@@ -1,150 +1,177 @@
 ---
 title: CLI Options
-description: Reference for the main delete-me-discord command-line flags.
+description: Reference for the v2 delete-me-discord command tree and flags.
 ---
 
-This page is the main lookup reference for the CLI. For workflow-oriented guidance, use the guides section.
+This page is the main reference for the current CLI surface.
 
-## Discovery
+## Command Tree
+
+The primary cleanup command is:
+
+```bash
+dmd clean ...
+```
+
+Other top-level commands are:
+
+- `dmd list guilds`
+- `dmd list channels`
+- `dmd login`
+- `dmd logout`
+- `dmd whoami`
+- `dmd cache clear`
+
+## Cleanup Command
+
+### Scope and safety
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
-| `-g` | `--list-guilds` | off | List guild IDs and names, then exit. |
-| `-c` | `--list-channels` | off | List channels grouped by guild/category/parent plus DMs, then exit. |
+| `-d` | `--dry-run` | off | Simulate deletions without making changes. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
+| `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent/category IDs. |
+| `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent/category IDs from processing. |
+| `-t` | `--token` | unset | Override stored config and `DISCORD_TOKEN` for this command only. |
 
-## Safety and targeting
-
-| Short | Long | Default | Description |
-| --- | --- | --- | --- |
-| `-d` | `--dry-run` | off | Simulate deletions without making changes. Also switches preserve-cache operations to a separate `.dryrun.json` file. |
-| `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent IDs. Channel and parent includes punch through higher-level excludes. |
-| `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent IDs from processing. |
-
-## Retention
+### Retention
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
-| `-p` | `--preserve-last` | `weeks=2` | Keep messages and reactions newer than this delta. |
-| `-n` | `--preserve-n` | `12` | Always keep the last N messages in each channel. |
-| `-` | `--preserve-n-mode` | `mine` | Count preserved messages as only your deletable messages (`mine`) or all recent messages in the channel (`all`). |
-| `-` | `--preserve-cache` | off | Persist preserved message IDs between runs. Most useful with `--preserve-n` and `--fetch-max-age`. |
-| `-` | `--wipe-preserve-cache` | off | Delete the active preserve cache file and exit. |
+| `-n` | `--keep-last` | `0` | Keep the last N messages in each channel. |
+| `-` | `--keep-last-scope` | `all` | Count `keep-last` against all recent messages in the channel (`all`) or only your deletable messages (`mine`). |
+| `-k` | `--keep-within` | `0` | Keep messages and reactions newer than this time delta. |
+| `-` | `--keep-reactions` | off | Keep your reactions instead of deleting them during cleanup. |
+| `-` | `--preserve-cache` | off | Persist kept message IDs between runs. |
 | `-` | `--preserve-cache-path` | `~/.config/delete-me-discord/preserve_cache.json` | Override the preserve cache path. |
 
-## Fetch and execution
+### Fetch and execution
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
-| `-a` | `--fetch-max-age` | unlimited | Fetch only messages newer than this delta. |
+| `-f` | `--fetch-within` | unlimited | Fetch only messages newer than this time delta. |
 | `-m` | `--max-messages` | unlimited | Maximum number of messages to fetch per channel. |
-| `-` | `--buffer-channel-messages` | off | Buffer one channel at a time before evaluation. Useful for per-channel timing output and approximate execution estimates, at the cost of higher per-channel memory usage. |
-| `-R` | `--delete-reactions` | off | Remove your reactions on messages encountered once the deletion window is reached. |
+| `-` | `--buffer-per-channel` | off | Buffer one channel at a time before evaluation. |
+| `-` | `--fetch-sleep-time` | `0.2 0.4` | Sleep between fetch requests. One value is fixed, two define a random range in seconds. |
+| `-` | `--delete-sleep-time` | `1.5 2` | Sleep between delete actions. One value is fixed, two define a random range in seconds. |
 
-## Timing and retries
-
-| Short | Long | Default | Description |
-| --- | --- | --- | --- |
-| `-r` | `--max-retries` | `5` | Maximum retry attempts for retryable API requests. |
-| `-b` | `--retry-time-buffer` | `25 35` | Extra wait after rate limits. One value is fixed, two values define a random range in seconds. |
-| `-f` | `--fetch-sleep-time` | `0.2 0.4` | Sleep between fetch requests. One value is fixed, two values define a random range in seconds. |
-| `-s` | `--delete-sleep-time` | `1.5 2` | Sleep between deletions. One value is fixed, two values define a random range in seconds. |
-
-## Output
+### Timing and retries
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
-| `-l` | `--log-level` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
-| `-` | `--json` | off | Emit JSON output for logs and discovery output. |
-| `-` | `--redact-sensitive [PREFIX SUFFIX]` | off | Redact sensitive values in normal logs. Without values, IDs are shown as `***`, while names, emoji labels, and paths are fully hidden as `***`. |
-| `-v` | `--version` | n/a | Show the version and exit. |
+| `-` | `--max-retries` | `5` | Maximum retry attempts for retryable API requests. |
+| `-` | `--retry-time-buffer` | `25 35` | Extra wait after rate limits. One value is fixed, two define a random range in seconds. |
 
-## Key options
+### Output
 
-### `--preserve-last`
+| Short | Long | Default | Description |
+| --- | --- | --- | --- |
+| `-q` | `--quiet` | off | Only show warnings and errors. |
+| `-v` | `--verbose` | `0` | Increase output detail. Repeat for more verbosity. |
+| `-j` | `--json` | off | Emit JSON output for logs and discovery output. |
+| `-` | `--redact-sensitive [PREFIX SUFFIX]` | off | Redact sensitive values in logs. |
+| `-V` | `--version` | n/a | Show the version and exit. |
 
-Keeps messages and reactions newer than a given time delta.
+## Discovery Commands
+
+### Guild listing
+
+`dmd list guilds` lists guild IDs and names available to the authenticated user.
+
+### Channel listing
+
+`dmd list channels` lists channels grouped by guild/category/parent plus DMs.
+
+Both `list` subcommands support:
+
+- `--token`
+- `--auth-config-path`
+- `--json`
+- `--quiet`
+- `--verbose`
+- `--redact-sensitive`
+- retry flags
+
+## Authentication Commands
+
+### Login
+
+`dmd login` stores and validates a token. If `--token` is omitted, the CLI prompts for it interactively.
+
+### Logout
+
+`dmd logout` removes the stored token from the auth config.
+
+### Identity Check
+
+`dmd whoami` shows which account the active token belongs to.
+
+## Cache Management
+
+```bash
+dmd cache clear
+```
+
+Deletes the active preserve cache file.
+
+You can override the path with:
+
+```bash
+dmd cache clear --preserve-cache-path /path/to/cache.json
+```
+
+## Important Flags
+
+### Keep Last
+
+`--keep-last` keeps the last N messages in each channel.
 
 Examples:
 
-- `--preserve-last "weeks=2"`
-- `--preserve-last "1w3d"`
-- `--preserve-last "0"` to preserve nothing by age
+- `--keep-last 20`
+- `--keep-last 0`
 
-Use this when you want a time-based retention window such as "keep the last 2 weeks".
+### Keep Last Scope
 
-### `--preserve-n`
+`--keep-last-scope` controls how `--keep-last` is counted.
 
-Always keeps the last N messages in each channel, independent of [`--preserve-last`](#--preserve-last).
-
-Examples:
-
-- `--preserve-n 20` keeps the last 20 qualifying messages in each channel
-- `--preserve-n 0` disables count-based preservation
-
-Use this when you want to make sure each channel keeps some recent context even if your time window is aggressive.
-
-### `--preserve-n-mode`
-
-Controls how [`--preserve-n`](#--preserve-n) is counted.
-
-- `mine`: count only your own deletable messages
 - `all`: count all recent messages in the channel
+- `mine`: count only your deletable messages
 
-Use `mine` when you want to preserve your own recent messages only. Use `all` when channel context matters more than authorship.
+The default is `all`.
 
-### `--preserve-cache`
+### Keep Within
 
-Stores preserved message IDs between runs so repeated runs with a limited fetch window can still respect earlier preserve decisions.
+`--keep-within` keeps messages and reactions newer than a given time delta.
 
-This matters most when you combine:
+Examples:
 
-- [`--preserve-n`](#--preserve-n)
-- [`--fetch-max-age`](#--fetch-max-age)
-- recurring cleanup runs
+- `--keep-within "weeks=2"`
+- `--keep-within "1w3d"`
+- `--keep-within "0"`
 
-### `--fetch-max-age`
+### Fetch Within
 
-Limits how much history is fetched from each channel.
+`--fetch-within` limits how much history is fetched from each channel.
 
 This improves speed, but it also means the tool only sees a slice of history unless you widen the fetch window or use preserve-cache strategically.
 
-### `--buffer-channel-messages`
+### Buffered Mode
 
-Fetches one channel into memory before evaluation instead of walking it lazily.
+`--buffer-per-channel` fetches one channel into memory before evaluation instead of walking it lazily.
 
 Use this when you want stronger per-channel timing visibility in a manual run and do not mind the extra per-channel buffering cost.
 
-### `--redact-sensitive`
+### Sensitive Redaction
 
-Redacts sensitive values in normal CLI logs and JSON logs.
+`--redact-sensitive` redacts sensitive values in normal CLI logs and JSON logs.
 
 Examples:
 
-- `--redact-sensitive` fully masks IDs as `***`
-- `--redact-sensitive 0 4` keeps only the last 4 characters of IDs, such as `***5678`
-- `--redact-sensitive 4 4` keeps the first and last 4 characters of IDs, such as `1234***5678`
+- `--redact-sensitive`
+- `--redact-sensitive 0 4`
+- `--redact-sensitive 4 4`
 
-The split is intentional:
-
-- IDs use the configured prefix/suffix window.
-- Human-readable sensitive values are fully hidden as `***`.
-
-This currently affects operational logs such as:
-
-- authenticated user lines
-- usernames
-- channel and DM names
-- guild, channel, message, and user IDs
-- emoji names and reaction identifiers in reaction-related logs
-- preserve-cache paths
-
-Examples of the resulting output:
-
-- username or channel name: `***`
-- channel ID with `--redact-sensitive 0 4`: `***5678`
-- message ID with `--redact-sensitive 4 4`: `1234***5678`
-
-Discovery output from [`--list-guilds`](#discovery) and [`--list-channels`](#discovery) is intentionally left unchanged, because those commands exist to reveal IDs and names. The flag is for operational logging, not discovery output.
+Discovery output from `dmd list guilds` and `dmd list channels` is intentionally left unchanged, because those commands exist to reveal IDs and names.
 
 ## See also
 

@@ -3,24 +3,28 @@ title: First Run
 description: Safest first-run workflow using discovery and dry-run mode.
 ---
 
-The safest first run is deliberately narrow: discover IDs, choose one target, and preview the result in [`--dry-run`](../../reference/cli-options/#--dry-run).
+The safest first run is deliberately narrow: discover IDs, choose one target, and preview the result in `--dry-run`.
 
 ## 1. Discover IDs first
 
 ```bash
-dmd --list-guilds
-dmd --list-channels
+dmd list guilds
+dmd list channels
 ```
 
-This gives you the IDs you need for [`--include-ids`](../../reference/cli-options/#--include-ids) and helps avoid deleting from the wrong place.
+This gives you the IDs you need for `--include-ids` and helps avoid deleting from the wrong place.
 
 ## 2. Start with dry-run
 
 ```bash
-dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd clean --include-ids <channel_id> --dry-run
 ```
 
-This example targets one channel, includes reaction cleanup, and preserves nothing. It is useful as a preview for a full wipe of that single channel.
+This example targets one channel. By default, it also removes your reactions and preserves nothing because:
+
+- `--keep-last` defaults to `0`
+- `--keep-within` defaults to `0`
+- reactions are deleted unless you opt out with `--keep-reactions`
 
 ## 3. Execute only after the plan looks right
 
@@ -39,7 +43,7 @@ Dry-run now reports per-channel planning details such as:
 
 1. Start with one `--include-ids` target.
 2. Use `--dry-run`.
-3. Adjust [`--preserve-last`](../../reference/cli-options/#--preserve-last), [`--preserve-n`](../../reference/cli-options/#--preserve-n), and [`--fetch-max-age`](../../reference/cli-options/#--fetch-max-age).
+3. Adjust `--keep-within`, `--keep-last`, and `--fetch-within`.
 4. Only then expand scope or remove `--dry-run`.
 
 If you want a one-off cleanup of a single target, continue with [Full Channel Cleanup](../../guides/full-channel-cleanup/).

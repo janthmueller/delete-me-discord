@@ -3,91 +3,66 @@
 [![Pepy Total Downloads](https://img.shields.io/pepy/dt/delete-me-discord)](https://pepy.tech/project/delete-me-discord)
 [![GitHub License](https://img.shields.io/github/license/janthmueller/delete-me-discord)](https://github.com/janthmueller/delete-me-discord/blob/main/LICENSE)
 
-**Delete Me Discord** is a command-line tool for deleting your own Discord messages and reactions with explicit filters and retention controls.
-
-The installed CLI is available as `delete-me-discord` and the shorter alias `dmd`.
+**Delete Me Discord** is a CLI for deleting your own Discord messages and reactions with explicit filters and retention rules. The installed command is available as `delete-me-discord` and the shorter alias `dmd`.
 
 > ⚠️ Using automated tools on Discord may violate Discord’s [Terms of Service](https://discord.com/terms). Use at your own risk.
 
-## What It Does
+It is built around a cautious workflow:
 
-- Deletes your own messages in DMs and guild text channels.
-- Optionally deletes your own reactions too.
-- Lets you scope runs by channel, guild, or parent/category ID.
-- Supports dry-run previews before making changes.
-- Supports rolling cleanup with time- and count-based preservation.
-- Can operate in a buffered per-channel mode for clearer timing output in manual runs.
+- discover targets first
+- preview with `dmd clean --dry-run`
+- only then execute
 
 ## Installation
 
-Choose one:
+Python installs require Python 3.10 or newer.
 
-- Python installs require Python 3.10 or newer.
-- `pipx install delete-me-discord`
+```bash
+pipx install delete-me-discord
+```
+
+Other install paths:
+
 - `pip install delete-me-discord`
-- Download a prebuilt binary from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest)
+- prebuilt binaries from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest)
 - `nix run github:janthmueller/delete-me-discord -- --help`
 
-More installation details: [Installation docs](https://janthmueller.github.io/delete-me-discord/getting-started/installation/)
+More install details: [Installation docs](https://janthmueller.github.io/delete-me-discord/getting-started/installation/)
 
 ## Quick Start
 
-Export your token first:
+Authenticate once:
+
+```bash
+dmd login
+```
+
+Discover targets:
+
+```bash
+dmd list guilds
+dmd list channels
+```
+
+Preview one channel safely:
+
+```bash
+dmd clean --include-ids <channel_id> --dry-run
+```
+
+Then rerun without `--dry-run` when the plan looks right.
+
+Alternative auth for one shell:
 
 ```bash
 export DISCORD_TOKEN=<your_token>
 ```
 
-You can obtain your token using [this guide](https://github.com/victornpb/undiscord/wiki/authToken).
-
-Then discover targets safely:
-
-```bash
-dmd --list-guilds
-dmd --list-channels
-```
-
-Preview a full wipe of one channel before executing it:
-
-```bash
-dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
-```
-
-Drop `--dry-run` only after the plan looks right.
-
-If you want to share logs or screenshots, add `--redact-sensitive`. For example, `--redact-sensitive 0 4` keeps only the last 4 characters of IDs while fully hiding names and local paths.
-
-## Common Use Cases
-
-Full channel cleanup:
-
-```bash
-dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
-```
-
-Rolling retention:
-
-```bash
-dmd --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
-```
+If you need token extraction steps, use [this guide](https://github.com/victornpb/undiscord/wiki/authToken).
 
 ## Documentation
 
-The full documentation lives at:
-
-- [janthmueller.github.io/delete-me-discord](https://janthmueller.github.io/delete-me-discord/)
-
-Useful entry points:
-
-- [First Run](https://janthmueller.github.io/delete-me-discord/getting-started/first-run/)
-- [Full Channel Cleanup](https://janthmueller.github.io/delete-me-discord/guides/full-channel-cleanup/)
-- [Rolling Retention](https://janthmueller.github.io/delete-me-discord/guides/rolling-retention/)
-- [CLI Options](https://janthmueller.github.io/delete-me-discord/reference/cli-options/)
-- [Log Output](https://janthmueller.github.io/delete-me-discord/reference/log-output/)
-
-For GitHub Actions usage, see the example workflow repo:
-
-- [delete-me-discord-workflow](https://github.com/janthmueller/delete-me-discord-workflow)
+See the [documentation](https://janthmueller.github.io/delete-me-discord/) for installation, first-run guidance, rolling retention, and the full CLI reference.
 
 ## Contributing
 
@@ -95,4 +70,4 @@ Contributions are welcome. Open an issue or pull request with improvements or bu
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). You are free to use, modify, and distribute this software as per the terms of the license.
+Licensed under the [MIT License](LICENSE).

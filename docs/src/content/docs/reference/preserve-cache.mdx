@@ -3,48 +3,56 @@ title: Preserve Cache
 description: How preserve-cache works across repeated runs.
 ---
 
-When enabled, the preserve cache stores IDs of preserved messages so repeated runs can keep seeing items that would otherwise fall outside the fetched slice.
+When enabled, the preserve cache stores IDs of kept messages so repeated runs can keep seeing items that would otherwise fall outside the fetched slice.
 
 This matters most when you combine a limited fetch window with retention rules that need continuity across runs.
 
-To understand the related flags first, see:
-
-- [`--preserve-last`](../cli-options/#--preserve-last)
-- [`--preserve-n`](../cli-options/#--preserve-n)
-- [`--preserve-n-mode`](../cli-options/#--preserve-n-mode)
-- [`--preserve-cache`](../cli-options/#--preserve-cache)
-- [`--fetch-max-age`](../cli-options/#--fetch-max-age)
+To understand the related flags first, see the [CLI Options](../cli-options/) page.
 
 ## What is stored
 
-- IDs of deletable messages preserved by [`--preserve-n`](../cli-options/#--preserve-n) or [`--preserve-last`](../cli-options/#--preserve-last)
-- if [`--delete-reactions`](../cli-options/#--delete-reactions) is enabled, IDs of preserved messages that still contain your reactions
+- IDs of deletable messages kept by `--keep-last` or `--keep-within`
+- IDs of kept messages that still contain your reactions when reaction deletion is active
 
-In practice, that means the cache is about preserved items, not all fetched messages.
+In practice, the cache is about kept items, not all fetched messages.
 
 ## Why it exists
 
 It is especially useful when:
 
-- you use [`--preserve-n`](../cli-options/#--preserve-n)
-- you use a limited [`--fetch-max-age`](../cli-options/#--fetch-max-age)
+- you use `--keep-last`
+- you use a limited `--fetch-within`
 - you run the tool repeatedly as part of a rolling retention workflow
 
-Without the cache, repeated runs with a limited fetch window can stop "seeing" items that still matter to the preserve rules.
+Without the cache, repeated runs with a limited fetch window can stop seeing items that still matter to the keep rules.
 
-## How the preserve flags work together
+## How the keep flags work together
 
-- [`--preserve-last`](../cli-options/#--preserve-last) keeps messages inside a recent time window.
-- [`--preserve-n`](../cli-options/#--preserve-n) keeps the last N messages in each channel.
-- [`--preserve-n-mode`](../cli-options/#--preserve-n-mode) decides how that N is counted.
-- [`--fetch-max-age`](../cli-options/#--fetch-max-age) limits the fetched slice.
-- [`--preserve-cache`](../cli-options/#--preserve-cache) helps repeated runs preserve continuity when the fetched slice is limited.
+- `--keep-within` keeps messages inside a recent time window
+- `--keep-last` keeps the last N messages in each channel
+- `--keep-last-scope` decides how that N is counted
+- `--fetch-within` limits the fetched slice
+- `--preserve-cache` helps repeated runs keep continuity when the fetched slice is limited
 
-If you only use `--preserve-last` and fetch a wide enough recent window every time, preserve-cache is often unnecessary. It becomes much more important once `--preserve-n` and limited fetch windows enter the picture.
+If you only use `--keep-within` and fetch a wide enough recent window every time, preserve-cache is often unnecessary. It becomes much more important once `--keep-last` and limited fetch windows enter the picture.
 
 ## Dry-run behavior
 
-[`--dry-run`](../cli-options/#--dry-run) uses a separate preserve cache path by appending `.dryrun.json` to the active cache file.
+`--dry-run` uses a separate preserve cache path by appending `.dryrun.json` to the active cache file.
+
+## Clearing the cache
+
+Use:
+
+```bash
+dmd cache clear
+```
+
+or override the path:
+
+```bash
+dmd cache clear --preserve-cache-path /path/to/cache.json
+```
 
 ## See also
 
