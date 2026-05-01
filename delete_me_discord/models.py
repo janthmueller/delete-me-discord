@@ -43,6 +43,8 @@ class DiscordMessage(TypedDict):
     channel_id: str
     type: Any
     author_id: Optional[str]
+    author_username: Optional[str]
+    content: Optional[str]
     reactions: list[DiscordReaction]
 
 

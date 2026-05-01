@@ -36,10 +36,10 @@ class PreserveCache:
 
     def _load(self) -> None:
         if not os.path.exists(self.path):
-            self.logger.info("Preserve cache not found at %s; a new one will be created on save.", sensitive(self.path, full=True))
+            self.logger.progress("Preserve cache not found at %s; a new one will be created on save.", sensitive(self.path, full=True))
             return
 
-        self.logger.info("Loading preserve cache from %s.", sensitive(self.path, full=True))
+        self.logger.progress("Loading preserve cache from %s.", sensitive(self.path, full=True))
         with open(self.path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         if not isinstance(raw, dict):
@@ -49,7 +49,7 @@ class PreserveCache:
         if schema_version != self.SCHEMA_VERSION:
             raise ValueError(
                 f"Preserve cache schema mismatch (found {schema_version}, expected {self.SCHEMA_VERSION}). "
-                f"Delete the cache file ({sensitive(self.path, full=True)}) or run with --wipe-preserve-cache or --preserve-cache-path "
+                f"Delete the cache file ({sensitive(self.path, full=True)}) or run 'dmd cache clear' or use --preserve-cache-path "
                 f"to use a fresh file."
             )
 

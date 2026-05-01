@@ -20,9 +20,9 @@ class MessageCleaner:
         user_id: Optional[str] = None,
         include_ids: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
-        preserve_last: timedelta = timedelta(weeks=2),
+        preserve_last: timedelta = timedelta(0),
         preserve_n: int = 0,
-        preserve_n_mode: str = "mine",
+        preserve_n_mode: str = "all",
         preserve_cache: Optional[PreserveCache] = None
     ):
         """
@@ -33,9 +33,9 @@ class MessageCleaner:
             user_id (Optional[str]): The user ID whose messages will be targeted. If not provided and not set in the environment, it will be fetched via the API token.
             include_ids (Optional[List[str]]): IDs to include.
             exclude_ids (Optional[List[str]]): IDs to exclude.
-            preserve_last (timedelta): Preserve recent messages in each channel within the last preserve_last regardless of preserve_n.
-            preserve_n (int): Number of recent messages to preserve in each channel regardless of preserve_last.
-            preserve_n_mode (str): How to count the last N messages to keep: 'mine' (only your deletable messages) or 'all' (last N messages in the channel).
+            preserve_last (timedelta): Keep messages and reactions newer than this duration.
+            preserve_n (int): Number of recent messages to keep in each channel.
+            preserve_n_mode (str): How to count the last N messages to keep: 'mine' (only your deletable messages) or 'all' (all recent messages in the channel).
             preserve_cache (Optional[PreserveCache]): Optional cache to track preserved message IDs between runs.
 
         Raises:
@@ -104,7 +104,7 @@ class MessageCleaner:
             all_channels.append(channel)
             self.logger.debug("Included channel: %s.", channel_str(channel))
 
-        self.logger.info("Total channels to process: %s", len(all_channels))
+        self.logger.progress("Channels to process: %s", len(all_channels))
         return all_channels
 
     def _should_include_channel(self, channel: DiscordChannel) -> bool:
@@ -224,17 +224,26 @@ class MessageCleaner:
                 preserved_msg_ids.append(message_id)
                 continue
 
+            reaction_actions: List[PlannedAction] = []
             for action in decision.actions:
+                if action.kind == ActionKind.DELETE_REACTION:
+                    reaction_actions.append(action)
+                    continue
                 executed = self._execute_action(
                     action=action,
                     delete_sleep_time_range=delete_sleep_time_range,
                     dry_run=dry_run,
+                    facts=facts,
                 )
                 if action.kind == ActionKind.DELETE_MESSAGE:
                     if executed:
                         stats["deleted_count"] += 1
-                elif action.kind == ActionKind.DELETE_REACTION and executed:
-                    stats["reactions_removed_count"] += 1
+            if reaction_actions:
+                stats["reactions_removed_count"] += self._execute_reaction_actions(
+                    actions=reaction_actions,
+                    delete_sleep_time_range=delete_sleep_time_range,
+                    dry_run=dry_run,
+                )
         action_elapsed = time.monotonic() - action_start
 
         return preserved_msg_ids, stats, action_elapsed
@@ -273,18 +282,19 @@ class MessageCleaner:
         }
 
         cutoff_time = datetime.now(timezone.utc) - self.preserve_last
-        self.logger.info("Deleting messages older than %s UTC.", format_timestamp(cutoff_time))
+        if self.preserve_last > timedelta(0):
+            self.logger.info("Deleting messages older than %s UTC.", format_timestamp(cutoff_time))
         if fetch_since:
             self.logger.info("Fetching messages not older than %s UTC.", format_timestamp(fetch_since))
 
         channels = self.get_all_channels()
 
         if dry_run:
-            self.logger.info("Dry run mode enabled. Messages will be fetched and evaluated but not deleted.")
+            self.logger.info("Dry run enabled. Messages will be fetched and evaluated but not deleted.")
 
         for channel in channels:
             channel_started_at = time.monotonic()
-            self.logger.info("Processing channel: %s.", channel_str(channel))
+            self.logger.progress("Processing channel: %s.", channel_str(channel))
             messages, buffer_elapsed = self._prepare_channel_messages(
                 channel=channel,
                 fetch_sleep_time_range=fetch_sleep_time_range,
@@ -322,6 +332,8 @@ class MessageCleaner:
             total_stats["reactions_removed_count"] += stats["reactions_removed_count"]
             total_stats["preserved_reactions_count"] += stats["preserved_reactions_count"]
             channel_elapsed = time.monotonic() - channel_started_at
+            get_last_fetch_summary = getattr(self.api, "get_last_fetch_summary", None)
+            fetch_summary = get_last_fetch_summary(channel["id"]) if callable(get_last_fetch_summary) else None
             if dry_run:
                 channel_execute_estimate = self._format_duration(
                     self._estimate_action_count_duration(
@@ -335,37 +347,25 @@ class MessageCleaner:
                         delete_sleep_time_range,
                     )
                 )
-                channel_summary = (
-                    f"  - Would delete messages={stats['deleted_count']}, "
-                    f"preserve messages={stats['preserved_deletable_count']}"
+                self._log_dry_run_channel_summary(
+                    stats=stats,
+                    fetch_summary=fetch_summary,
+                    channel_elapsed=channel_elapsed,
+                    channel_execute_estimate=channel_execute_estimate,
+                    channel_total_estimate=channel_total_estimate,
+                    delete_reactions=delete_reactions,
+                    channel_plan=channel_plan,
                 )
-                if delete_reactions:
-                    channel_summary += (
-                        f", delete reactions={stats['reactions_removed_count']}, "
-                        f"preserve reactions={stats['preserved_reactions_count']}"
-                    )
-                if channel_plan is not None:
-                    channel_summary += f", buffered messages={channel_plan.buffered_message_count}"
-                channel_summary += (
-                    f", scan time={self._format_duration(channel_elapsed)}, "
-                    f"est. execute time={channel_execute_estimate}, "
-                    f"est. total time={channel_total_estimate}"
-                )
-                self.logger.info(channel_summary)
-            else:
-                channel_summary = (
-                    f"  - Deleted messages={stats['deleted_count']}, "
-                    f"preserved messages={stats['preserved_deletable_count']}"
-                )
-                if delete_reactions:
-                    channel_summary += (
-                        f", deleted reactions={stats['reactions_removed_count']}, "
-                        f"preserved reactions={stats['preserved_reactions_count']}"
-                    )
-                if channel_plan is not None:
-                    channel_summary += f", execute time={self._format_duration(action_elapsed)}"
-                channel_summary += f", total time={self._format_duration(channel_elapsed)}"
-                self.logger.info(channel_summary)
+                continue
+
+            self._log_executed_channel_summary(
+                stats=stats,
+                fetch_summary=fetch_summary,
+                channel_elapsed=channel_elapsed,
+                action_elapsed=action_elapsed,
+                delete_reactions=delete_reactions,
+                channel_plan=channel_plan,
+            )
 
         run_elapsed = time.monotonic() - run_started_at
         if dry_run:
@@ -374,36 +374,32 @@ class MessageCleaner:
                 delete_sleep_time_range,
             )
             total_summary = (
-                f"Summary: Would delete messages={total_stats['deleted_count']}, "
-                f"preserve messages={total_stats['preserved_deletable_count']}"
+                f"Summary: messages {total_stats['deleted_count']} delete / "
+                f"{total_stats['preserved_deletable_count']} keep"
             )
             if delete_reactions:
                 total_summary += (
-                    f", delete reactions={total_stats['reactions_removed_count']}, "
-                    f"preserve reactions={total_stats['preserved_reactions_count']}"
+                    f", reactions {total_stats['reactions_removed_count']} delete / "
+                    f"{total_stats['preserved_reactions_count']} keep"
                 )
-            total_summary += (
-                f", scan time={self._format_duration(run_elapsed)}, "
-                f"est. execute time={self._format_duration(execute_estimate_seconds)}, "
-                f"est. total time={self._format_duration(run_elapsed + execute_estimate_seconds)}"
-            )
             self.logger.info(total_summary)
+            self.logger.info(
+                "scan time=%s, est. execute time=%s, est. total time=%s",
+                self._format_duration(run_elapsed),
+                self._format_duration(execute_estimate_seconds),
+                self._format_duration(run_elapsed + execute_estimate_seconds),
+            )
         else:
             total_summary = (
-                f"Summary: Deleted messages={total_stats['deleted_count']}, "
-                f"preserved messages={total_stats['preserved_deletable_count']}"
+                f"Summary: messages {total_stats['deleted_count']} deleted / "
+                f"{total_stats['preserved_deletable_count']} kept"
             )
             if delete_reactions:
                 total_summary += (
-                    f", deleted reactions={total_stats['reactions_removed_count']}, "
-                    f"preserved reactions={total_stats['preserved_reactions_count']}"
+                    f", reactions {total_stats['reactions_removed_count']} deleted / "
+                    f"{total_stats['preserved_reactions_count']} kept"
                 )
             self.logger.info(total_summary)
-
-        self.logger.info(
-            "Total time=%s.",
-            self._format_duration(run_elapsed),
-        )
 
         return total_stats["deleted_count"]
 
@@ -552,11 +548,13 @@ class MessageCleaner:
         delete_sleep_time_range: Tuple[float, float],
     ) -> None:
         """Log one concise pre-execution summary line for buffered real runs."""
-        self.logger.info(
-            "  - Buffered messages=%s, scan time=%s, est. execute time=%s.",
+        self.logger.progress(
+            "Buffered messages=%s, scan time=%s, est. execute time=%s.",
             channel_plan.buffered_message_count,
             self._format_duration(buffer_elapsed),
             self._format_duration(self._estimate_action_duration(channel_plan, delete_sleep_time_range)),
+            indent=1,
+            prefix="-",
         )
 
     def _estimate_action_duration(
@@ -583,35 +581,159 @@ class MessageCleaner:
         minutes, secs = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+    def _log_fetch_summary(self, fetch_summary: Optional[dict]) -> None:
+        """Log per-channel fetch diagnostics in a compact, consistent block."""
+        if not fetch_summary:
+            return
+
+        if fetch_summary.get("wait_count"):
+            self.logger.diagnostic(
+                "Waited %.2fs between fetch batches.",
+                fetch_summary["waited_seconds"],
+                indent=1,
+                prefix="-",
+            )
+
+        self.logger.diagnostic(
+            "Fetched %s messages (%s).",
+            fetch_summary["fetched_count"],
+            fetch_summary["stop_reason"],
+            indent=1,
+            prefix="-",
+        )
+
+    def _format_channel_summary(
+        self,
+        stats: dict[str, int],
+        delete_reactions: bool,
+        dry_run: bool,
+        channel_plan: Optional[ChannelPlan] = None,
+    ) -> str:
+        """Build the human-facing per-channel summary line."""
+        if dry_run:
+            summary = (
+                f"Summary: messages {stats['deleted_count']} delete / "
+                f"{stats['preserved_deletable_count']} keep"
+            )
+            reaction_summary = (
+                f", reactions {stats['reactions_removed_count']} delete / "
+                f"{stats['preserved_reactions_count']} keep"
+            )
+        else:
+            summary = (
+                f"Summary: messages {stats['deleted_count']} deleted / "
+                f"{stats['preserved_deletable_count']} kept"
+            )
+            reaction_summary = (
+                f", reactions {stats['reactions_removed_count']} deleted / "
+                f"{stats['preserved_reactions_count']} kept"
+            )
+
+        if delete_reactions:
+            summary += reaction_summary
+        elif dry_run:
+            summary += ", reactions 0 delete / 0 keep"
+        else:
+            summary += ", reactions 0 deleted / 0 kept"
+
+        if dry_run and channel_plan is not None:
+            summary += f", buffered messages={channel_plan.buffered_message_count}"
+        return summary
+
+    def _log_dry_run_channel_summary(
+        self,
+        stats: dict[str, int],
+        fetch_summary: Optional[dict],
+        channel_elapsed: float,
+        channel_execute_estimate: str,
+        channel_total_estimate: str,
+        delete_reactions: bool,
+        channel_plan: Optional[ChannelPlan] = None,
+    ) -> None:
+        """Log dry-run output for one channel."""
+        self._log_fetch_summary(fetch_summary)
+        self.logger.progress(
+            self._format_channel_summary(
+                stats=stats,
+                delete_reactions=delete_reactions,
+                dry_run=True,
+                channel_plan=channel_plan,
+            ),
+            indent=1,
+            prefix="-",
+        )
+        self.logger.progress(
+            "scan time=%s, est. execute time=%s, est. total time=%s",
+            self._format_duration(channel_elapsed),
+            channel_execute_estimate,
+            channel_total_estimate,
+            indent=2,
+        )
+
+    def _log_executed_channel_summary(
+        self,
+        stats: dict[str, int],
+        fetch_summary: Optional[dict],
+        channel_elapsed: float,
+        action_elapsed: float,
+        delete_reactions: bool,
+        channel_plan: Optional[ChannelPlan] = None,
+    ) -> None:
+        """Log executed-run output for one channel."""
+        self._log_fetch_summary(fetch_summary)
+        self.logger.progress(
+            self._format_channel_summary(
+                stats=stats,
+                delete_reactions=delete_reactions,
+                dry_run=False,
+                channel_plan=channel_plan,
+            ),
+            indent=1,
+            prefix="-",
+        )
+        if channel_plan is not None:
+            self.logger.progress(
+                "execute time=%s, total time=%s",
+                self._format_duration(action_elapsed),
+                self._format_duration(channel_elapsed),
+                indent=2,
+            )
+        else:
+            self.logger.progress("total time=%s", self._format_duration(channel_elapsed), indent=2)
+
     def _execute_action(
         self,
         action: PlannedAction,
         delete_sleep_time_range: Tuple[float, float],
         dry_run: bool,
+        facts: Optional[MessageFacts] = None,
     ) -> bool:
         """Execute a single planned action or simulate it in dry-run mode."""
         if action.kind == ActionKind.DELETE_MESSAGE:
             if dry_run:
-                self.logger.debug(
-                    "Would delete message %s sent at %s UTC.",
+                self.logger.event(
+                    "Would delete message %s.",
                     sensitive(action.message_id),
-                    format_timestamp(action.message_time),
+                    indent=1,
+                    prefix="-",
                 )
-                self.logger.debug("Dry run enabled; skipping API delete for %s.", sensitive(action.message_id))
+                self._log_message_detail(facts)
                 return True
 
-            self.logger.debug(
-                "Deleting message %s sent at %s UTC.",
+            self.logger.event(
+                "Deleting message %s.",
                 sensitive(action.message_id),
-                format_timestamp(action.message_time),
+                indent=1,
+                prefix="-",
             )
+            self._log_message_detail(facts)
             success = self.api.delete_message(
                 channel_id=action.channel_id,
                 message_id=action.message_id,
             )
             if success:
                 sleep_time = random.uniform(*delete_sleep_time_range)
-                self.logger.debug("Sleeping for %.2f seconds after deletion.", sleep_time)
+                self.logger.diagnostic("Sleeping for %.2f seconds after deletion.", sleep_time)
                 time.sleep(sleep_time)
             else:
                 self.logger.warning(
@@ -624,14 +746,22 @@ class MessageCleaner:
         emoji: DiscordEmoji = action.emoji or {}
         emoji_name = emoji.get("name", "unknown")
         if dry_run:
-            self.logger.debug(
-                "Would remove reaction %s from message %s in channel %s.",
-                sensitive(emoji_name, full=True),
+            self.logger.event(
+                "Would delete reaction from message %s.",
                 sensitive(action.message_id),
-                sensitive(action.channel_id),
+                indent=1,
+                prefix="-",
             )
+            self._log_reaction_detail(emoji_name)
             return True
 
+        self.logger.event(
+            "Deleting reaction from message %s.",
+            sensitive(action.message_id),
+            indent=1,
+            prefix="-",
+        )
+        self._log_reaction_detail(emoji_name)
         success = self.api.delete_own_reaction(
             channel_id=action.channel_id,
             message_id=action.message_id,
@@ -639,7 +769,7 @@ class MessageCleaner:
         )
         if success:
             sleep_time = random.uniform(*delete_sleep_time_range)
-            self.logger.debug("Sleeping for %.2f seconds after reaction deletion.", sleep_time)
+            self.logger.diagnostic("Sleeping for %.2f seconds after reaction deletion.", sleep_time)
             time.sleep(sleep_time)
         else:
             self.logger.warning(
@@ -647,8 +777,86 @@ class MessageCleaner:
                 sensitive(emoji_name, full=True),
                 sensitive(action.message_id),
                 sensitive(action.channel_id),
-            )
+        )
         return success
+
+    def _execute_reaction_actions(
+        self,
+        actions: List[PlannedAction],
+        delete_sleep_time_range: Tuple[float, float],
+        dry_run: bool,
+    ) -> int:
+        """Execute one or more reaction deletions for the same message as one visible event block."""
+        if not actions:
+            return 0
+
+        message_id = actions[0].message_id
+        emoji_names = [(action.emoji or {}).get("name", "unknown") for action in actions]
+        reaction_count = len(actions)
+        reaction_label = "reaction" if reaction_count == 1 else f"{reaction_count} reactions"
+
+        if dry_run:
+            self.logger.event(
+                "Would delete %s from message %s.",
+                reaction_label,
+                sensitive(message_id),
+                indent=1,
+                prefix="-",
+            )
+            self._log_reaction_detail(emoji_names)
+            return reaction_count
+
+        self.logger.event(
+            "Deleting %s from message %s.",
+            reaction_label,
+            sensitive(message_id),
+            indent=1,
+            prefix="-",
+        )
+        self._log_reaction_detail(emoji_names)
+
+        deleted_count = 0
+        for action in actions:
+            emoji: DiscordEmoji = action.emoji or {}
+            emoji_name = emoji.get("name", "unknown")
+            success = self.api.delete_own_reaction(
+                channel_id=action.channel_id,
+                message_id=action.message_id,
+                emoji=emoji,
+            )
+            if success:
+                deleted_count += 1
+                sleep_time = random.uniform(*delete_sleep_time_range)
+                self.logger.diagnostic("Sleeping for %.2f seconds after reaction deletion.", sleep_time)
+                time.sleep(sleep_time)
+            else:
+                self.logger.warning(
+                    "Failed to delete reaction %s on message %s in channel %s.",
+                    sensitive(emoji_name, full=True),
+                    sensitive(action.message_id),
+                    sensitive(action.channel_id),
+                )
+
+        return deleted_count
+
+    def _log_message_detail(self, facts: Optional[MessageFacts]) -> None:
+        if not facts:
+            return
+        content = (facts.message.get("content") or "").strip()
+        if content:
+            normalized = " ".join(content.split())
+            if len(normalized) > 120:
+                normalized = f"{normalized[:117]}..."
+            self.logger.detail("Content: %s", sensitive(normalized, full=True), indent=2, no_wrap=True)
+
+    def _log_reaction_detail(self, emoji_names: Union[str, List[str]]) -> None:
+        if isinstance(emoji_names, str):
+            names = [emoji_names]
+        else:
+            names = emoji_names
+        rendered = ", ".join(str(sensitive(name, full=True)) for name in names)
+        label = "Reaction" if len(names) == 1 else "Reactions"
+        self.logger.detail(f"{label}: %s", rendered, indent=2, no_wrap=True)
 
     def _merge_cached_messages(
         self,

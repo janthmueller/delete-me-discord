@@ -51,6 +51,7 @@ class DiscordAPI:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._last_fetch_summaries: Dict[str, Dict[str, Any]] = {}
 
     def get_guilds(self) -> List[Dict[str, Any]]:
         """
@@ -96,7 +97,7 @@ class DiscordAPI:
             try:
                 channels = self.get_guild_channels(guild_id)
                 all_channels.extend(channels)
-                self.logger.debug("Fetched %s channels from guild %s.", len(channels), sensitive(guild_id))
+                self.logger.diagnostic("Fetched %s channels from guild %s.", len(channels), sensitive(guild_id))
             except ResourceUnavailable as e:
                 self.logger.warning("Skipping guild %s as it is unavailable. Error: %s", sensitive(guild_id), str(e))
         return all_channels
@@ -149,7 +150,9 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         fetched_count = 0
         last_message_id = None
-        reached_cutoff = False
+        fetch_stop_reason = "exhausted channel history"
+        wait_count = 0
+        waited_seconds = 0.0
 
         while fetched_count < max_messages:
             params = {"limit": 100}
@@ -163,18 +166,12 @@ class DiscordAPI:
                 break
             
             if not response:
-                self.logger.debug("No more messages to fetch in channel %s.", sensitive(channel_id))
                 break
 
             for message in response:
                 message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
                 if fetch_since and message_time < fetch_since:
-                    reached_cutoff = True
-                    self.logger.debug(
-                        "Reached fetch cutoff (%s) in channel %s.",
-                        format_timestamp(fetch_since),
-                        sensitive(channel_id)
-                    )
+                    fetch_stop_reason = f"reached fetch cutoff ({format_timestamp(fetch_since)})"
                     break
                 yield DiscordMessage(
                     message_id=message["id"],
@@ -182,24 +179,35 @@ class DiscordAPI:
                     channel_id=channel_id,
                     type=MessageType(message.get("type", 0)),
                     author_id=message.get("author", {}).get("id"),
+                    author_username=message.get("author", {}).get("username"),
+                    content=message.get("content"),
                     reactions=message.get("reactions", []),
                 )
 
                 fetched_count += 1
                 if fetched_count >= max_messages:
-                    self.logger.debug("Reached the maximum of %s messages.", max_messages)
+                    fetch_stop_reason = f"reached message limit ({max_messages})"
                     break
 
-            if reached_cutoff or fetched_count >= max_messages:
+            if fetch_stop_reason != "exhausted channel history" or fetched_count >= max_messages:
                 break
 
             last_message_id = response[-1]["id"]
-            # Implement randomized sleep after each fetch
             sleep_time = random.uniform(*fetch_sleep_time_range)
-            self.logger.debug("Sleeping for %.2f seconds after fetching messages.", sleep_time)
+            wait_count += 1
+            waited_seconds += sleep_time
             time.sleep(sleep_time)  # Respectful delay between requests
 
-        self.logger.debug("Fetched a total of %s messages from channel %s.", fetched_count, sensitive(channel_id))
+        self._last_fetch_summaries[channel_id] = {
+            "fetched_count": fetched_count,
+            "stop_reason": fetch_stop_reason,
+            "wait_count": wait_count,
+            "waited_seconds": waited_seconds,
+        }
+
+    def get_last_fetch_summary(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Return the last fetch summary recorded for a channel during this run."""
+        return self._last_fetch_summaries.get(channel_id)
 
     def fetch_message_by_id(self, channel_id: str, message_id: str) -> Optional[DiscordMessage]:
         """
@@ -225,7 +233,7 @@ class DiscordAPI:
             return None
 
         if not response:
-            self.logger.debug("Message %s not found in channel %s.", sensitive(message_id), sensitive(channel_id))
+            self.logger.diagnostic("Message %s not found in channel %s.", sensitive(message_id), sensitive(channel_id))
             return None
 
         message = response[0]
@@ -239,6 +247,8 @@ class DiscordAPI:
             channel_id=channel_id,
             type=MessageType(message.get("type", 0)),
             author_id=message.get("author", {}).get("id"),
+            author_username=message.get("author", {}).get("username"),
+            content=message.get("content"),
             reactions=message.get("reactions", []),
         )
 

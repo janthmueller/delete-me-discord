@@ -13,6 +13,7 @@ import pytest
 from delete_me_discord.cleaner import MessageCleaner
 from delete_me_discord.models import ActionKind, PlannedAction
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
+from delete_me_discord.utils import DETAIL_LEVEL, EVENT_LEVEL, PROGRESS_LEVEL
 
 
 class DummyType:
@@ -387,11 +388,48 @@ def test_delete_reaction_logs_redact_emoji_name_and_ids(caplog):
         set_redaction_config(RedactionConfig())
 
     assert executed is True
-    assert "Would remove reaction *** from message ***5679 in channel ***5678." in caplog.text
+    assert "Would delete reaction from message ***5679." in caplog.text
+    assert "Reaction: ***" in caplog.text
     assert "sample_emoji" not in caplog.text
     assert "123456789012345678" not in caplog.text
     assert "123456789012345679" not in caplog.text
 
+
+
+def test_grouped_reaction_deletes_log_once_per_message(caplog):
+    cleaner = MessageCleaner(
+        api=DummyAPI(),
+        user_id="me",
+        preserve_last=timedelta(0),
+        preserve_n=0,
+        preserve_n_mode="mine",
+    )
+    now = datetime.now(timezone.utc)
+    message = make_message(
+        "123456789012345679",
+        "other-user",
+        now - timedelta(days=30),
+        reactions=[
+            {"emoji": {"name": "heart_fire"}, "me": True},
+            {"emoji": {"name": "heart"}, "me": True},
+        ],
+    )
+
+    with caplog.at_level(DETAIL_LEVEL):
+        preserved_ids, stats, _ = cleaner.delete_messages_older_than(
+            messages=[message],
+            cutoff_time=now - timedelta(days=1),
+            delete_sleep_time_range=(0, 0),
+            dry_run=True,
+            delete_reactions=True,
+        )
+
+    assert preserved_ids == []
+    assert stats["deleted_count"] == 0
+    assert stats["reactions_removed_count"] == 2
+    assert "Would delete 2 reactions from message 123456789012345679." in caplog.text
+    assert "Reactions: heart_fire, heart" in caplog.text
+    assert caplog.text.count("Would delete") == 1
 
 
 def test_init_fetches_user_id_from_api():
@@ -473,7 +511,7 @@ def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(mo
     monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(
             dry_run=False,
             fetch_sleep_time_range=(0, 0),
@@ -485,7 +523,7 @@ def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(mo
         )
 
     assert total == 1
-    assert "  - Buffered messages=1, scan time=" in caplog.text
+    assert "Buffered messages=1, scan time=" in caplog.text
     assert "est. execute time=00:00:01" in caplog.text
     assert "Planned " not in caplog.text
 
@@ -513,7 +551,7 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
     monotonic_values = iter([10.0, 12.0, 16.0, 19.0])
     monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(
             dry_run=False,
             fetch_sleep_time_range=(0, 0),
@@ -521,11 +559,12 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
             fetch_since=None,
             max_messages=10,
             delete_reactions=False,
-        )
+    )
 
     assert total == 0
-    assert "  - Deleted messages=0, preserved messages=0, total time=00:00:04" in caplog.text
-    assert "Total time=00:00:09." in caplog.text
+    assert "Summary: messages 0 deleted / 0 kept" in caplog.text
+    assert "total time=00:00:04" in caplog.text
+    assert "Total time=00:00:09." not in caplog.text
 
 
 def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
@@ -547,7 +586,7 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
     monotonic_values = iter([10.0, 11.0, 12.0, 13.0, 15.0, 16.0])
     monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(
             dry_run=True,
             fetch_sleep_time_range=(0, 0),
@@ -559,8 +598,10 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
         )
 
     assert total == 1
-    assert "  - Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scan time=00:00:04, est. execute time=00:00:02, est. total time=00:00:06" in caplog.text
-    assert "Summary: Would delete messages=1, preserve messages=0, delete reactions=1, preserve reactions=0, scan time=00:00:06, est. execute time=00:00:02, est. total time=00:00:08" in caplog.text
+    assert "Summary: messages 1 delete / 0 keep, reactions 1 delete / 0 keep" in caplog.text
+    assert "scan time=00:00:04, est. execute time=00:00:02, est. total time=00:00:06" in caplog.text
+    assert "Summary: messages 1 delete / 0 keep, reactions 1 delete / 0 keep" in caplog.text
+    assert "scan time=00:00:06, est. execute time=00:00:02, est. total time=00:00:08" in caplog.text
 
 
 def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monkeypatch, caplog):
@@ -574,7 +615,7 @@ def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monke
     monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(
             dry_run=True,
             fetch_sleep_time_range=(0, 0),
