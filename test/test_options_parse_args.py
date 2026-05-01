@@ -19,7 +19,7 @@ def test_parse_args_clean_defaults():
     assert args.include_ids == []
     assert args.exclude_ids == []
     assert args.token is None
-    assert args.auth_config_path.endswith("config.json")
+    assert args.config_path.endswith("config.json")
     assert args.dry_run is False
     assert args.quiet is False
     assert args.verbose == 0
@@ -103,7 +103,7 @@ def test_parse_args_login_command():
     args = parse_args("1.0.0", argv=["login", "--token", "abc"])
     assert args.command == "login"
     assert args.token == "abc"
-    assert args.auth_config_path.endswith("config.json")
+    assert args.config_path.endswith("config.json")
 
 
 def test_parse_args_whoami_command_with_json():

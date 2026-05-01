@@ -43,7 +43,7 @@ def test_resolve_token_prefers_config_over_env(tmp_path, monkeypatch):
 
 def test_run_auth_login_reads_prompt_and_saves_token(tmp_path, monkeypatch):
     config_path = tmp_path / "config.json"
-    args = SimpleNamespace(command="login", token=None, auth_config_path=str(config_path))
+    args = SimpleNamespace(command="login", token=None, config_path=str(config_path))
     monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "prompt-token")
 
     class FakeAPI:
@@ -62,7 +62,7 @@ def test_run_auth_login_reads_prompt_and_saves_token(tmp_path, monkeypatch):
 def test_run_auth_logout_removes_config(tmp_path):
     config_path = tmp_path / "config.json"
     AuthConfig(str(config_path)).save_token("prompt-token")
-    args = SimpleNamespace(command="logout", token=None, auth_config_path=str(config_path))
+    args = SimpleNamespace(command="logout", token=None, config_path=str(config_path))
 
     run_auth_command(args)
     assert not config_path.exists()
@@ -79,7 +79,7 @@ def test_run_auth_logout_preserves_non_auth_config(tmp_path):
         ),
         encoding="utf-8",
     )
-    args = SimpleNamespace(command="logout", token=None, auth_config_path=str(config_path))
+    args = SimpleNamespace(command="logout", token=None, config_path=str(config_path))
 
     run_auth_command(args)
 
@@ -89,7 +89,7 @@ def test_run_auth_logout_preserves_non_auth_config(tmp_path):
 
 
 def test_run_auth_whoami_requires_token(tmp_path):
-    args = SimpleNamespace(command="whoami", token=None, auth_config_path=str(tmp_path / "config.json"))
+    args = SimpleNamespace(command="whoami", token=None, config_path=str(tmp_path / "config.json"))
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)

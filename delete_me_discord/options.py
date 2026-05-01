@@ -67,10 +67,10 @@ def _auth_parent() -> argparse.ArgumentParser:
         help="Discord token to use for this command. Overrides stored config and DISCORD_TOKEN."
     )
     parser.add_argument(
-        "--auth-config-path",
+        "--config-path",
         type=str,
         default=DEFAULT_AUTH_CONFIG_PATH,
-        help="Override auth config path (default: ~/.config/delete-me-discord/config.json)."
+        help="Override config path (default: ~/.config/delete-me-discord/config.json)."
     )
     return parser
 

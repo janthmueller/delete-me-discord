@@ -41,7 +41,7 @@ def _clear_preserve_cache(preserve_cache_path: str) -> None:
 
 
 def _build_api(args) -> DiscordAPI:
-    token, _token_source = resolve_token(args.token, args.auth_config_path)
+    token, _token_source = resolve_token(args.token, args.config_path)
     if not token:
         logging.error("Discord token not provided. Use --token, dmd login, or set DISCORD_TOKEN.")
         raise SystemExit(1)

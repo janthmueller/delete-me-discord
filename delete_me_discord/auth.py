@@ -92,7 +92,7 @@ def resolve_token(token_arg: Optional[str], config_path: str) -> Tuple[Optional[
 
 def run_auth_command(args) -> None:
     logger = logging.getLogger("auth")
-    config = AuthConfig(args.auth_config_path)
+    config = AuthConfig(args.config_path)
 
     if args.command == "logout":
         deleted = config.clear()
@@ -127,7 +127,7 @@ def run_auth_command(args) -> None:
         return
 
     if args.command == "whoami":
-        token, source = resolve_token(args.token, args.auth_config_path)
+        token, source = resolve_token(args.token, args.config_path)
         if not token:
             logger.error("Discord token not provided. Use --token, dmd login, or set DISCORD_TOKEN.")
             raise SystemExit(1)
