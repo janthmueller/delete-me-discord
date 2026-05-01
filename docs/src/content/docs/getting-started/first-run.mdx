@@ -8,8 +8,8 @@ The safest first run is deliberately narrow: discover IDs, choose one target, an
 ## 1. Discover IDs first
 
 ```bash
-delete-me-discord --list-guilds
-delete-me-discord --list-channels
+dmd --list-guilds
+dmd --list-channels
 ```
 
 This gives you the IDs you need for [`--include-ids`](../../reference/cli-options/#--include-ids) and helps avoid deleting from the wrong place.
@@ -17,7 +17,7 @@ This gives you the IDs you need for [`--include-ids`](../../reference/cli-option
 ## 2. Start with dry-run
 
 ```bash
-delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
 ```
 
 This example targets one channel, includes reaction cleanup, and preserves nothing. It is useful as a preview for a full wipe of that single channel.

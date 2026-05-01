@@ -5,6 +5,8 @@
 
 **Delete Me Discord** is a command-line tool for deleting your own Discord messages and reactions with explicit filters and retention controls.
 
+The installed CLI is available as `delete-me-discord` and the shorter alias `dmd`.
+
 > ⚠️ Using automated tools on Discord may violate Discord’s [Terms of Service](https://discord.com/terms). Use at your own risk.
 
 ## What It Does
@@ -26,6 +28,8 @@ Choose one:
 - Download a prebuilt binary from the [latest release](https://github.com/janthmueller/delete-me-discord/releases/latest)
 - `nix run github:janthmueller/delete-me-discord -- --help`
 
+More installation details: [Installation docs](https://janthmueller.github.io/delete-me-discord/getting-started/installation/)
+
 ## Quick Start
 
 Export your token first:
@@ -39,14 +43,14 @@ You can obtain your token using [this guide](https://github.com/victornpb/undisc
 Then discover targets safely:
 
 ```bash
-delete-me-discord --list-guilds
-delete-me-discord --list-channels
+dmd --list-guilds
+dmd --list-channels
 ```
 
 Preview a full wipe of one channel before executing it:
 
 ```bash
-delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
 ```
 
 Drop `--dry-run` only after the plan looks right.
@@ -58,13 +62,13 @@ If you want to share logs or screenshots, add `--redact-sensitive`. For example,
 Full channel cleanup:
 
 ```bash
-delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
 ```
 
 Rolling retention:
 
 ```bash
-delete-me-discord --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
+dmd --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
 ```
 
 ## Documentation

@@ -15,14 +15,14 @@ Use this workflow when you want to clean a single DM or channel as completely as
 ## Discover the target
 
 ```bash
-delete-me-discord --list-guilds
-delete-me-discord --list-channels
+dmd --list-guilds
+dmd --list-channels
 ```
 
 ## Preview a full wipe
 
 ```bash
-delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
+dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0 --dry-run
 ```
 
 This means:
@@ -37,7 +37,7 @@ This means:
 Drop `--dry-run` once you are satisfied:
 
 ```bash
-delete-me-discord --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0
+dmd --include-ids <channel_id> --delete-reactions --preserve-n 0 --preserve-last 0
 ```
 
 ## Notes

@@ -42,6 +42,7 @@ tracker = "https://github.com/janthmueller/delete-me-discord/issues"
 
 [project.scripts]
 delete-me-discord = "delete_me_discord:main"
+dmd = "delete_me_discord:main"
 
 [tool.setuptools.packages.find]
 exclude = ["tests"]

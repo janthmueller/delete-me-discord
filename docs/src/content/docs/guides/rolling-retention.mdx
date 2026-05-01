@@ -23,13 +23,13 @@ The key flags behind this workflow are:
 Initial run:
 
 ```bash
-delete-me-discord --preserve-n 0 --preserve-last "weeks=2" --dry-run
+dmd --preserve-n 0 --preserve-last "weeks=2" --dry-run
 ```
 
 Recurring daily run:
 
 ```bash
-delete-me-discord --preserve-n 0 --preserve-last "weeks=2" --fetch-max-age "weeks=2,days=1" --dry-run
+dmd --preserve-n 0 --preserve-last "weeks=2" --fetch-max-age "weeks=2,days=1" --dry-run
 ```
 
 ## Time and count retention
@@ -37,13 +37,13 @@ delete-me-discord --preserve-n 0 --preserve-last "weeks=2" --fetch-max-age "week
 Initial run:
 
 ```bash
-delete-me-discord --preserve-last "weeks=2" --preserve-n 20 --preserve-cache --dry-run
+dmd --preserve-last "weeks=2" --preserve-n 20 --preserve-cache --dry-run
 ```
 
 Recurring daily run:
 
 ```bash
-delete-me-discord --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
+dmd --preserve-last "weeks=2" --preserve-n 20 --fetch-max-age "weeks=2,days=1" --preserve-cache --dry-run
 ```
 
 ## Guidance

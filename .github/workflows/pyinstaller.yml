@@ -48,6 +48,15 @@ jobs:
       - name: Build binary
         run: pyinstaller delete_me_discord.spec
 
+      - name: Add CLI alias to build output
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp dist/delete-me-discord/delete-me-discord.exe dist/delete-me-discord/dmd.exe
+          else
+            cp dist/delete-me-discord/delete-me-discord dist/delete-me-discord/dmd
+          fi
+
       - name: Package artifact
         id: package
         shell: bash
