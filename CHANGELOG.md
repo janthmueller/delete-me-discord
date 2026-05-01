@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v2.0.0 (2026-05-01)
+
+### Documentation
+
+- Rewrite docs for the v2 cli
+  ([`f5fef69`](https://github.com/janthmueller/delete-me-discord/commit/f5fef690e721449f0089ad0c6c258ce5141206fa))
+
+### Features
+
+- **cli**: Redesign command tree and cleanup defaults
+  ([`8d0e1ba`](https://github.com/janthmueller/delete-me-discord/commit/8d0e1ba47410513e4da7319f3094400d11b9d262))
+
+### Breaking Changes
+
+- **cli**: The CLI now uses subcommands such as dmd clean, dmd list guilds, dmd list channels, dmd
+  login, dmd logout, dmd whoami, and dmd cache clear. Old root-level command usage and several
+  option names were removed or renamed. Cleanup defaults also changed: reactions are deleted by
+  default, --keep-last defaults to 0, --keep-within defaults to 0, and --keep-last-scope defaults to
+  all.
+
+
 ## v1.9.0 (2026-05-01)
 
 ### Bug Fixes
