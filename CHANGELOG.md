@@ -2,6 +2,38 @@
 
 <!-- version list -->
 
+## v2.1.0 (2026-05-02)
+
+### Bug Fixes
+
+- **profile**: Refine profile parser overrides
+  ([`7ca4ea8`](https://github.com/janthmueller/delete-me-discord/commit/7ca4ea8e6317f09eb040ac91736707b3c6655f77))
+
+### Documentation
+
+- Clarify profile and recurring cleanup workflows
+  ([`ea08cb1`](https://github.com/janthmueller/delete-me-discord/commit/ea08cb163ff9c25714db0b30a280b908f239bb30))
+
+- **profile**: Refine profile management spec
+  ([`da9af72`](https://github.com/janthmueller/delete-me-discord/commit/da9af72362565721c148f8c2f9c9dd10087a688d))
+
+### Features
+
+- **profile**: Add profile management commands
+  ([`f6ee6f4`](https://github.com/janthmueller/delete-me-discord/commit/f6ee6f4c2d8d1f1c14e819c4aca53f9f4d30aaa2))
+
+- **profile**: Add reusable cleanup profiles
+  ([`eee90ae`](https://github.com/janthmueller/delete-me-discord/commit/eee90ae4309f657da6e560e9ef06153940dc8c34))
+
+- **profile**: Support flexible profile value formats
+  ([`0dc6126`](https://github.com/janthmueller/delete-me-discord/commit/0dc612654f924dfeddf5d4b1e93ea094fd79b3c8))
+
+### Testing
+
+- Make profile cache path assertions portable
+  ([`47f8e9d`](https://github.com/janthmueller/delete-me-discord/commit/47f8e9d2fa05fab89c89ead1d8e044ac52cdd293))
+
+
 ## v2.0.1 (2026-05-01)
 
 ### Bug Fixes
