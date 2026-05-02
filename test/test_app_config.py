@@ -346,6 +346,30 @@ def test_profile_json_true_emits_json_parser_errors(tmp_path, capsys):
     assert '"type": "argument_error"' in out
 
 
+def test_invalid_profile_with_json_true_emits_json_profile_errors(tmp_path, capsys):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"json":true,"verbose":9}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            "1.0.0",
+            argv=[
+                "clean",
+                "--config-path",
+                str(config_path),
+                "--profile",
+                "nightly-dms",
+            ],
+        )
+    assert exc.value.code == 2
+    out = capsys.readouterr().out.strip()
+    assert '"type": "argument_error"' in out
+    assert "Profile 'nightly-dms' field 'verbose' must be between 0 and 3." in out
+
+
 def test_profile_without_preserve_cache_keeps_global_default_path(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(

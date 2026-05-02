@@ -106,6 +106,14 @@ def load_profile_names(path: str = DEFAULT_CONFIG_PATH) -> list[str]:
     return sorted(profiles.keys())
 
 
+def profile_requests_json_output(path: str, name: str) -> bool:
+    profiles = _load_profiles_dict(path)
+    raw = profiles.get(name)
+    if not isinstance(raw, dict):
+        return False
+    return raw.get("json") is True
+
+
 def load_profile(path: str, name: str) -> dict[str, Any]:
     profiles = _load_profiles_dict(path)
     if name not in profiles:

@@ -3,7 +3,12 @@ import json
 import sys
 from datetime import timedelta
 
-from .app_config import CLEAN_ARG_DEFAULTS, build_clean_defaults, load_profile
+from .app_config import (
+    CLEAN_ARG_DEFAULTS,
+    build_clean_defaults,
+    load_profile,
+    profile_requests_json_output,
+)
 from .auth import DEFAULT_CONFIG_PATH
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .utils import parse_redaction_spec, parse_time_delta
@@ -50,25 +55,27 @@ def _optional_non_negative_int(value: str):
     return parsed
 
 
-def _argv_has_json(argv) -> bool:
+def _argv_json_setting(argv) -> bool | None:
     if argv is None:
         argv = sys.argv[1:]
-    return "--json" in argv or "-j" in argv
+    enabled = None
+    for token in argv:
+        if token in {"-j", "--json"}:
+            enabled = True
+        elif token == "--no-json":
+            enabled = False
+    return enabled
 
 
 def _clean_default(name: str, clean_defaults: dict[str, object] | None = None):
     return (clean_defaults or CLEAN_ARG_DEFAULTS)[name]
 
 
-def _boolean_action(clean_defaults: dict[str, object] | None = None):
-    return argparse.BooleanOptionalAction if clean_defaults is not None else "store_true"
-
-
 def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "-q", "--quiet",
-        action=_boolean_action(clean_defaults),
+        action=argparse.BooleanOptionalAction,
         default=_clean_default("quiet", clean_defaults),
         help="Only show warnings and errors."
     )
@@ -80,7 +87,7 @@ def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) ->
     )
     parser.add_argument(
         "-j", "--json",
-        action=_boolean_action(clean_defaults),
+        action=argparse.BooleanOptionalAction,
         default=_clean_default("json", clean_defaults),
         help="Emit JSON output (logs and discovery output)."
     )
@@ -321,34 +328,6 @@ def build_parser(
     return parser
 
 
-def parse_args(version: str, argv=None):
-    raw_argv = list(sys.argv[1:] if argv is None else argv)
-    json_output = _argv_has_json(raw_argv)
-    bootstrap_args = _bootstrap_parse(raw_argv)
-    clean_defaults = None
-    if bootstrap_args.command == "clean":
-        profile_defaults = None
-        try:
-            if bootstrap_args.profile:
-                profile_defaults = load_profile(bootstrap_args.config_path, bootstrap_args.profile)
-        except ValueError as exc:
-            parser = build_parser(version, json_output=json_output)
-            parser.error(str(exc))
-        clean_defaults = build_clean_defaults(bootstrap_args.profile, profile_defaults)
-        json_output = json_output or bool(clean_defaults.get("json"))
-
-    parser = build_parser(version, json_output=json_output, clean_defaults=clean_defaults)
-    args = parser.parse_args(raw_argv)
-    if getattr(args, "command", None) == "clean" and args.verbose is None:
-        args.verbose = _clean_default("verbose", clean_defaults)
-    if isinstance(args.redact_sensitive, list):
-        try:
-            args.redact_sensitive = parse_redaction_spec(args.redact_sensitive)
-        except argparse.ArgumentTypeError as exc:
-            parser.error(str(exc))
-    return args
-
-
 def _bootstrap_parse(argv: list[str]):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-j", "--json", action="store_true")
@@ -377,3 +356,48 @@ def _bootstrap_parse(argv: list[str]):
     cache_subparsers.add_parser("clear", add_help=False)
 
     return parser.parse_known_args(argv)[0]
+
+
+def _resolve_bootstrap_clean_json_output(
+    raw_argv: list[str],
+    config_path: str,
+    profile_name: str | None,
+) -> bool:
+    explicit_json_setting = _argv_json_setting(raw_argv)
+    if explicit_json_setting is not None:
+        return explicit_json_setting
+    if profile_name:
+        return profile_requests_json_output(config_path, profile_name)
+    return False
+
+
+def parse_args(version: str, argv=None):
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    bootstrap_args = _bootstrap_parse(raw_argv)
+    json_output = _resolve_bootstrap_clean_json_output(
+        raw_argv,
+        bootstrap_args.config_path,
+        getattr(bootstrap_args, "profile", None),
+    ) if bootstrap_args.command == "clean" else (_argv_json_setting(raw_argv) is True)
+    clean_defaults = None
+    if bootstrap_args.command == "clean":
+        profile_defaults = None
+        try:
+            if bootstrap_args.profile:
+                profile_defaults = load_profile(bootstrap_args.config_path, bootstrap_args.profile)
+        except ValueError as exc:
+            parser = build_parser(version, json_output=json_output)
+            parser.error(str(exc))
+        clean_defaults = build_clean_defaults(bootstrap_args.profile, profile_defaults)
+        json_output = json_output or bool(clean_defaults.get("json"))
+
+    parser = build_parser(version, json_output=json_output, clean_defaults=clean_defaults)
+    args = parser.parse_args(raw_argv)
+    if getattr(args, "command", None) == "clean" and args.verbose is None:
+        args.verbose = _clean_default("verbose", clean_defaults)
+    if isinstance(args.redact_sensitive, list):
+        try:
+            args.redact_sensitive = parse_redaction_spec(args.redact_sensitive)
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
+    return args

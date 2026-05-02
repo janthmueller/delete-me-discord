@@ -47,6 +47,13 @@ def test_parse_args_list_channels_json_flag():
     assert args.json is True
 
 
+def test_parse_args_list_channels_no_json_flag():
+    args = parse_args("1.0.0", argv=["list", "channels", "--no-json"])
+    assert args.command == "list"
+    assert args.list_command == "channels"
+    assert args.json is False
+
+
 def test_parse_args_list_profiles():
     args = parse_args("1.0.0", argv=["list", "profiles"])
     assert args.command == "list"
@@ -67,6 +74,30 @@ def test_parse_args_json_error_output(capsys):
     assert exc.value.code == 2
     out = capsys.readouterr().out.strip()
     assert '"type": "argument_error"' in out
+
+
+def test_parse_args_no_json_overrides_profile_json_for_errors(tmp_path, capsys):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"json":true,"verbose":9}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            "1.0.0",
+            argv=[
+                "clean",
+                "--config-path",
+                str(config_path),
+                "--profile",
+                "nightly-dms",
+                "--no-json",
+            ],
+        )
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "must be between 0 and 3" in err
 
 
 def test_parse_args_non_json_error_output(capsys):
