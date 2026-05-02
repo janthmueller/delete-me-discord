@@ -174,7 +174,7 @@ def test_main_profile_fields_outputs_specs(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "keep_last: non-negative integer" in out
     assert "fetch_within: time delta string or none" in out
-    assert "include_ids: JSON array of strings" in out
+    assert "include_ids: string list" in out
 
 
 def test_main_profile_add_updates_config(tmp_path, monkeypatch):
@@ -223,6 +223,25 @@ def test_main_profile_update_set_none_unsets_field(tmp_path, monkeypatch):
     delete_me_discord.main()
     data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
     assert data["profiles"]["nightly-dms"] == {"keep_last": 5}
+
+
+def test_main_profile_update_accepts_redaction_comma_form(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["redact_sensitive=0,1"],
+    )
+    Path(args.config_path).write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5}}}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"]["redact_sensitive"] == [0, 1]
 
 
 def test_main_profile_update_rejects_unsetting_field_not_present(tmp_path, monkeypatch, capsys):

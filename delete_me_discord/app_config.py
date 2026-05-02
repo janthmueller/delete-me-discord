@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from .auth import DEFAULT_CONFIG_PATH
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
@@ -66,27 +66,30 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
 }
 
 
+ProfileValueMode = Literal["cli-set", "stored", "runtime"]
+
+
 PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
-    {"name": "include_ids", "type": "JSON array of strings", "parser": "json", "nullable": False, "description": "Restrict cleanup to matching IDs."},
-    {"name": "exclude_ids", "type": "JSON array of strings", "parser": "json", "nullable": False, "description": "Exclude matching IDs from cleanup."},
+    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching IDs."},
+    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching IDs from cleanup."},
     {"name": "keep_last", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Keep the last N messages in each channel."},
-    {"name": "keep_last_scope", "type": "mine|all", "parser": "string", "nullable": False, "description": "Count keep_last against your messages or all recent messages."},
-    {"name": "keep_within", "type": "time delta string", "parser": "string", "nullable": False, "description": "Keep messages and reactions newer than this window."},
-    {"name": "fetch_within", "type": "time delta string", "parser": "string", "nullable": True, "description": "Only fetch messages newer than this window."},
+    {"name": "keep_last_scope", "type": "mine|all", "parser": "enum", "choices": ("mine", "all"), "nullable": False, "description": "Count keep_last against your messages or all recent messages."},
+    {"name": "keep_within", "type": "time delta string", "parser": "time_delta", "nullable": False, "description": "Keep messages and reactions newer than this window."},
+    {"name": "fetch_within", "type": "time delta string", "parser": "time_delta", "nullable": True, "description": "Only fetch messages newer than this window."},
     {"name": "max_messages", "type": "non-negative integer", "parser": "int", "nullable": True, "description": "Maximum messages to fetch per channel."},
     {"name": "buffer_per_channel", "type": "true|false", "parser": "bool", "nullable": False, "description": "Buffer one channel at a time before evaluation."},
     {"name": "keep_reactions", "type": "true|false", "parser": "bool", "nullable": False, "description": "Keep your reactions instead of removing them."},
     {"name": "preserve_cache", "type": "true|false", "parser": "bool", "nullable": False, "description": "Enable preserve cache between runs."},
-    {"name": "preserve_cache_path", "type": "string path", "parser": "string", "nullable": False, "description": "Override the preserve cache path."},
+    {"name": "preserve_cache_path", "type": "string path", "parser": "non_empty_string", "nullable": False, "description": "Override the preserve cache path."},
     {"name": "max_retries", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Maximum retry attempts for retryable API requests."},
-    {"name": "retry_time_buffer", "type": "JSON array of numbers", "parser": "json", "nullable": False, "description": "One or two numbers added after rate limit waits."},
-    {"name": "fetch_sleep_time", "type": "JSON array of numbers", "parser": "json", "nullable": False, "description": "One or two numbers for sleep between fetch requests."},
-    {"name": "delete_sleep_time", "type": "JSON array of numbers", "parser": "json", "nullable": False, "description": "One or two numbers for sleep between delete actions."},
+    {"name": "retry_time_buffer", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers added after rate limit waits."},
+    {"name": "fetch_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers for sleep between fetch requests."},
+    {"name": "delete_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers for sleep between delete actions."},
     {"name": "dry_run", "type": "true|false", "parser": "bool", "nullable": False, "description": "Simulate deletions without making changes."},
     {"name": "quiet", "type": "true|false", "parser": "bool", "nullable": False, "description": "Only show warnings and errors for runs using this profile."},
     {"name": "verbose", "type": "0..3 integer", "parser": "int", "nullable": False, "description": "Default verbosity level for runs using this profile."},
     {"name": "json", "type": "true|false", "parser": "bool", "nullable": False, "description": "Emit JSON output for runs using this profile."},
-    {"name": "redact_sensitive", "type": "true|false or [prefix,suffix]", "parser": "redact_sensitive", "nullable": False, "description": "Redact sensitive values in logs."},
+    {"name": "redact_sensitive", "type": "true|false or prefix,suffix", "parser": "redact_sensitive", "nullable": False, "description": "Redact sensitive values in logs."},
 ]
 
 
@@ -126,14 +129,19 @@ def profile_requests_json_output(path: str, name: str) -> bool:
     raw = profiles.get(name)
     if not isinstance(raw, dict):
         return False
-    return raw.get("json") is True
+    if "json" not in raw:
+        return False
+    try:
+        return _normalize_profile_value(f"Profile '{name}'", "json", raw["json"], mode="runtime") is True
+    except ValueError:
+        return False
 
 
 def load_profile(path: str, name: str) -> dict[str, Any]:
     profiles = _load_profiles_dict(path)
     if name not in profiles:
         raise ValueError(f"Unknown profile '{name}'.")
-    return _validate_profile_data(f"Profile '{name}'", profiles[name])
+    return _normalize_profile_data(f"Profile '{name}'", profiles[name], mode="runtime")
 
 
 def parse_profile_set_assignments(assignments: list[str]) -> dict[str, Any]:
@@ -151,18 +159,13 @@ def parse_profile_set_assignments(assignments: list[str]) -> dict[str, Any]:
             )
         if field in raw:
             raise ValueError(f"Duplicate --set field '{field}'.")
-        raw[field] = _parse_profile_cli_value(field, raw_value)
-    nullable_nones = {
-        field: value
-        for field, value in raw.items()
-        if value is None and field in {"fetch_within", "max_messages"}
-    }
-    validated = _validate_profile_data(
-        "Profile input",
-        {field: value for field, value in raw.items() if field not in nullable_nones},
-    )
-    validated.update(nullable_nones)
-    return validated
+        raw[field] = _normalize_profile_value(
+            "Profile input",
+            field,
+            raw_value,
+            mode="cli-set",
+        )
+    return raw
 
 
 def validate_profile_unset_fields(fields: list[str]) -> list[str]:
@@ -185,7 +188,7 @@ def add_profile(path: str, name: str, profile_data: dict[str, Any]) -> None:
     profiles = _mutable_profiles(config)
     if name in profiles:
         raise ValueError(f"Profile '{name}' already exists.")
-    profiles[name] = profile_data
+    profiles[name] = _normalize_profile_data(f"Profile '{name}'", profile_data, mode="stored")
     _write_config(path, config)
 
 
@@ -213,7 +216,7 @@ def update_profile(
     for field in unset_fields:
         current.pop(field, None)
     current.update(profile_updates)
-    profiles[name] = _validate_profile_data(f"Profile '{name}'", current)
+    profiles[name] = _normalize_profile_data(f"Profile '{name}'", current, mode="stored")
     _write_config(path, config)
 
 
@@ -320,7 +323,7 @@ def _load_profiles_dict(path: str) -> dict[str, Any]:
     return profiles
 
 
-def _validate_profile_data(source_label: str, raw: Any) -> dict[str, Any]:
+def _normalize_profile_data(source_label: str, raw: Any, *, mode: ProfileValueMode) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError(f"{source_label} must be a JSON object.")
 
@@ -333,45 +336,63 @@ def _validate_profile_data(source_label: str, raw: Any) -> dict[str, Any]:
     for field, value in raw.items():
         if value is None:
             raise ValueError(f"{source_label} field '{field}' must be omitted instead of null.")
-
-        if field in {"include_ids", "exclude_ids"}:
-            normalized[field] = _expect_string_list(source_label, field, value)
-        elif field == "keep_last":
-            normalized[field] = _expect_non_negative_int(source_label, field, value)
-        elif field == "keep_last_scope":
-            if value not in {"mine", "all"}:
-                raise ValueError(f"{source_label} field 'keep_last_scope' must be 'mine' or 'all'.")
-            normalized[field] = value
-        elif field in {"keep_within", "fetch_within"}:
-            normalized[field] = _expect_timedelta(source_label, field, value)
-        elif field == "max_messages":
-            normalized[field] = _expect_non_negative_int(source_label, field, value)
-        elif field in {
-            "buffer_per_channel",
-            "keep_reactions",
-            "preserve_cache",
-            "dry_run",
-            "quiet",
-            "json",
-        }:
-            normalized[field] = _expect_bool(source_label, field, value)
-        elif field == "preserve_cache_path":
-            normalized[field] = _expect_str(source_label, field, value)
-        elif field == "max_retries":
-            normalized[field] = _expect_non_negative_int(source_label, field, value)
-        elif field in {"retry_time_buffer", "fetch_sleep_time", "delete_sleep_time"}:
-            normalized[field] = _expect_random_range(source_label, field, value)
-        elif field == "verbose":
-            level = _expect_non_negative_int(source_label, field, value)
-            if level > 3:
-                raise ValueError(f"{source_label} field 'verbose' must be between 0 and 3.")
-            normalized[field] = level
-        elif field == "redact_sensitive":
-            normalized[field] = _expect_redaction_config(source_label, field, value)
-        else:  # pragma: no cover - defensive
-            raise ValueError(f"{source_label} field '{field}' is not supported.")
+        normalized[field] = _normalize_profile_value(source_label, field, value, mode=mode)
 
     return normalized
+
+
+def _normalize_profile_value(source_label: str, field: str, value: Any, *, mode: ProfileValueMode) -> Any:
+    spec = _PROFILE_FIELD_SPEC_BY_NAME.get(field)
+    if spec is None:
+        raise ValueError(f"Unsupported profile field '{field}'.")
+    if mode == "cli-set" and spec["nullable"] and isinstance(value, str) and value.lower() == "none":
+        return None
+    if mode not in {"cli-set", "stored", "runtime"}:
+        raise ValueError(f"Unsupported profile value mode '{mode}'.")
+
+    parser_name = spec["parser"]
+    if parser_name == "string_list":
+        return _expect_string_list(source_label, field, _coerce_string_list(source_label, field, value))
+    if parser_name == "number_list":
+        return _expect_random_range(source_label, field, _coerce_number_list(source_label, field, value))
+    if parser_name == "int":
+        return _normalize_profile_int(source_label, field, value)
+    if parser_name == "bool":
+        return _normalize_profile_bool(source_label, field, value)
+    if parser_name == "enum":
+        return _normalize_profile_enum(source_label, field, value, spec["choices"])
+    if parser_name == "time_delta":
+        return _expect_timedelta(source_label, field, value) if mode == "runtime" else _expect_stored_timedelta(source_label, field, value)
+    if parser_name == "non_empty_string":
+        return _expect_str(source_label, field, value)
+    if parser_name == "redact_sensitive":
+        return _normalize_redaction_config(source_label, field, value, mode=mode)
+    if parser_name == "string":
+        return _expect_str(source_label, field, value)
+    raise ValueError(f"Unsupported profile parser '{parser_name}' for field '{field}'.")
+
+
+def _normalize_profile_int(source_label: str, field: str, value: Any) -> int:
+    if isinstance(value, str):
+        value = _parse_cli_int(value)
+    level = _expect_non_negative_int(source_label, field, value)
+    if field == "verbose" and level > 3:
+        raise ValueError(f"{source_label} field 'verbose' must be between 0 and 3.")
+    return level
+
+
+def _normalize_profile_bool(source_label: str, field: str, value: Any) -> bool:
+    if isinstance(value, str):
+        value = _parse_cli_bool(value)
+    return _expect_bool(source_label, field, value)
+
+
+def _normalize_profile_enum(source_label: str, field: str, value: Any, choices: tuple[str, ...]) -> str:
+    value = _expect_str(source_label, field, value)
+    if value not in choices:
+        rendered = " or ".join(f"'{choice}'" for choice in choices)
+        raise ValueError(f"{source_label} field '{field}' must be {rendered}.")
+    return value
 
 
 def _expect_string_list(source_label: str, field: str, value: Any) -> list[str]:
@@ -393,10 +414,19 @@ def _expect_timedelta(source_label: str, field: str, value: Any) -> Optional[tim
         if isinstance(value, (int, float)):
             value = str(value)
         if not isinstance(value, str):
-            raise ValueError("must be a string or zero-like number")
+            raise ValueError(f"{source_label} field '{field}' must be a string or zero-like number.")
         return parse_time_delta(value)
     except argparse.ArgumentTypeError as exc:
         raise ValueError(f"{source_label} field '{field}' is invalid: {exc}") from exc
+
+
+def _expect_stored_timedelta(source_label: str, field: str, value: Any) -> str:
+    if isinstance(value, (int, float)):
+        value = str(value)
+    if not isinstance(value, str):
+        raise ValueError(f"{source_label} field '{field}' must be a string or zero-like number.")
+    _expect_timedelta(source_label, field, value)
+    return value
 
 
 def _expect_bool(source_label: str, field: str, value: Any) -> bool:
@@ -434,6 +464,30 @@ def _expect_redaction_config(source_label: str, field: str, value: Any) -> Optio
     )
 
 
+def _expect_stored_redaction_config(source_label: str, field: str, value: Any) -> bool | list[int]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, list) and len(value) == 2 and all(isinstance(item, int) and item >= 0 for item in value):
+        return list(value)
+    raise ValueError(
+        f"{source_label} field '{field}' must be true, false, or a two-integer list like [0, 4]."
+    )
+
+
+def _normalize_redaction_config(source_label: str, field: str, value: Any, *, mode: ProfileValueMode) -> Any:
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            value = lowered == "true"
+        elif value.strip().startswith("["):
+            value = _parse_json_value(field, value)
+        else:
+            value = _coerce_redaction_window(source_label, field, value)
+    if mode == "runtime":
+        return _expect_redaction_config(source_label, field, value)
+    return _expect_stored_redaction_config(source_label, field, value)
+
+
 def _profile_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "profile"
 
@@ -456,27 +510,6 @@ def _write_config(path: str, config: dict[str, Any]) -> None:
         f.write("\n")
 
 
-def _parse_profile_cli_value(field: str, raw_value: str) -> Any:
-    spec = _PROFILE_FIELD_SPEC_BY_NAME.get(field)
-    if spec is None:
-        raise ValueError(f"Unsupported profile field '{field}'.")
-    if spec["nullable"] and raw_value.lower() == "none":
-        return None
-
-    parser_name = spec["parser"]
-    if parser_name == "string":
-        return raw_value
-    if parser_name == "int":
-        return _parse_cli_int(raw_value)
-    if parser_name == "bool":
-        return _parse_cli_bool(raw_value)
-    if parser_name == "json":
-        return _parse_json_value(field, raw_value)
-    if parser_name == "redact_sensitive":
-        return _parse_redact_sensitive_cli_value(field, raw_value)
-    raise ValueError(f"Unsupported profile parser '{parser_name}' for field '{field}'.")
-
-
 def _parse_json_value(field: str, raw_value: str) -> Any:
     try:
         return json.loads(raw_value)
@@ -484,6 +517,48 @@ def _parse_json_value(field: str, raw_value: str) -> Any:
         raise ValueError(
             f"Profile input field '{field}' must use JSON syntax for this value type."
         ) from exc
+
+
+def _coerce_string_list(source_label: str, field: str, value: Any) -> Any:
+    if isinstance(value, str):
+        if value.strip().startswith("["):
+            return _parse_json_value(field, value)
+        return _split_cli_list(source_label, field, value)
+    return value
+
+
+def _coerce_number_list(source_label: str, field: str, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if value.strip().startswith("["):
+        return _parse_json_value(field, value)
+    values = _split_cli_list(source_label, field, value)
+    parsed: list[Any] = []
+    for item in values:
+        try:
+            parsed.append(float(item))
+        except ValueError:
+            parsed.append(item)
+    return parsed
+
+
+def _coerce_redaction_window(source_label: str, field: str, value: str) -> list[Any]:
+    values = _split_cli_list(source_label, field, value)
+    parsed: list[Any] = []
+    for item in values:
+        try:
+            parsed.append(int(item))
+        except ValueError:
+            parsed.append(item)
+    return parsed
+
+
+def _split_cli_list(source_label: str, field: str, raw_value: str) -> list[str]:
+    values = [part.strip() for part in raw_value.replace(",", " ").split()]
+    parsed = [value for value in values if value]
+    if not parsed:
+        raise ValueError(f"{source_label} field '{field}' must not be an empty list string.")
+    return parsed
 
 
 def _parse_cli_int(raw_value: str) -> int | str:
@@ -500,10 +575,3 @@ def _parse_cli_bool(raw_value: str) -> bool | str:
     if lowered == "false":
         return False
     return raw_value
-
-
-def _parse_redact_sensitive_cli_value(field: str, raw_value: str) -> Any:
-    lowered = raw_value.lower()
-    if lowered in {"true", "false"}:
-        return lowered == "true"
-    return _parse_json_value(field, raw_value)
