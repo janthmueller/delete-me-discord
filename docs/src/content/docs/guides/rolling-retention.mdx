@@ -1,61 +1,177 @@
 ---
 title: Rolling Retention
-description: Keep a recent window while expiring older messages over time.
+description: Use repeated cleanup runs to keep a recent window and delete older history.
 ---
 
-Rolling retention is the right workflow if you want this tool to act more like maintenance than a one-time purge.
+Use this workflow when you do **not** want a one-time wipe.
 
-The goal is simple:
+Rolling retention is for maintenance:
 
 - keep a recent slice of history
-- delete older content
-- rerun the command regularly with predictable results
+- remove older content
+- rerun the same idea regularly with predictable results
 
-The key flags behind this workflow are:
+Do **not** use this page if your goal is simply:
 
+- wipe one channel completely
+- test the tool for the first time
+
+For those cases, start with [First Run](../../getting-started/first-run/) or [Full Channel Cleanup](../full-channel-cleanup/).
+
+## The core decision
+
+Most rolling-retention runs come in two forms:
+
+1. keep a recent time window
+2. keep a recent time window **and** always keep the last N messages
+
+The relevant flags are:
+
+- `--include-ids`
 - `--keep-within`
 - `--keep-last`
 - `--fetch-within`
 - optionally `--preserve-cache`
 
-## Time-only retention
+The examples below use one explicit target as a safety habit. Replace `<channel_id>` with a DM, Group DM, guild text channel, guild, or category ID from `dmd list channels`.
 
-Initial run:
+If you omit `--include-ids`, the run uses the default scope: all eligible channels the tool can see.
+
+## Seed before limiting fetches
+
+Do not start a new rolling-retention setup with a narrow `--fetch-within` unless you know the whole relevant history is inside that fetch window.
+
+For the first real run, either:
+
+- omit `--fetch-within` so the tool can inspect the full scoped history
+- or set `--fetch-within` wide enough to cover the entire time you were in the scoped channels
+
+After that first run has cleaned old history and, if needed, populated preserve-cache, recurring runs can use a smaller fetch window.
+
+## Recipe 1: keep only a recent time window
+
+Use this when you want something simple like:
+
+- keep the last 2 weeks
+- delete anything older
+
+Start with a preview:
 
 ```bash
-dmd clean --keep-last 0 --keep-within "weeks=2" --dry-run
+dmd clean --include-ids <channel_id> --keep-within 2w --dry-run
 ```
 
-Recurring daily run:
+If the dry-run looks right, do the first real run without `--fetch-within`:
 
 ```bash
-dmd clean --keep-last 0 --keep-within "weeks=2" --fetch-within "weeks=2,days=1" --dry-run
+dmd clean --include-ids <channel_id> --keep-within 2w
 ```
 
-## Time and count retention
-
-Initial run:
+After that, if you plan to run this daily, the recurring shape becomes:
 
 ```bash
-dmd clean --keep-within "weeks=2" --keep-last 20 --preserve-cache --dry-run
+dmd clean --include-ids <channel_id> --keep-within 2w --fetch-within 2w1d
 ```
 
-Recurring daily run:
+Why fetch `2w1d`?
+
+The keep window is 2 weeks, but the scheduled run only happens once per day. The extra day is the time since the previous run.
+
+Without preserve-cache, the cleaner can only delete messages it fetches in the current run. It therefore needs to fetch the current 2-week keep window plus the daily interval, because messages that were kept yesterday may cross the 2-week boundary today.
+
+That same logic applies to every later daily run: without preserve-cache, the run must keep looking 2 weeks plus 1 day back so it can see the messages that just aged out of the keep window.
+
+With a seeded preserve-cache, the recurring fetch can be shorter because kept IDs from the older part of the retention window are remembered. See Recipe 2 if you want that shape.
+
+Without preserve-cache, choose `--fetch-within` as:
+
+- retention window
+- plus the expected time between runs
+- plus a small optional buffer if your schedule often runs late
+
+## Recipe 2: keep a recent window and also keep the last N messages
+
+Use this when you want:
+
+- a recent time-based window
+- plus a floor of recent messages even if they fall outside that window soon
+
+Start with a preview:
 
 ```bash
-dmd clean --keep-within "weeks=2" --keep-last 20 --fetch-within "weeks=2,days=1" --preserve-cache --dry-run
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
-## Guidance
+If the dry-run looks right, first seed the cache without a narrow fetch window:
 
-For recurring runs, set `--fetch-within` slightly wider than your retention window so the tool can still see the transition boundary cleanly.
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache
+```
 
-Examples:
+Then choose the recurring fetch shape.
 
-- keep the last 2 weeks: use `--keep-within "weeks=2"`
-- process only the recent slice on recurring runs: use `--fetch-within "weeks=2,days=1"`
-- keep a minimum number of recent messages too: add `--keep-last`
+The full-window cached shape still fetches the keep window plus the daily interval:
 
-If you also use `--keep-last`, the [Preserve Cache](../../reference/preserve-cache/) page explains why caching kept IDs helps repeated runs stay stable.
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --fetch-within 2w1d --preserve-cache
+```
 
-If you are unsure about the accepted time formats, see [Time Deltas](../../reference/time-deltas/).
+The efficient cached shape fetches only the daily interval:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
+```
+
+That works because older kept messages are already remembered by the cache. Use `2w1d` instead if you want each run to re-fetch the whole keep window instead of relying mostly on cached kept IDs.
+
+`--preserve-cache` matters more here because:
+
+- `--keep-last` depends on continuity across runs
+- a limited fetch window can otherwise stop seeing older kept items that still matter
+
+See [Preserve Cache](../preserve-cache/) for the underlying behavior.
+
+## How to choose `--fetch-within`
+
+Use this rule after the initial cleanup has seen enough history:
+
+| Setup | Recurring `--fetch-within` |
+| --- | --- |
+| No preserve-cache | keep window + run interval + optional buffer |
+| Seeded preserve-cache | run interval + optional buffer |
+
+The reason is simple: without preserve-cache, the cleaner must refetch the keep window so it can see messages that just aged out. With preserve-cache, older kept message IDs are remembered, so the current run only needs to fetch new activity since the previous run.
+
+The fetch window does not decide what is kept. It only decides how much history the tool sees during that run.
+
+## When profiles become worth it
+
+If you are reusing the same rolling-retention command repeatedly, that is the point where profiles become useful.
+
+For example, instead of keeping a long command in shell history:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+```
+
+you can save it as a named profile and run:
+
+```bash
+dmd clean --profile nightly-dms --dry-run
+```
+
+If that is what you want, continue with [Recurring Cleanup with Profiles](../recurring-cleanup-with-profiles/).
+
+## Common mistakes
+
+- Starting rolling retention without first checking a narrow dry-run.
+- Forgetting to scope the run with `--include-ids`.
+- Adding a narrow `--fetch-within` before the first real cleanup has inspected enough history.
+- Forgetting `--preserve-cache` when `--keep-last` and limited fetch windows are combined.
+- Treating rolling retention like a one-time wipe.
+
+## See also
+
+- [Preserve Cache](../preserve-cache/)
+- [Profiles](../../reference/profiles/)
+- [Value Formats](../../reference/value-formats/)

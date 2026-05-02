@@ -30,12 +30,19 @@ export default defineConfig({
           ],
         },
         {
-          label: 'Workflows',
+          label: 'Recipes',
           items: [
             { label: 'Full Channel Cleanup', link: '/guides/full-channel-cleanup/' },
             { label: 'Rolling Retention', link: '/guides/rolling-retention/' },
+            { label: 'Recurring Cleanup with Profiles', link: '/guides/recurring-cleanup-with-profiles/' },
+          ],
+        },
+        {
+          label: 'Behavior Guides',
+          items: [
             { label: 'Delete Reactions', link: '/guides/delete-reactions/' },
             { label: 'Buffered Mode', link: '/guides/buffered-mode/' },
+            { label: 'Preserve Cache', link: '/guides/preserve-cache/' },
           ],
         },
         {
@@ -43,8 +50,7 @@ export default defineConfig({
           items: [
             { label: 'CLI Options', link: '/reference/cli-options/' },
             { label: 'Profiles', link: '/reference/profiles/' },
-            { label: 'Time Deltas', link: '/reference/time-deltas/' },
-            { label: 'Preserve Cache', link: '/reference/preserve-cache/' },
+            { label: 'Value Formats', link: '/reference/value-formats/' },
             { label: 'Log Output', link: '/reference/log-output/' },
           ],
         },

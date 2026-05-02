@@ -14,7 +14,8 @@ When the tool encounters a message in scope, it can remove reactions that belong
 ## Important behavior
 
 - If a message will be deleted, its reactions are not treated as separate work items.
-- If a message is kept, your reactions on that message may also be kept.
+- If a message is kept and reaction cleanup is active, your reactions on that message can still be removed.
+- Use `--keep-reactions` if you want kept messages to keep your reactions as well.
 - Reaction removal is always about your own reactions, not other users' reactions.
 
 ## Example

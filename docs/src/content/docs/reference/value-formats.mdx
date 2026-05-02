@@ -1,0 +1,216 @@
+---
+title: Value Formats
+description: Accepted value formats for CLI flags, profile --set values, and profile config entries.
+---
+
+This page explains how `dmd` parses values.
+
+Use it when you need to know:
+
+- what shape a CLI flag expects
+- what shape `dmd profile add --set key=value` accepts
+- what you can write by hand in a profile inside `config.json`
+- how profile commands normalize stored values
+
+## Time Deltas
+
+Time deltas are used by:
+
+- `--keep-within`
+- `--fetch-within`
+- profile fields `keep_within` and `fetch_within`
+
+There are two supported styles.
+
+### Key/value style
+
+```text
+weeks=2,days=3,hours=1
+```
+
+Rules:
+
+- units must be unique
+- negative values are not allowed
+- unit names use full words: `weeks`, `days`, `hours`, `minutes`, `seconds`
+
+Common examples:
+
+- `weeks=1`
+- `days=14`
+- `hours=12,minutes=30`
+
+### Compact suffix style
+
+```text
+2w3d4h5m6s
+```
+
+Supported suffixes:
+
+| Suffix | Meaning |
+| --- | --- |
+| `w` | weeks |
+| `d` | days |
+| `h` | hours |
+| `m` | minutes |
+| `s` | seconds |
+
+Common examples:
+
+- `1w`
+- `14d`
+- `12h30m`
+- `2w3d`
+
+Both `0` and `0.0` are treated as zero duration.
+
+## Booleans
+
+CLI boolean flags use normal flag syntax:
+
+```bash
+--dry-run
+--no-dry-run
+--preserve-cache
+--no-preserve-cache
+```
+
+Profile `--set` values and hand-written profile config entries accept:
+
+```text
+true
+false
+```
+
+When profile commands rewrite the profile, booleans are stored as JSON booleans:
+
+```json
+{
+  "dry_run": true
+}
+```
+
+## Nullable Values
+
+Some CLI options can be reset to unlimited/no value:
+
+```bash
+dmd clean --profile nightly-dms --fetch-within none
+dmd clean --profile nightly-dms --max-messages none
+```
+
+For profile updates, `none` is an operation:
+
+```bash
+dmd profile update nightly-dms --set fetch_within=none
+dmd profile update nightly-dms --set max_messages=none
+```
+
+That removes the stored field from the profile.
+
+Do not store `null` in profile config. If a profile should not set a value, omit the field.
+
+## String Lists
+
+String lists are used by profile fields such as:
+
+- `include_ids`
+- `exclude_ids`
+
+Profile `--set` accepts:
+
+```bash
+--set include_ids=123,456
+--set include_ids="123 456"
+--set include_ids='["123","456"]'
+```
+
+Hand-written profile config accepts the same input shapes:
+
+```json
+{
+  "include_ids": ["123", "456"]
+}
+```
+
+When profile commands rewrite the profile, string lists are stored as JSON arrays.
+
+## Number Ranges
+
+Number ranges are used by:
+
+- `retry_time_buffer`
+- `fetch_sleep_time`
+- `delete_sleep_time`
+
+They accept one or two numbers.
+
+Profile `--set` accepts:
+
+```bash
+--set retry_time_buffer=25
+--set retry_time_buffer=25,35
+--set retry_time_buffer="25 35"
+--set retry_time_buffer='[25,35]'
+```
+
+Hand-written profile config accepts the same input shapes.
+
+When profile commands rewrite the profile, number ranges are stored as JSON arrays:
+
+```json
+{
+  "retry_time_buffer": [25.0, 35.0]
+}
+```
+
+## Redaction Values
+
+The normal CLI flag uses space-separated values:
+
+```bash
+--redact-sensitive
+--redact-sensitive 0 4
+--redact-sensitive 4 4
+```
+
+Profile `--set` and hand-written profile config accept:
+
+```bash
+--set redact_sensitive=true
+--set redact_sensitive=false
+--set redact_sensitive=0,4
+--set redact_sensitive="0 4"
+--set redact_sensitive='[0,4]'
+```
+
+When profile commands rewrite the profile:
+
+- `true` and `false` are stored as JSON booleans
+- prefix/suffix windows are stored as JSON arrays, for example `[0, 4]`
+
+## Profile Config Normalization
+
+Profile config has two concepts:
+
+- accepted input shape: what the parser accepts
+- stored shape: what `dmd profile add` and `dmd profile update` write back
+
+The parser is intentionally flexible for hand-written config, but profile commands prefer canonical JSON.
+
+Normalization rules:
+
+- time deltas are validated and kept as the string you provided, for example `"2w"` or `"days=3"`
+- lists and ranges are normalized to JSON arrays, for example `"123,456"` becomes `["123", "456"]`
+- booleans and integers are normalized to JSON booleans and numbers
+- `none` is only a profile-update operation, not a stored config value
+- `null` is not supported in profiles
+
+Prefer the canonical JSON shape when editing config by hand.
+
+## See Also
+
+- [CLI Options](../cli-options/)
+- [Profiles](../profiles/)
+- [Rolling Retention](../../guides/rolling-retention/)

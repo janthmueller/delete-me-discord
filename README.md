@@ -10,7 +10,7 @@
 It is built around a cautious workflow:
 
 - discover targets first
-- preview with `dmd clean --dry-run`
+- preview one explicit target with `dmd clean --include-ids <channel_id> --dry-run`
 - only then execute
 
 ## Installation

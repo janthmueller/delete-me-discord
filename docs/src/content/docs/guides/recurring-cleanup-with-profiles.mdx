@@ -1,0 +1,133 @@
+---
+title: Recurring Cleanup with Profiles
+description: Save a cleanup preset once and reuse it safely over time.
+---
+
+Use this workflow when:
+
+- you already know the cleanup shape you want
+- you are tired of rerunning a long cleanup command
+- you want a stable preset you can adjust over time
+
+Do **not** start here if you have not yet done a narrow dry-run manually.  
+First validate the command shape with [First Run](../../getting-started/first-run/) or [Rolling Retention](../rolling-retention/).
+
+## Step 1: inspect available profile fields
+
+```bash
+dmd profile fields
+```
+
+This shows the supported stored field names and the value shapes accepted by `--set`.
+
+## Step 2: create a baseline profile
+
+Example:
+
+```bash
+dmd profile add nightly-dms \
+  --set include_ids=<channel_id> \
+  --set keep_within=2w \
+  --set keep_last=20 \
+  --set preserve_cache=true
+```
+
+This creates a baseline profile that can seed the preserve-cache before you introduce a narrow fetch window.
+
+Replace `<channel_id>` with the target you already validated in a manual dry-run.
+
+The scope field is not required by the CLI. If you omit `include_ids` and `exclude_ids`, the profile uses the default cleanup scope: all eligible channels.
+
+## Step 3: inspect the stored result
+
+```bash
+dmd profile show nightly-dms
+```
+
+Do this immediately after creation so you can confirm:
+
+- the right fields were stored
+- nothing unexpected ended up in the profile
+- the shape is what you want to maintain over time
+
+## Step 4: preview the profile as a dry-run
+
+```bash
+dmd clean --profile nightly-dms --dry-run
+```
+
+This is the most important step.
+
+You want to verify:
+
+- the selected scope is right
+- the retention behavior looks right
+- the number of affected messages and reactions is believable
+
+## Step 5: seed the real run once
+
+```bash
+dmd clean --profile nightly-dms
+```
+
+This first real run intentionally has no `fetch_within` limit. It lets the tool inspect the full scoped history and populate preserve-cache for kept messages.
+
+## Step 6: add the recurring fetch window
+
+After the first real run has seeded preserve-cache, update the profile for the recurring schedule:
+
+```bash
+dmd profile update nightly-dms --set fetch_within=1d
+```
+
+For a daily run, `1d` means the next run fetches the interval since the previous run while preserve-cache supplies older kept messages.
+
+Use a wider fetch window if you want each recurring run to fetch the whole keep window too:
+
+```bash
+dmd profile update nightly-dms --set fetch_within=2w1d
+```
+
+## Step 7: evolve the profile instead of rewriting commands
+
+Examples:
+
+```bash
+dmd profile update nightly-dms --set verbose=1
+dmd profile update nightly-dms --set max_messages=none
+dmd profile update nightly-dms --unset fetch_within
+```
+
+Use this when you want to:
+
+- widen or narrow retention
+- change output defaults
+- remove temporary limits
+
+## When preserve-cache matters here
+
+If your recurring profile combines:
+
+- `keep_last`
+- limited `fetch_within`
+- repeated runs
+
+then `preserve_cache` usually becomes worth enabling.
+
+That is the combination most likely to need continuity between runs.
+
+See [Preserve Cache](../preserve-cache/) for the detailed behavior.
+
+## Common mistakes
+
+- Creating a profile before validating the command manually.
+- Creating a profile without an explicit `include_ids` or `exclude_ids` scope.
+- Forgetting to run the saved profile once in `--dry-run`.
+- Storing too many output preferences before you know what level you actually want.
+- Using `keep_last` with a limited fetch window but no preserve-cache.
+
+## See also
+
+- [Profiles](../../reference/profiles/)
+- [Rolling Retention](../rolling-retention/)
+- [Preserve Cache](../preserve-cache/)

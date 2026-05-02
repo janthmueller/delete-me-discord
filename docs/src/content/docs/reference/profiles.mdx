@@ -1,19 +1,30 @@
 ---
 title: Profiles
-description: Save reusable cleanup presets in config.json and run them with dmd clean --profile.
+description: Save reusable cleanup presets in config.json and manage them through the CLI.
 ---
 
 Profiles let you store named `dmd clean` presets in `config.json`.
 
-Use them when you want:
+Use profiles when:
 
-- shorter commands
-- repeatable cleanup runs
-- a stable base for later scheduling
+- you keep repeating the same cleanup command
+- you want a reusable preset with retention and output defaults
+- you want a cleaner base for recurring maintenance later
 
-## Running a profile
+Do **not** reach for profiles too early if you are still learning the tool.
+For a first manual run, use [First Run](../../getting-started/first-run/) first.
 
-Use a saved profile with:
+## The idea
+
+A profile is a saved baseline for `dmd clean`.
+
+Instead of typing:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+```
+
+every time, you can store that shape once and run:
 
 ```bash
 dmd clean --profile nightly-dms
@@ -25,36 +36,50 @@ CLI flags still override the profile for that run:
 dmd clean --profile nightly-dms --keep-last 5 -vv
 ```
 
-List configured profiles with:
+## Basic profile workflow
+
+List configured profiles:
 
 ```bash
 dmd list profiles
 ```
 
-Show a stored profile with:
-
-```bash
-dmd profile show nightly-dms
-```
-
-List available profile field names and value types with:
+Inspect available field names and value types:
 
 ```bash
 dmd profile fields
 ```
 
-Create or update profiles without editing `config.json` by hand:
+For exact accepted value formats, see [Value Formats](../value-formats/).
+
+Create a profile:
 
 ```bash
-dmd profile add nightly-dms --set keep_within=2w --set preserve_cache=true
+dmd profile add nightly-dms \
+  --set include_ids=<channel_id> \
+  --set keep_within=2w \
+  --set preserve_cache=true
+```
+
+Show what is stored:
+
+```bash
+dmd profile show nightly-dms
+```
+
+Update it later:
+
+```bash
 dmd profile update nightly-dms --set verbose=2 --unset fetch_within max_messages
 ```
 
-Remove a profile with:
+Remove it when you no longer need it:
 
 ```bash
 dmd profile remove nightly-dms
 ```
+
+If you want a full recurring-maintenance example, continue with [Recurring Cleanup with Profiles](../../guides/recurring-cleanup-with-profiles/).
 
 ## Config structure
 
@@ -80,6 +105,13 @@ Example:
 }
 ```
 
+Profile config supports both canonical JSON values and compact input forms.
+Profile commands may rewrite compact forms into canonical JSON.
+
+The important rule: `--set` is an input format, not a promise that the exact text is preserved in `config.json`.
+
+See [Value Formats](../value-formats/#profile-config-normalization) for the exact normalization rules.
+
 ## Merge order
 
 Effective settings are resolved in this order:
@@ -88,11 +120,59 @@ Effective settings are resolved in this order:
 2. profile values
 3. explicit CLI flags
 
-That means the profile provides a base preset, but the command line always wins when you override something intentionally.
+That means the profile is a base preset, not a lock.
+If you add a flag on the command line, the command line wins.
+
+## Managing profiles from the CLI
+
+Profile management commands keep command-output flags separate from stored profile values.
+
+That means:
+
+- `--json`, `--quiet`, and `-v` affect the command you are running now
+- stored profile values are written through `--set key=value`
+
+Examples:
+
+```bash
+dmd profile add nightly-dms --json \
+  --set include_ids=<channel_id> \
+  --set keep_last=20 \
+  --set dry_run=true
+dmd profile update nightly-dms --set verbose=1 --unset fetch_within
+```
+
+In the first example:
+
+- `--json` changes the output format of `profile add`
+- `include_ids`, `keep_last`, and `dry_run` are written into the stored profile
+
+## `--set` Values
+
+`--set` uses stored `snake_case` field names directly.
+
+Examples:
+
+```bash
+--set keep_last=20
+--set keep_within=2w
+--set preserve_cache=true
+--set include_ids=123,456
+--set retry_time_buffer=25,35
+--set redact_sensitive=0,4
+```
+
+Detailed parsing rules live in [Value Formats](../value-formats/).
+
+For `dmd profile update --set`, `none` removes nullable fields such as `fetch_within` and `max_messages` from the profile:
+
+```bash
+dmd profile update nightly-dms --set max_messages=none
+```
 
 ## Allowed fields
 
-You can also inspect the supported field list directly from the CLI:
+You can inspect the live supported field list directly with:
 
 ```bash
 dmd profile fields
@@ -128,57 +208,6 @@ Not allowed:
 - `profile`
 - `version`
 
-## Managing profiles from the CLI
-
-Profile management commands keep command output flags separate from stored
-profile values.
-
-That means:
-
-- `--json`, `--quiet`, and `-v` affect the command you are running now
-- stored profile values are written through `--set key=value`
-
-Examples:
-
-```bash
-dmd profile add nightly-dms --json --set keep_last=20 --set dry_run=true
-dmd profile update nightly-dms --set verbose=1 --unset fetch_within
-```
-
-In the first example:
-
-- `--json` changes the output format of `profile add`
-- `keep_last` and `dry_run` are stored in the profile
-
-## `--set` value rules
-
-`--set` uses stored `snake_case` field names directly.
-
-Examples:
-
-```bash
---set keep_last=20
---set keep_within=2w
---set preserve_cache=true
---set include_ids='["123","456"]'
---set retry_time_buffer='[25,35]'
-```
-
-Rules:
-
-- booleans use `true` or `false`
-- list-like values use JSON syntax
-- `none` removes limits for nullable fields such as:
-  - `fetch_within`
-  - `max_messages`
-- `null` is not supported
-
-For nullable fields, `none` means “remove this stored field from the profile”:
-
-```bash
-dmd profile update nightly-dms --set max_messages=none
-```
-
 ## Omitted fields
 
 If a profile should not set something, omit the field entirely.
@@ -187,15 +216,7 @@ Do not use `null`.
 
 - missing field: the profile makes no statement
 - present field: the profile intentionally overrides the default
-
-## Verbosity and quiet mode
-
-Profiles use:
-
-- `verbose`: integer `0` to `3`
-- `quiet`: `true` or `false`
-
-If `quiet` is `true`, it wins over verbose output.
+- to remove nullable fields through the CLI, use `dmd profile update --set field=none`
 
 ## Preserve-cache behavior
 
@@ -219,5 +240,6 @@ You can still override the path explicitly:
 ## See also
 
 - [CLI Options](../cli-options/)
-- [Preserve Cache](../preserve-cache/)
-- [Time Deltas](../time-deltas/)
+- [Preserve Cache](../../guides/preserve-cache/)
+- [Value Formats](../value-formats/)
+- [Recurring Cleanup with Profiles](../../guides/recurring-cleanup-with-profiles/)

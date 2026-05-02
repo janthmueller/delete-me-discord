@@ -1,0 +1,117 @@
+---
+title: Preserve Cache
+description: How preserve-cache works across repeated runs.
+---
+
+When enabled, the preserve cache stores IDs of kept messages so repeated runs can keep seeing items that would otherwise fall outside the fetched slice.
+
+This matters most when you combine a limited fetch window with retention rules that need continuity across runs.
+
+You usually do not need preserve-cache for a first run. Start caring about it once you are repeating a cleanup shape over time.
+
+## When to use it
+
+Use preserve-cache when your run combines:
+
+- `--keep-last` or long-lived kept messages
+- limited `--fetch-within`
+- repeated cleanup over time
+
+That combination needs memory between runs. Without it, old kept messages can disappear from the fetched slice even though they still matter to the keep rules.
+
+You can usually skip preserve-cache when:
+
+- you are doing a one-off cleanup
+- you fetch enough history every time
+- you only use a wide `--keep-within` window
+
+## Seed it first
+
+Preserve-cache only helps with messages it has already seen.
+
+For a new rolling-retention setup, start with one real run that either:
+
+- omits `--fetch-within`
+- or uses a fetch window wide enough to cover the whole time you were in the scoped channels
+
+After that, the cache can carry remembered kept IDs into later runs with narrower fetch windows.
+
+## What is stored
+
+- IDs of deletable messages kept by `--keep-last` or `--keep-within`
+- IDs of kept messages that still contain your reactions when reaction deletion is active
+
+In practice, the cache is about kept items, not all fetched messages.
+
+## Why it exists
+
+The tool can only make decisions from:
+
+- messages fetched in the current run
+- kept message IDs remembered from previous preserve-cache runs
+
+Without the cache, repeated runs with a limited fetch window can stop seeing items that still matter to the keep rules.
+
+## Typical command
+
+For a new setup, preview first:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+```
+
+Then seed the real cache:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache
+```
+
+After that, scheduled daily runs can use a short fetch window:
+
+```bash
+dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
+```
+
+## How it changes fetch windows
+
+Without preserve-cache, a recurring run must fetch enough history to see messages that just aged out of the keep window.
+
+With preserve-cache, later runs can often fetch less history because older kept message IDs are remembered and merged back into the run.
+
+That only applies after the cache has been seeded.
+
+## Dry-run behavior
+
+`--dry-run` uses a separate preserve cache path by appending `.dryrun.json` to the active cache file.
+
+That keeps preview cache state separate from real cleanup cache state.
+
+## Profile behavior
+
+Profiles get a profile-specific preserve-cache path automatically when:
+
+- the profile enables `preserve_cache`
+- the profile does not set `preserve_cache_path`
+
+This prevents two profiles from accidentally sharing the same cache file.
+
+## Clearing the cache
+
+Use:
+
+```bash
+dmd cache clear
+```
+
+or override the path:
+
+```bash
+dmd cache clear --preserve-cache-path /path/to/cache.json
+```
+
+## See also
+
+- [Rolling Retention](../rolling-retention/)
+- [Recurring Cleanup with Profiles](../recurring-cleanup-with-profiles/)
+- [First Run](../../getting-started/first-run/)
+- [CLI Options](../reference/cli-options/)
