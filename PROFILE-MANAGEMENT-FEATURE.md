@@ -18,8 +18,8 @@ Planned commands:
 
 - `dmd list profiles`
 - `dmd profile show <name>`
-- `dmd profile add <name> [profile-options...]`
-- `dmd profile update <name> [profile-options...]`
+- `dmd profile add <name> --set key=value [--set key=value ...]`
+- `dmd profile update <name> --set key=value [--set key=value ...]`
 - `dmd profile remove <name>`
 
 Already implemented:
@@ -42,7 +42,7 @@ Behavior:
 
 - fail if the profile does not exist
 
-### `dmd profile add <name> [profile-options...]`
+### `dmd profile add <name> --set key=value ...`
 
 Create a new profile entry.
 
@@ -50,17 +50,17 @@ Behavior:
 
 - fail if the profile already exists
 - only accept fields that are valid profile fields
-- write only explicitly provided fields
+- write only explicitly provided fields from `--set`
 - do not store omitted fields
 
-### `dmd profile update <name> [profile-options...]`
+### `dmd profile update <name> --set key=value ...`
 
 Update an existing profile entry.
 
 Behavior:
 
 - fail if the profile does not exist
-- only change explicitly provided fields
+- only change explicitly provided fields from `--set`
 - preserve all untouched fields
 
 ### `dmd profile remove <name>`
@@ -73,9 +73,38 @@ Behavior:
 - remove only that profile entry
 - preserve all other config content
 
-## Allowed option surface
+## Command-level flags vs stored fields
 
-`add` and `update` should only expose profile-allowed fields.
+The profile management commands should not reuse the full `clean` CLI flag
+surface directly for stored values.
+
+Reason:
+
+- flags like `--json`, `--quiet`, or `-v` would become ambiguous
+- they could either mean:
+  - affect the `profile add/update/show/remove` command itself
+  - or be written into the stored profile
+
+To avoid this ambiguity:
+
+- command-level behavior uses normal CLI flags
+- stored profile values use `--set key=value`
+
+Examples:
+
+```bash
+dmd profile add nightly-dms --json --set keep_within=2w --set verbose=1
+```
+
+Meaning:
+
+- `--json` controls the output of this command
+- `--set keep_within=2w` writes `keep_within`
+- `--set verbose=1` writes `verbose`
+
+## Allowed stored fields
+
+`add` and `update` should only allow profile-allowed fields through `--set`.
 
 Allowed:
 
@@ -122,6 +151,14 @@ Examples:
 The management commands should keep this split. Internally they map CLI names
 to profile field names.
 
+For `--set`, the stored field names should be used directly:
+
+- `--set keep_last=20`
+- `--set keep_within=2w`
+- `--set preserve_cache=true`
+
+That avoids an unnecessary extra name mapping layer.
+
 ## Unset behavior
 
 `update` needs a way to remove existing profile fields.
@@ -139,6 +176,42 @@ Rules:
 - unknown field names are an error
 - duplicates should be deduplicated
 - a field may not be both set and unset in the same command
+
+## `--set` value parsing
+
+`--set` should parse values according to the target profile field.
+
+Examples:
+
+- `--set keep_last=20`
+- `--set keep_within=2w`
+- `--set preserve_cache=true`
+- `--set verbose=2`
+- `--set max_messages=none`
+
+Rules:
+
+- field names are the stored config names (`snake_case`)
+- unknown fields are an error
+- invalid values are validated the same way as profile values loaded from config
+- `none` should be accepted for nullable fields such as:
+  - `fetch_within`
+  - `max_messages`
+- `null` should not be supported
+
+This is a hard requirement:
+
+- `profile add` and `profile update` must not introduce a second, looser parsing path
+- the same validation rules must apply whether a profile is:
+  - written manually in `config.json`
+  - or created/updated through CLI management commands
+
+Examples:
+
+- `--set keep_last=abc` must fail
+- `--set keep_within=banana` must fail
+- `--set preserve_cache=maybe` must fail
+- `--set verbose=9` must fail
 
 ## Null behavior
 
