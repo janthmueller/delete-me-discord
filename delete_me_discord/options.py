@@ -290,6 +290,68 @@ def build_parser(
         parents=[output_parent, config_parent],
     )
 
+    profile_parser = subparsers.add_parser(
+        "profile",
+        help="Inspect and manage cleanup profiles stored in config.json.",
+    )
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_command", required=True)
+    profile_subparsers.add_parser(
+        "fields",
+        help="List available stored profile fields and value types.",
+        parents=[output_parent, config_parent],
+    )
+    profile_show_parser = profile_subparsers.add_parser(
+        "show",
+        help="Show a stored cleanup profile.",
+        parents=[output_parent, config_parent],
+    )
+    profile_show_parser.add_argument("name", type=str, help="Profile name.")
+
+    profile_add_parser = profile_subparsers.add_parser(
+        "add",
+        help="Create a new cleanup profile.",
+        parents=[output_parent, config_parent],
+    )
+    profile_add_parser.add_argument("name", type=str, help="Profile name.")
+    profile_add_parser.add_argument(
+        "--set",
+        dest="profile_set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Set a stored profile field such as keep_last=20 or preserve_cache=true.",
+    )
+
+    profile_update_parser = profile_subparsers.add_parser(
+        "update",
+        help="Update an existing cleanup profile.",
+        parents=[output_parent, config_parent],
+    )
+    profile_update_parser.add_argument("name", type=str, help="Profile name.")
+    profile_update_parser.add_argument(
+        "--set",
+        dest="profile_set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Set a stored profile field such as keep_last=20 or preserve_cache=true.",
+    )
+    profile_update_parser.add_argument(
+        "--unset",
+        dest="profile_unset",
+        nargs="+",
+        default=[],
+        metavar="FIELD",
+        help="Unset one or more stored profile fields such as fetch_within max_messages.",
+    )
+
+    profile_remove_parser = profile_subparsers.add_parser(
+        "remove",
+        help="Remove an existing cleanup profile.",
+        parents=[output_parent, config_parent],
+    )
+    profile_remove_parser.add_argument("name", type=str, help="Profile name.")
+
     login_parser = subparsers.add_parser(
         "login",
         help="Store and validate a Discord token.",
@@ -341,6 +403,12 @@ def _bootstrap_parse(argv: list[str]):
     for command_name in ("login", "logout", "whoami"):
         command_parser = subparsers.add_parser(command_name, add_help=False)
         command_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
+
+    profile_parser = subparsers.add_parser("profile", add_help=False)
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
+    for profile_command in ("fields", "show", "add", "update", "remove"):
+        profile_command_parser = profile_subparsers.add_parser(profile_command, add_help=False)
+        profile_command_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
 
     list_parser = subparsers.add_parser("list", add_help=False)
     list_subparsers = list_parser.add_subparsers(dest="list_command")

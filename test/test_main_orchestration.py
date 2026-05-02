@@ -1,4 +1,5 @@
 # delete-me-discord main orchestration tests
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,6 +80,23 @@ def _base_cache_args(tmp_path, **overrides):
     return SimpleNamespace(**defaults)
 
 
+def _base_profile_args(tmp_path, **overrides):
+    defaults = dict(
+        command="profile",
+        profile_command="show",
+        name="nightly-dms",
+        profile_set=[],
+        profile_unset=[],
+        config_path=str(tmp_path / "config.json"),
+        quiet=False,
+        verbose=0,
+        json=False,
+        redact_sensitive=None,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
 def test_main_cache_clear_exits_early(tmp_path, monkeypatch):
     cache_path = tmp_path / "cache.json"
     cache_path.write_text("{}", encoding="utf-8")
@@ -131,6 +149,137 @@ def test_main_list_profiles_outputs_names(tmp_path, monkeypatch, capsys):
     delete_me_discord.main()
     out = capsys.readouterr().out.strip().splitlines()
     assert out == ["manual-review", "nightly-dms"]
+
+
+def test_main_profile_show_outputs_raw_profile(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(tmp_path, profile_command="show")
+    config_path = Path(args.config_path)
+    config_path.write_text('{"profiles":{"nightly-dms":{"verbose":9}}}', encoding="utf-8")
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    out = capsys.readouterr().out.strip()
+    assert '"verbose": 9' in out
+
+
+def test_main_profile_fields_outputs_specs(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(tmp_path, profile_command="fields")
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    out = capsys.readouterr().out
+    assert "keep_last: non-negative integer" in out
+    assert "fetch_within: time delta string or none" in out
+    assert "include_ids: JSON array of strings" in out
+
+
+def test_main_profile_add_updates_config(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="add",
+        profile_set=["keep_last=20", "dry_run=true"],
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"]["keep_last"] == 20
+    assert data["profiles"]["nightly-dms"]["dry_run"] is True
+
+
+def test_main_profile_add_requires_set(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(tmp_path, profile_command="add", profile_set=[])
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "requires at least one --set" in err
+
+
+def test_main_profile_update_set_none_unsets_field(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["max_messages=none"],
+    )
+    Path(args.config_path).write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5,"max_messages":100}}}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"] == {"keep_last": 5}
+
+
+def test_main_profile_update_rejects_unsetting_field_not_present(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_unset=["max_messages"],
+    )
+    Path(args.config_path).write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5}}}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "does not currently define field" in err
+
+
+def test_main_profile_update_rejects_set_and_unset_overlap(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["keep_last=20"],
+        profile_unset=["keep_last"],
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "both set and unset" in err
+
+
+def test_main_profile_update_rejects_none_set_and_explicit_unset_overlap(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["max_messages=none"],
+        profile_unset=["max_messages"],
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "both set and unset" in err
 
 
 def test_main_creates_cache_and_runs_cleaner(tmp_path, monkeypatch):

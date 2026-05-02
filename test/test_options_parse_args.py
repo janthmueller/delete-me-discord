@@ -61,6 +61,59 @@ def test_parse_args_list_profiles():
     assert args.config_path.endswith("config.json")
 
 
+def test_parse_args_profile_show():
+    args = parse_args("1.0.0", argv=["profile", "show", "nightly-dms"])
+    assert args.command == "profile"
+    assert args.profile_command == "show"
+    assert args.name == "nightly-dms"
+
+
+def test_parse_args_profile_fields():
+    args = parse_args("1.0.0", argv=["profile", "fields", "--json"])
+    assert args.command == "profile"
+    assert args.profile_command == "fields"
+    assert args.json is True
+
+
+def test_parse_args_profile_add():
+    args = parse_args(
+        "1.0.0",
+        argv=["profile", "add", "nightly-dms", "--set", "keep_last=20", "--set", "dry_run=true"],
+    )
+    assert args.command == "profile"
+    assert args.profile_command == "add"
+    assert args.name == "nightly-dms"
+    assert args.profile_set == ["keep_last=20", "dry_run=true"]
+
+
+def test_parse_args_profile_update():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "profile",
+            "update",
+            "nightly-dms",
+            "--set",
+            "keep_last=20",
+            "--unset",
+            "fetch_within",
+            "max_messages",
+        ],
+    )
+    assert args.command == "profile"
+    assert args.profile_command == "update"
+    assert args.name == "nightly-dms"
+    assert args.profile_set == ["keep_last=20"]
+    assert args.profile_unset == ["fetch_within", "max_messages"]
+
+
+def test_parse_args_profile_remove():
+    args = parse_args("1.0.0", argv=["profile", "remove", "nightly-dms"])
+    assert args.command == "profile"
+    assert args.profile_command == "remove"
+    assert args.name == "nightly-dms"
+
+
 def test_parse_args_cache_clear():
     args = parse_args("1.0.0", argv=["cache", "clear"])
     assert args.command == "cache"

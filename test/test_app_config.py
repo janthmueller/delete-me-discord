@@ -9,11 +9,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from delete_me_discord.app_config import (
+    add_profile,
     build_clean_defaults,
     load_config,
     load_profile,
     load_profile_names,
+    load_raw_profile,
+    parse_profile_set_assignments,
+    remove_profile,
     resolve_effective_clean_settings,
+    update_profile,
+    validate_profile_unset_fields,
 )
 from delete_me_discord.options import parse_args
 
@@ -26,6 +32,16 @@ def test_load_profile_names_returns_sorted_names(tmp_path):
     )
 
     assert load_profile_names(str(config_path)) == ["alpha", "manual-review", "nightly-dms"]
+
+
+def test_load_raw_profile_returns_stored_profile_without_validation(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"verbose":9}}}',
+        encoding="utf-8",
+    )
+
+    assert load_raw_profile(str(config_path), "nightly-dms") == {"verbose": 9}
 
 
 def test_load_config_returns_empty_for_missing_file(tmp_path):
@@ -107,6 +123,168 @@ def test_load_profile_rejects_invalid_field_values(tmp_path, field, value, match
 
     with pytest.raises(ValueError, match=match):
         load_profile(str(config_path), "nightly-dms")
+
+
+def test_parse_profile_set_assignments_parses_and_validates_values():
+    parsed = parse_profile_set_assignments(
+        [
+            "keep_last=20",
+            "keep_within=2w",
+            "preserve_cache=true",
+            'include_ids=["123","456"]',
+            "verbose=2",
+            "fetch_within=none",
+            "max_messages=5",
+            "redact_sensitive=[0,4]",
+        ]
+    )
+
+    assert parsed["keep_last"] == 20
+    assert parsed["keep_within"].days == 14
+    assert parsed["preserve_cache"] is True
+    assert parsed["include_ids"] == ["123", "456"]
+    assert parsed["verbose"] == 2
+    assert parsed["fetch_within"] is None
+    assert parsed["max_messages"] == 5
+    assert parsed["redact_sensitive"].prefix == 0
+    assert parsed["redact_sensitive"].suffix == 4
+
+
+def test_parse_profile_set_assignments_accepts_none_for_nullable_fields():
+    parsed = parse_profile_set_assignments(
+        [
+            "fetch_within=none",
+            "max_messages=None",
+        ]
+    )
+
+    assert parsed["fetch_within"] is None
+    assert parsed["max_messages"] is None
+
+
+@pytest.mark.parametrize(
+    ("assignment", "match"),
+    [
+        ("keep_last=abc", "non-negative integer"),
+        ("verbose=9", "between 0 and 3"),
+        ("preserve_cache=maybe", "true or false"),
+        ("keep_within=banana", "invalid"),
+        ("include_ids=abc", "JSON syntax"),
+        ("wat=1", "Unsupported profile field"),
+        ("not-an-assignment", "Expected key=value"),
+    ],
+)
+def test_parse_profile_set_assignments_rejects_invalid_values(assignment, match):
+    with pytest.raises(ValueError, match=match):
+        parse_profile_set_assignments([assignment])
+
+
+def test_validate_profile_unset_fields_deduplicates_and_validates():
+    assert validate_profile_unset_fields(["fetch_within", "max_messages", "fetch_within"]) == [
+        "fetch_within",
+        "max_messages",
+    ]
+
+    with pytest.raises(ValueError, match="Unsupported profile field"):
+        validate_profile_unset_fields(["wat"])
+
+
+def test_add_profile_preserves_unrelated_config(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"auth": {"token": "secret"}, "profiles": {"existing": {"keep_last": 1}}}),
+        encoding="utf-8",
+    )
+
+    add_profile(str(config_path), "nightly-dms", {"keep_last": 20, "dry_run": True})
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["auth"]["token"] == "secret"
+    assert saved["profiles"]["existing"]["keep_last"] == 1
+    assert saved["profiles"]["nightly-dms"]["keep_last"] == 20
+    assert saved["profiles"]["nightly-dms"]["dry_run"] is True
+
+
+def test_add_profile_rejects_existing_name(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"profiles":{"nightly-dms":{}}}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="already exists"):
+        add_profile(str(config_path), "nightly-dms", {"keep_last": 20})
+
+
+def test_update_profile_applies_set_and_unset(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5,"fetch_within":"2w","preserve_cache":true}}}',
+        encoding="utf-8",
+    )
+
+    update_profile(
+        str(config_path),
+        "nightly-dms",
+        {"keep_last": 10, "dry_run": True},
+        ["fetch_within"],
+    )
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["profiles"]["nightly-dms"] == {
+        "dry_run": True,
+        "keep_last": 10,
+        "preserve_cache": True,
+    }
+
+
+def test_update_profile_rejects_missing_name(tmp_path):
+    with pytest.raises(ValueError, match="Unknown profile"):
+        update_profile(str(tmp_path / "config.json"), "missing", {"keep_last": 10}, [])
+
+
+def test_update_profile_rejects_unsetting_field_not_present(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not currently define field"):
+        update_profile(str(config_path), "nightly-dms", {}, ["max_messages"])
+
+
+def test_remove_profile_preserves_other_content(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "auth": {"token": "secret"},
+                "profiles": {
+                    "nightly-dms": {"keep_last": 5},
+                    "manual-review": {"keep_within": "2w"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    remove_profile(str(config_path), "nightly-dms")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["auth"]["token"] == "secret"
+    assert "nightly-dms" not in saved["profiles"]
+    assert saved["profiles"]["manual-review"]["keep_within"] == "2w"
+
+
+def test_remove_profile_drops_empty_profiles_key(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"auth": {"token": "secret"}, "profiles": {"nightly-dms": {"keep_last": 5}}}),
+        encoding="utf-8",
+    )
+
+    remove_profile(str(config_path), "nightly-dms")
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved == {"auth": {"token": "secret"}}
 
 
 def test_build_clean_defaults_uses_global_default_when_profile_missing():

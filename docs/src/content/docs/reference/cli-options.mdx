@@ -18,6 +18,11 @@ Other top-level commands are:
 - `dmd list guilds`
 - `dmd list channels`
 - `dmd list profiles`
+- `dmd profile fields`
+- `dmd profile show`
+- `dmd profile add`
+- `dmd profile update`
+- `dmd profile remove`
 - `dmd login`
 - `dmd logout`
 - `dmd whoami`
@@ -86,6 +91,47 @@ Other top-level commands are:
 ### Profile listing
 
 `dmd list profiles` lists the configured cleanup profile names from `config.json`.
+
+## Profile Management
+
+### Fields
+
+`dmd profile fields` lists supported stored field names, expected value types, and whether `none` is allowed.
+
+### Show
+
+`dmd profile show <name>` prints the stored profile exactly as it exists in `config.json`.
+
+### Add
+
+`dmd profile add <name> --set key=value ...` creates a new profile.
+
+Examples:
+
+- `dmd profile add nightly-dms --set keep_within=2w --set preserve_cache=true`
+- `dmd profile add nightly-dms --set include_ids='["123456789012345678"]'`
+
+### Update
+
+`dmd profile update <name> --set key=value ... --unset field1 field2 ...` changes an existing profile.
+
+Examples:
+
+- `dmd profile update nightly-dms --set verbose=2`
+- `dmd profile update nightly-dms --unset fetch_within max_messages`
+- `dmd profile update nightly-dms --set max_messages=none`
+
+### Remove
+
+`dmd profile remove <name>` deletes a stored profile entry.
+
+`dmd profile fields`, `show`, `add`, `update`, and `remove` support:
+
+- `--config-path`
+- `--json`
+- `--quiet`
+- `--verbose`
+- `--redact-sensitive`
 
 `dmd list guilds` and `dmd list channels` support:
 

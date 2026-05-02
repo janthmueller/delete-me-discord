@@ -6,7 +6,18 @@ import sys
 from datetime import datetime, timezone
 
 from .api import DiscordAPI
-from .app_config import EffectiveCleanSettings, load_profile_names, resolve_effective_clean_settings
+from .app_config import (
+    EffectiveCleanSettings,
+    add_profile,
+    get_profile_field_specs,
+    load_profile_names,
+    load_raw_profile,
+    parse_profile_set_assignments,
+    remove_profile,
+    resolve_effective_clean_settings,
+    update_profile,
+    validate_profile_unset_fields,
+)
 from .auth import resolve_token, run_auth_command
 from .cleaner import MessageCleaner
 from .discovery import run_discovery_commands
@@ -161,6 +172,78 @@ def _run_list_profiles(args) -> None:
         print(name)
 
 
+def _run_profile_show(args) -> None:
+    try:
+        profile = load_raw_profile(args.config_path, args.name)
+    except ValueError as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+    if args.json:
+        print(json.dumps(profile, ensure_ascii=True))
+        return
+    print(json.dumps(profile, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _run_profile_fields(args) -> None:
+    field_specs = get_profile_field_specs()
+    if args.json:
+        print(json.dumps(field_specs, ensure_ascii=True))
+        return
+    for spec in field_specs:
+        nullable = " or none" if spec["nullable"] else ""
+        print(f"{spec['name']}: {spec['type']}{nullable}")
+        print(f"  {spec['description']}")
+
+
+def _run_profile_add(args) -> None:
+    try:
+        if not args.profile_set:
+            raise ValueError("profile add requires at least one --set value.")
+        profile_data = parse_profile_set_assignments(args.profile_set)
+        profile_data = {field: value for field, value in profile_data.items() if value is not None}
+        add_profile(args.config_path, args.name, profile_data)
+    except ValueError as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+    _emit_profile_command_success(args, "created")
+
+
+def _run_profile_update(args) -> None:
+    try:
+        profile_updates = parse_profile_set_assignments(args.profile_set)
+        explicit_unset_fields = validate_profile_unset_fields(args.profile_unset)
+        overlap = sorted(set(profile_updates.keys()) & set(explicit_unset_fields))
+        if overlap:
+            joined = ", ".join(overlap)
+            raise ValueError(f"Fields may not be both set and unset in one command: {joined}.")
+        unset_from_none = [field for field, value in profile_updates.items() if value is None]
+        profile_updates = {field: value for field, value in profile_updates.items() if value is not None}
+        unset_fields = validate_profile_unset_fields(args.profile_unset + unset_from_none)
+        if not profile_updates and not unset_fields:
+            raise ValueError("profile update requires at least one --set or --unset value.")
+        update_profile(args.config_path, args.name, profile_updates, unset_fields)
+    except ValueError as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+    _emit_profile_command_success(args, "updated")
+
+
+def _run_profile_remove(args) -> None:
+    try:
+        remove_profile(args.config_path, args.name)
+    except ValueError as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+    _emit_profile_command_success(args, "removed")
+
+
+def _emit_profile_command_success(args, action: str) -> None:
+    if args.json:
+        payload = {
+            "name": args.name,
+            "status": action,
+        }
+        print(json.dumps(payload, ensure_ascii=True))
+        return
+    print(f"Profile '{args.name}' {action}.")
+
+
 def _resolve_clean_settings_or_exit(args) -> EffectiveCleanSettings:
     try:
         return resolve_effective_clean_settings(args)
@@ -211,6 +294,22 @@ def main():
                 return
             _run_list(args)
             return
+        if args.command == "profile":
+            if args.profile_command == "fields":
+                _run_profile_fields(args)
+                return
+            if args.profile_command == "show":
+                _run_profile_show(args)
+                return
+            if args.profile_command == "add":
+                _run_profile_add(args)
+                return
+            if args.profile_command == "update":
+                _run_profile_update(args)
+                return
+            if args.profile_command == "remove":
+                _run_profile_remove(args)
+                return
         if args.command == "cache" and args.cache_command == "clear":
             _clear_preserve_cache(args.preserve_cache_path)
             return

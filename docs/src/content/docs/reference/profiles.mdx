@@ -31,6 +31,31 @@ List configured profiles with:
 dmd list profiles
 ```
 
+Show a stored profile with:
+
+```bash
+dmd profile show nightly-dms
+```
+
+List available profile field names and value types with:
+
+```bash
+dmd profile fields
+```
+
+Create or update profiles without editing `config.json` by hand:
+
+```bash
+dmd profile add nightly-dms --set keep_within=2w --set preserve_cache=true
+dmd profile update nightly-dms --set verbose=2 --unset fetch_within max_messages
+```
+
+Remove a profile with:
+
+```bash
+dmd profile remove nightly-dms
+```
+
 ## Config structure
 
 Profiles live under the top-level `profiles` object in `config.json`.
@@ -67,6 +92,12 @@ That means the profile provides a base preset, but the command line always wins 
 
 ## Allowed fields
 
+You can also inspect the supported field list directly from the CLI:
+
+```bash
+dmd profile fields
+```
+
 Profiles can define cleanup behavior and run-style settings for `dmd clean`, including:
 
 - `include_ids`
@@ -96,6 +127,57 @@ Not allowed:
 - `config_path`
 - `profile`
 - `version`
+
+## Managing profiles from the CLI
+
+Profile management commands keep command output flags separate from stored
+profile values.
+
+That means:
+
+- `--json`, `--quiet`, and `-v` affect the command you are running now
+- stored profile values are written through `--set key=value`
+
+Examples:
+
+```bash
+dmd profile add nightly-dms --json --set keep_last=20 --set dry_run=true
+dmd profile update nightly-dms --set verbose=1 --unset fetch_within
+```
+
+In the first example:
+
+- `--json` changes the output format of `profile add`
+- `keep_last` and `dry_run` are stored in the profile
+
+## `--set` value rules
+
+`--set` uses stored `snake_case` field names directly.
+
+Examples:
+
+```bash
+--set keep_last=20
+--set keep_within=2w
+--set preserve_cache=true
+--set include_ids='["123","456"]'
+--set retry_time_buffer='[25,35]'
+```
+
+Rules:
+
+- booleans use `true` or `false`
+- list-like values use JSON syntax
+- `none` removes limits for nullable fields such as:
+  - `fetch_within`
+  - `max_messages`
+- `null` is not supported
+
+For nullable fields, `none` means “remove this stored field from the profile”:
+
+```bash
+dmd profile update nightly-dms --set max_messages=none
+```
 
 ## Omitted fields
 
