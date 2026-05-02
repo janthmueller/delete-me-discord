@@ -750,7 +750,7 @@ def test_resolve_effective_clean_settings_derives_profile_cache_path(tmp_path):
     settings = resolve_effective_clean_settings(args)
 
     assert settings.preserve_cache is True
-    assert settings.preserve_cache_path.endswith("preserve-cache/nightly-dms.json")
+    assert Path(settings.preserve_cache_path).parts[-2:] == ("preserve-cache", "nightly-dms.json")
 
 
 def test_resolve_effective_clean_settings_derives_profile_cache_path_for_dry_run(tmp_path):
@@ -768,7 +768,7 @@ def test_resolve_effective_clean_settings_derives_profile_cache_path_for_dry_run
 
     assert settings.preserve_cache is True
     assert settings.dry_run is True
-    assert settings.preserve_cache_path.endswith("preserve-cache/nightly-dms.dryrun.json")
+    assert Path(settings.preserve_cache_path).parts[-2:] == ("preserve-cache", "nightly-dms.dryrun.json")
 
 
 def test_profile_explicit_global_preserve_cache_path_is_kept(tmp_path):
