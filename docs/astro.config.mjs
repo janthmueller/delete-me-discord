@@ -11,7 +11,6 @@ export default defineConfig({
       description: 'Documentation for the Delete Me Discord CLI.',
       disable404Route: true,
       customCss: ['./src/styles/custom.css'],
-      tableOfContents: false,
       social: [
         {
           icon: 'github',
