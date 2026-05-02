@@ -42,6 +42,7 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'CLI Options', link: '/reference/cli-options/' },
+            { label: 'Profiles', link: '/reference/profiles/' },
             { label: 'Time Deltas', link: '/reference/time-deltas/' },
             { label: 'Preserve Cache', link: '/reference/preserve-cache/' },
             { label: 'Log Output', link: '/reference/log-output/' },

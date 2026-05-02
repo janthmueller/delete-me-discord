@@ -9,7 +9,7 @@ from .privacy import sensitive
 from .utils import AuthenticationError
 
 
-DEFAULT_AUTH_CONFIG_PATH = os.path.join(
+DEFAULT_CONFIG_PATH = os.path.join(
     os.path.expanduser("~"),
     ".config",
     "delete-me-discord",
@@ -20,8 +20,8 @@ DEFAULT_AUTH_CONFIG_PATH = os.path.join(
 class AuthConfig:
     """Minimal config store for the Discord user token."""
 
-    def __init__(self, path: str = DEFAULT_AUTH_CONFIG_PATH):
-        self.path = path or DEFAULT_AUTH_CONFIG_PATH
+    def __init__(self, path: str = DEFAULT_CONFIG_PATH):
+        self.path = path or DEFAULT_CONFIG_PATH
 
     def load(self) -> dict:
         if not os.path.exists(self.path):
@@ -32,7 +32,7 @@ class AuthConfig:
         except FileNotFoundError:
             return {}
         if not isinstance(raw, dict):
-            raise ValueError("Auth config root must be a JSON object.")
+            raise ValueError("Config root must be a JSON object.")
         return raw
 
     def get_token(self) -> Optional[str]:

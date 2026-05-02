@@ -23,6 +23,21 @@ def test_auth_config_roundtrip(tmp_path):
     assert config.get_token() is None
 
 
+def test_auth_config_load_rejects_non_object_root(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text('["bad-root"]', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Config root must be a JSON object"):
+        AuthConfig(str(config_path)).load()
+
+
+def test_auth_config_clear_returns_false_when_no_token_present(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"profiles": {"default": {}}}), encoding="utf-8")
+
+    assert AuthConfig(str(config_path)).clear() is False
+
+
 def test_resolve_token_prefers_argument_over_config_and_env(tmp_path, monkeypatch):
     config_path = tmp_path / "config.json"
     AuthConfig(str(config_path)).save_token("config-token")
@@ -88,9 +103,63 @@ def test_run_auth_logout_preserves_non_auth_config(tmp_path):
     assert data["profiles"]["default"]["keep_last"] == 0
 
 
+def test_run_auth_login_exits_when_prompt_returns_empty(tmp_path, monkeypatch):
+    args = SimpleNamespace(command="login", token=None, config_path=str(tmp_path / "config.json"))
+    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "   ")
+
+    with pytest.raises(SystemExit) as exc:
+        run_auth_command(args)
+    assert exc.value.code == 1
+
+
+def test_run_auth_login_exits_on_authentication_failure(tmp_path, monkeypatch):
+    args = SimpleNamespace(command="login", token="bad-token", config_path=str(tmp_path / "config.json"))
+
+    class FakeAPI:
+        def __init__(self, token, **kwargs):
+            assert token == "bad-token"
+
+        def get_current_user(self):
+            raise delete_me_discord.auth.AuthenticationError("bad token")
+
+    import delete_me_discord.auth
+
+    monkeypatch.setattr("delete_me_discord.auth.DiscordAPI", FakeAPI)
+
+    with pytest.raises(SystemExit) as exc:
+        run_auth_command(args)
+    assert exc.value.code == 1
+
+
 def test_run_auth_whoami_requires_token(tmp_path):
     args = SimpleNamespace(command="whoami", token=None, config_path=str(tmp_path / "config.json"))
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)
     assert exc.value.code == 1
+
+
+def test_run_auth_whoami_exits_on_authentication_failure(tmp_path, monkeypatch):
+    args = SimpleNamespace(command="whoami", token="bad-token", config_path=str(tmp_path / "config.json"))
+
+    class FakeAPI:
+        def __init__(self, token, **kwargs):
+            assert token == "bad-token"
+
+        def get_current_user(self):
+            raise delete_me_discord.auth.AuthenticationError("bad token")
+
+    import delete_me_discord.auth
+
+    monkeypatch.setattr("delete_me_discord.auth.DiscordAPI", FakeAPI)
+
+    with pytest.raises(SystemExit) as exc:
+        run_auth_command(args)
+    assert exc.value.code == 1
+
+
+def test_run_auth_command_rejects_unknown_command(tmp_path):
+    args = SimpleNamespace(command="wat", token=None, config_path=str(tmp_path / "config.json"))
+
+    with pytest.raises(ValueError, match="Unsupported auth command"):
+        run_auth_command(args)

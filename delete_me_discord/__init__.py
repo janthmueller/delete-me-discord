@@ -1,19 +1,19 @@
-# delete_me_discord/__init__.py
-
+import argparse
 import json
+import logging
 import os
+import sys
+from datetime import datetime, timezone
+
 from .api import DiscordAPI
+from .app_config import EffectiveCleanSettings, load_profile_names, resolve_effective_clean_settings
 from .auth import resolve_token, run_auth_command
-from .utils import AuthenticationError
 from .cleaner import MessageCleaner
 from .discovery import run_discovery_commands
 from .options import parse_args
-from .utils import setup_logging, parse_random_range
 from .preserve_cache import PreserveCache
 from .privacy import sensitive
-from datetime import datetime, timezone
-
-import logging
+from .utils import AuthenticationError, parse_random_range, setup_logging
 
 try:
     from importlib.metadata import PackageNotFoundError
@@ -40,49 +40,52 @@ def _clear_preserve_cache(preserve_cache_path: str) -> None:
         logging.error("Failed to delete preserve cache at %s: %s", sensitive(preserve_cache_path, full=True), exc)
 
 
-def _build_api(args) -> DiscordAPI:
-    token, _token_source = resolve_token(args.token, args.config_path)
+def _build_api_from_token_config(
+    token_arg: str | None,
+    config_path: str,
+    max_retries: int,
+    retry_time_buffer,
+) -> DiscordAPI:
+    token, _token_source = resolve_token(token_arg, config_path)
     if not token:
         logging.error("Discord token not provided. Use --token, dmd login, or set DISCORD_TOKEN.")
         raise SystemExit(1)
 
-    retry_time_buffer_range = parse_random_range(args.retry_time_buffer, "retry-time-buffer")
     return DiscordAPI(
         token=token,
-        max_retries=args.max_retries,
-        retry_time_buffer=retry_time_buffer_range,
+        max_retries=max_retries,
+        retry_time_buffer=retry_time_buffer,
     )
 
 
-def _run_clean(args) -> None:
-    include_ids = args.include_ids
-    exclude_ids = args.exclude_ids
-    preserve_last = args.keep_within
-    preserve_n = args.keep_last
-    preserve_n_mode = args.keep_last_scope
-    dry_run = args.dry_run
-    fetch_sleep_time_range = parse_random_range(args.fetch_sleep_time, "fetch-sleep-time")
-    delete_sleep_time_range = parse_random_range(args.delete_sleep_time, "delete-sleep-time")
-    fetch_max_age = args.fetch_within  # Optional[timedelta]
-    max_messages = args.max_messages if args.max_messages is not None else float("inf")
-    buffer_channel_messages = args.buffer_per_channel
-    delete_reactions = not args.keep_reactions
-    preserve_cache_enabled = args.preserve_cache
-    preserve_cache_path = args.preserve_cache_path
+def _build_api(args) -> DiscordAPI:
+    return _build_api_from_token_config(
+        token_arg=args.token,
+        config_path=args.config_path,
+        max_retries=args.max_retries,
+        retry_time_buffer=parse_random_range(args.retry_time_buffer, "retry-time-buffer"),
+    )
 
-    if dry_run:
-        base, ext = os.path.splitext(preserve_cache_path)
-        preserve_cache_path = f"{base}.dryrun{ext or '.json'}"
 
-    fetch_since = None
-    if fetch_max_age:
-        fetch_since = datetime.now(timezone.utc) - fetch_max_age
+def _build_api_from_settings(settings: EffectiveCleanSettings) -> DiscordAPI:
+    return _build_api_from_token_config(
+        token_arg=settings.token,
+        config_path=settings.config_path,
+        max_retries=settings.max_retries,
+        retry_time_buffer=settings.retry_time_buffer,
+    )
 
-    if preserve_n < 0:
+
+def _run_clean(settings: EffectiveCleanSettings) -> None:
+    if settings.keep_last < 0:
         logging.error("--keep-last must be a non-negative integer.")
         raise SystemExit(1)
 
-    api = _build_api(args)
+    fetch_since = None
+    if settings.fetch_within:
+        fetch_since = datetime.now(timezone.utc) - settings.fetch_within
+
+    api = _build_api_from_settings(settings)
 
     try:
         current_user = api.get_current_user()
@@ -101,33 +104,32 @@ def _run_clean(args) -> None:
     )
 
     preserve_cache = PreserveCache(
-        path=preserve_cache_path,
-    ) if preserve_cache_enabled else None
+        path=settings.preserve_cache_path,
+    ) if settings.preserve_cache else None
 
     cleaner = MessageCleaner(
         api=api,
         user_id=user_id,
-        include_ids=include_ids,
-        exclude_ids=exclude_ids,
-        preserve_last=preserve_last,
-        preserve_n=preserve_n,
-        preserve_n_mode=preserve_n_mode,
-        preserve_cache = preserve_cache
+        include_ids=settings.include_ids,
+        exclude_ids=settings.exclude_ids,
+        preserve_last=settings.keep_within,
+        preserve_n=settings.keep_last,
+        preserve_n_mode=settings.keep_last_scope,
+        preserve_cache=preserve_cache,
     )
 
-    # Start cleaning messages
-    total_deleted = cleaner.clean_messages(
-        dry_run=dry_run,
-        fetch_sleep_time_range=fetch_sleep_time_range,
-        delete_sleep_time_range=delete_sleep_time_range,
+    cleaner.clean_messages(
+        dry_run=settings.dry_run,
+        fetch_sleep_time_range=settings.fetch_sleep_time,
+        delete_sleep_time_range=settings.delete_sleep_time,
         fetch_since=fetch_since,
-        max_messages=max_messages,
-        buffer_channel_messages=buffer_channel_messages,
-        delete_reactions=delete_reactions
+        max_messages=settings.max_messages if settings.max_messages is not None else float("inf"),
+        buffer_channel_messages=settings.buffer_per_channel,
+        delete_reactions=not settings.keep_reactions,
     )
     if preserve_cache:
         preserve_cache.save()
-        logging.info("Preserve cache saved to %s.", sensitive(preserve_cache_path, full=True))
+        logging.info("Preserve cache saved to %s.", sensitive(settings.preserve_cache_path, full=True))
 
 
 def _run_list(args) -> None:
@@ -144,18 +146,56 @@ def _run_list(args) -> None:
     )
 
 
+def _run_list_profiles(args) -> None:
+    try:
+        profile_names = load_profile_names(args.config_path)
+    except ValueError as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+    if args.json:
+        print(json.dumps(profile_names, ensure_ascii=True))
+        return
+    if not profile_names:
+        print("No profiles configured.")
+        return
+    for name in profile_names:
+        print(name)
+
+
+def _resolve_clean_settings_or_exit(args) -> EffectiveCleanSettings:
+    try:
+        return resolve_effective_clean_settings(args)
+    except (ValueError, argparse.ArgumentTypeError) as exc:
+        _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
+
+
+def _emit_config_error_and_exit(message: str, json_output: bool) -> None:
+    if json_output:
+        payload = {
+            "error": message,
+            "type": "config_error",
+        }
+        print(json.dumps(payload, ensure_ascii=True))
+    else:
+        print(f"Configuration error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
 def main():
     """
     The main function orchestrating the message cleaning process.
     """
     args = parse_args(__version__)
 
+    effective_clean_settings = None
+    if args.command == "clean":
+        effective_clean_settings = _resolve_clean_settings_or_exit(args)
+
     # Configure logging based on user input
     setup_logging(
-        verbosity=getattr(args, "verbose", 0),
-        quiet=getattr(args, "quiet", False),
-        json_output=args.json,
-        redaction_config=getattr(args, "redact_sensitive", None),
+        verbosity=getattr(effective_clean_settings or args, "verbose", 0),
+        quiet=getattr(effective_clean_settings or args, "quiet", False),
+        json_output=(effective_clean_settings.json if effective_clean_settings else args.json),
+        redaction_config=getattr(effective_clean_settings or args, "redact_sensitive", None),
     )
 
     try:
@@ -163,9 +203,12 @@ def main():
             run_auth_command(args)
             return
         if args.command == "clean":
-            _run_clean(args)
+            _run_clean(effective_clean_settings)
             return
         if args.command == "list":
+            if args.list_command == "profiles":
+                _run_list_profiles(args)
+                return
             _run_list(args)
             return
         if args.command == "cache" and args.cache_command == "clear":

@@ -17,6 +17,7 @@ Other top-level commands are:
 
 - `dmd list guilds`
 - `dmd list channels`
+- `dmd list profiles`
 - `dmd login`
 - `dmd logout`
 - `dmd whoami`
@@ -31,6 +32,7 @@ Other top-level commands are:
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
 | `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent/category IDs. |
 | `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent/category IDs from processing. |
+| `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
 | `-t` | `--token` | unset | Override stored config and `DISCORD_TOKEN` for this command only. |
 
 ### Retention
@@ -81,7 +83,11 @@ Other top-level commands are:
 
 `dmd list channels` lists channels grouped by guild/category/parent plus DMs.
 
-Both `list` subcommands support:
+### Profile listing
+
+`dmd list profiles` lists the configured cleanup profile names from `config.json`.
+
+`dmd list guilds` and `dmd list channels` support:
 
 - `--token`
 - `--config-path`
@@ -91,6 +97,14 @@ Both `list` subcommands support:
 - `--redact-sensitive`
 - retry flags
 
+`dmd list profiles` supports:
+
+- `--config-path`
+- `--json`
+- `--quiet`
+- `--verbose`
+- `--redact-sensitive`
+
 ## Authentication Commands
 
 ### Login
@@ -99,7 +113,7 @@ Both `list` subcommands support:
 
 ### Logout
 
-`dmd logout` removes the stored token from the auth config.
+`dmd logout` removes the stored token from the config file.
 
 ### Identity Check
 
@@ -155,11 +169,34 @@ Examples:
 
 This improves speed, but it also means the tool only sees a slice of history unless you widen the fetch window or use preserve-cache strategically.
 
+If a profile defines a fetch window and you want to remove it for one run, use:
+
+- `--fetch-within none`
+
 ### Buffered Mode
 
 `--buffer-per-channel` fetches one channel into memory before evaluation instead of walking it lazily.
 
 Use this when you want stronger per-channel timing visibility in a manual run and do not mind the extra per-channel buffering cost.
+
+If a profile defines a message limit and you want to remove it for one run, use:
+
+- `--max-messages none`
+
+### Boolean Overrides
+
+Boolean clean flags support explicit negative forms as well.
+
+Examples:
+
+- `--dry-run` / `--no-dry-run`
+- `--keep-reactions` / `--no-keep-reactions`
+- `--preserve-cache` / `--no-preserve-cache`
+- `--buffer-per-channel` / `--no-buffer-per-channel`
+- `--quiet` / `--no-quiet`
+- `--json` / `--no-json`
+
+This matters most when a profile enables one of these options and you want to turn it off for a single run.
 
 ### Sensitive Redaction
 
@@ -175,6 +212,7 @@ Discovery output from `dmd list guilds` and `dmd list channels` is intentionally
 
 ## See also
 
+- [Profiles](../profiles/)
 - [Time Deltas](../time-deltas/)
 - [Preserve Cache](../preserve-cache/)
 - [Log Output](../log-output/)

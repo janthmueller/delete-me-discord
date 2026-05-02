@@ -18,6 +18,9 @@ from delete_me_discord.privacy import set_redaction_config
 def _base_clean_args(tmp_path, **overrides):
     defaults = dict(
         command="clean",
+        profile=None,
+        _clean_args_finalized=True,
+        _explicit_fields=set(),
         include_ids=[],
         exclude_ids=[],
         token="test-token",
@@ -117,12 +120,27 @@ def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
     assert called["discovery"] is True
 
 
+def test_main_list_profiles_outputs_names(tmp_path, monkeypatch, capsys):
+    args = _base_list_args(tmp_path, list_command="profiles")
+    config_path = Path(args.config_path)
+    config_path.write_text('{"profiles":{"nightly-dms":{},"manual-review":{}}}', encoding="utf-8")
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    delete_me_discord.main()
+    out = capsys.readouterr().out.strip().splitlines()
+    assert out == ["manual-review", "nightly-dms"]
+
+
 def test_main_creates_cache_and_runs_cleaner(tmp_path, monkeypatch):
     args = _base_clean_args(
         tmp_path,
         preserve_cache=True,
         dry_run=True,
         preserve_cache_path=str(tmp_path / "cache.json"),
+        _clean_args_finalized=False,
+        _explicit_fields={"preserve_cache", "dry_run", "preserve_cache_path"},
     )
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
@@ -163,6 +181,101 @@ def test_main_creates_cache_and_runs_cleaner(tmp_path, monkeypatch):
     assert cache_info["path"].endswith(".dryrun.json")
     assert cache_info["saved"] == 1
     assert cleaner_info["preserve_cache"] is not None
+
+
+def test_main_profile_overrides_defaults(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"keep_within":"2w","preserve_cache":true,"dry_run":true,"verbose":2}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(delete_me_discord, "resolve_token", lambda *_: ("test-token", "argument"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "dmd",
+            "clean",
+            "--config-path",
+            str(config_path),
+            "--profile",
+            "nightly-dms",
+        ],
+    )
+
+    captured_logging = {}
+
+    def fake_setup_logging(**kwargs):
+        captured_logging.update(kwargs)
+
+    monkeypatch.setattr(delete_me_discord, "setup_logging", fake_setup_logging)
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    cleaner_kwargs = {}
+    run_kwargs = {}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            cleaner_kwargs.update(kwargs)
+
+        def clean_messages(self, **kwargs):
+            run_kwargs.update(kwargs)
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "PreserveCache", lambda path: type("Cache", (), {"path": path, "save": lambda self: None})())
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord.main()
+
+    assert cleaner_kwargs["preserve_last"].days == 14
+    assert run_kwargs["dry_run"] is True
+    assert captured_logging["verbosity"] == 2
+
+
+def test_main_cli_explicit_value_overrides_profile(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"profiles":{"nightly-dms":{"keep_last":50}}}', encoding="utf-8")
+    args = _base_clean_args(
+        tmp_path,
+        config_path=str(config_path),
+        keep_last=3,
+        profile="nightly-dms",
+        _clean_args_finalized=False,
+    )
+    args._explicit_fields = {"keep_last"}
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "resolve_token", lambda *_: ("test-token", "argument"))
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    cleaner_kwargs = {}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            cleaner_kwargs.update(kwargs)
+
+        def clean_messages(self, **kwargs):
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord.main()
+    assert cleaner_kwargs["preserve_n"] == 3
 
 
 def test_main_passes_buffer_per_channel(tmp_path, monkeypatch):

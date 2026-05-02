@@ -16,6 +16,7 @@ from delete_me_discord.options import parse_args
 def test_parse_args_clean_defaults():
     args = parse_args("1.0.0", argv=["clean"])
     assert args.command == "clean"
+    assert args.profile is None
     assert args.include_ids == []
     assert args.exclude_ids == []
     assert args.token is None
@@ -44,6 +45,13 @@ def test_parse_args_list_channels_json_flag():
     assert args.command == "list"
     assert args.list_command == "channels"
     assert args.json is True
+
+
+def test_parse_args_list_profiles():
+    args = parse_args("1.0.0", argv=["list", "profiles"])
+    assert args.command == "list"
+    assert args.list_command == "profiles"
+    assert args.config_path.endswith("config.json")
 
 
 def test_parse_args_cache_clear():
@@ -110,3 +118,11 @@ def test_parse_args_whoami_command_with_json():
     args = parse_args("1.0.0", argv=["whoami", "--json"])
     assert args.command == "whoami"
     assert args.json is True
+
+
+def test_parse_args_clean_profile_option(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text('{"profiles":{"nightly-dms":{}}}', encoding="utf-8")
+    args = parse_args("1.0.0", argv=["clean", "--config-path", str(config_path), "--profile", "nightly-dms"])
+    assert args.command == "clean"
+    assert args.profile == "nightly-dms"

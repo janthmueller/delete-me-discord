@@ -1,0 +1,141 @@
+---
+title: Profiles
+description: Save reusable cleanup presets in config.json and run them with dmd clean --profile.
+---
+
+Profiles let you store named `dmd clean` presets in `config.json`.
+
+Use them when you want:
+
+- shorter commands
+- repeatable cleanup runs
+- a stable base for later scheduling
+
+## Running a profile
+
+Use a saved profile with:
+
+```bash
+dmd clean --profile nightly-dms
+```
+
+CLI flags still override the profile for that run:
+
+```bash
+dmd clean --profile nightly-dms --keep-last 5 -vv
+```
+
+List configured profiles with:
+
+```bash
+dmd list profiles
+```
+
+## Config structure
+
+Profiles live under the top-level `profiles` object in `config.json`.
+
+Example:
+
+```json
+{
+  "auth": {
+    "token": "..."
+  },
+  "profiles": {
+    "nightly-dms": {
+      "include_ids": ["123456789012345678"],
+      "keep_last": 0,
+      "keep_last_scope": "all",
+      "keep_within": "2w",
+      "preserve_cache": true,
+      "verbose": 1
+    }
+  }
+}
+```
+
+## Merge order
+
+Effective settings are resolved in this order:
+
+1. built-in CLI defaults
+2. profile values
+3. explicit CLI flags
+
+That means the profile provides a base preset, but the command line always wins when you override something intentionally.
+
+## Allowed fields
+
+Profiles can define cleanup behavior and run-style settings for `dmd clean`, including:
+
+- `include_ids`
+- `exclude_ids`
+- `keep_last`
+- `keep_last_scope`
+- `keep_within`
+- `fetch_within`
+- `max_messages`
+- `buffer_per_channel`
+- `keep_reactions`
+- `preserve_cache`
+- `preserve_cache_path`
+- `max_retries`
+- `retry_time_buffer`
+- `fetch_sleep_time`
+- `delete_sleep_time`
+- `dry_run`
+- `quiet`
+- `verbose`
+- `json`
+- `redact_sensitive`
+
+Not allowed:
+
+- `token`
+- `config_path`
+- `profile`
+- `version`
+
+## Omitted fields
+
+If a profile should not set something, omit the field entirely.
+
+Do not use `null`.
+
+- missing field: the profile makes no statement
+- present field: the profile intentionally overrides the default
+
+## Verbosity and quiet mode
+
+Profiles use:
+
+- `verbose`: integer `0` to `3`
+- `quiet`: `true` or `false`
+
+If `quiet` is `true`, it wins over verbose output.
+
+## Preserve-cache behavior
+
+If a profile enables preserve-cache and does not set `preserve_cache_path`, the CLI derives a profile-specific default path automatically.
+
+That prevents multiple profiles from accidentally sharing the same preserve cache file.
+
+You can still override the path explicitly:
+
+```json
+{
+  "profiles": {
+    "nightly-dms": {
+      "preserve_cache": true,
+      "preserve_cache_path": "/tmp/nightly-dms-cache.json"
+    }
+  }
+}
+```
+
+## See also
+
+- [CLI Options](../cli-options/)
+- [Preserve Cache](../preserve-cache/)
+- [Time Deltas](../time-deltas/)
