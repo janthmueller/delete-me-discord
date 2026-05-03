@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v2.1.1 (2026-05-03)
+
+### Bug Fixes
+
+- **auth**: Store login tokens in system keyring
+  ([`7bcdcd7`](https://github.com/janthmueller/delete-me-discord/commit/7bcdcd7246f9d1e4d9eb416f2ef9874032a7d962))
+
+### Documentation
+
+- Restore page table of contents
+  ([`bbc55a5`](https://github.com/janthmueller/delete-me-discord/commit/bbc55a52a57e25a3a2d9c68eb4b3ee7d39325b3a))
+
+
 ## v2.1.0 (2026-05-02)
 
 ### Bug Fixes
