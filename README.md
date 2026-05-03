@@ -37,8 +37,6 @@ Authenticate once:
 dmd login
 ```
 
-The token is stored in your system keyring, not in `config.json`.
-
 Discover targets:
 
 ```bash
