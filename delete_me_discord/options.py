@@ -123,6 +123,25 @@ def _auth_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse
     return parser
 
 
+def _scope_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "-i", "--include-ids",
+        type=str,
+        nargs="*",
+        default=_clean_default("include_ids", clean_defaults),
+        help="List of channel, guild, or parent/category IDs to include."
+    )
+    parser.add_argument(
+        "-x", "--exclude-ids",
+        type=str,
+        nargs="*",
+        default=_clean_default("exclude_ids", clean_defaults),
+        help="List of channel, guild, or parent/category IDs to exclude."
+    )
+    return parser
+
+
 def _api_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
@@ -151,6 +170,8 @@ def build_parser(
     config_parent = _config_parent()
     auth_parent = _auth_parent()
     clean_auth_parent = _auth_parent(clean_defaults=clean_defaults)
+    scope_parent = _scope_parent()
+    clean_scope_parent = _scope_parent(clean_defaults=clean_defaults)
     api_parent = _api_parent()
     clean_api_parent = _api_parent(clean_defaults=clean_defaults)
 
@@ -170,7 +191,7 @@ def build_parser(
     clean_parser = subparsers.add_parser(
         "clean",
         help="Delete messages and optionally reactions within the selected scope.",
-        parents=[clean_output_parent, clean_auth_parent, clean_api_parent],
+        parents=[clean_output_parent, clean_auth_parent, clean_scope_parent, clean_api_parent],
     )
     clean_parser.add_argument(
         "-d", "--dry-run",
@@ -183,20 +204,6 @@ def build_parser(
         type=str,
         default=_clean_default("profile", clean_defaults),
         help="Load cleanup defaults from a named profile in config.json."
-    )
-    clean_parser.add_argument(
-        "-i", "--include-ids",
-        type=str,
-        nargs="*",
-        default=_clean_default("include_ids", clean_defaults),
-        help="List of channel IDs to include."
-    )
-    clean_parser.add_argument(
-        "-x", "--exclude-ids",
-        type=str,
-        nargs="*",
-        default=_clean_default("exclude_ids", clean_defaults),
-        help="List of channel IDs to exclude."
     )
     clean_parser.add_argument(
         "-n", "--keep-last",
@@ -277,12 +284,12 @@ def build_parser(
     list_subparsers.add_parser(
         "guilds",
         help="List guild IDs and names.",
-        parents=[output_parent, auth_parent, api_parent],
+        parents=[output_parent, auth_parent, scope_parent, api_parent],
     )
     list_subparsers.add_parser(
         "channels",
         help="List channels grouped by guild/category/parent plus DMs.",
-        parents=[output_parent, auth_parent, api_parent],
+        parents=[output_parent, auth_parent, scope_parent, api_parent],
     )
     list_subparsers.add_parser(
         "profiles",

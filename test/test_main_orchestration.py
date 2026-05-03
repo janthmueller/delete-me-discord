@@ -57,6 +57,8 @@ def _base_list_args(tmp_path, **overrides):
         config_path=str(tmp_path / "config.json"),
         max_retries=1,
         retry_time_buffer=["1", "1"],
+        include_ids=[],
+        exclude_ids=[],
         quiet=False,
         verbose=0,
         json=False,
@@ -115,7 +117,7 @@ def test_main_cache_clear_exits_early(tmp_path, monkeypatch):
 
 
 def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
-    args = _base_list_args(tmp_path, list_command="guilds")
+    args = _base_list_args(tmp_path, list_command="guilds", include_ids=["guild-1"], exclude_ids=["guild-2"])
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
@@ -131,6 +133,8 @@ def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
         called["discovery"] = True
         assert kwargs["list_guilds"] is True
         assert kwargs["list_channels"] is False
+        assert kwargs["include_ids"] == ["guild-1"]
+        assert kwargs["exclude_ids"] == ["guild-2"]
 
     monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "run_discovery_commands", fake_discovery)

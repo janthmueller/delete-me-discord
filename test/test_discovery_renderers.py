@@ -16,6 +16,7 @@ from delete_me_discord.discovery_renderers import (
     render_channels_rich,
     render_guilds_rich,
 )
+from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 
 
 def test_render_guilds_json_outputs_valid_json(capsys):
@@ -34,6 +35,52 @@ def test_render_channels_json_outputs_valid_json(capsys):
     out = capsys.readouterr().out.strip()
     payload = json.loads(out)
     assert payload["dms"][0]["id"] == "dm1"
+
+
+def test_render_guilds_json_redacts_names_and_ids(capsys):
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        render_guilds_json([{"id": "123456789012345678", "name": "Private Guild"}])
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload["guilds"][0]["id"] == "***5678"
+        assert payload["guilds"][0]["name"] == "***"
+    finally:
+        set_redaction_config(RedactionConfig())
+
+
+def test_render_channels_json_redacts_nested_names_and_ids(capsys):
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        data = {
+            "dms": [{"id": "111111111111111111", "name": "Amy", "type": "DM"}],
+            "guilds": [
+                {
+                    "id": "222222222222222222",
+                    "name": "Alpha",
+                    "categories": [
+                        {
+                            "id": "333333333333333333",
+                            "name": "Secrets",
+                            "channels": [{"id": "444444444444444444", "name": "general", "type": "GuildText"}],
+                        }
+                    ],
+                }
+            ],
+        }
+        render_channels_json(data)
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload["dms"][0]["id"] == "***1111"
+        assert payload["dms"][0]["name"] == "***"
+        assert payload["guilds"][0]["id"] == "***2222"
+        assert payload["guilds"][0]["name"] == "***"
+        assert payload["guilds"][0]["categories"][0]["id"] == "***3333"
+        assert payload["guilds"][0]["categories"][0]["name"] == "***"
+        assert payload["guilds"][0]["categories"][0]["channels"][0]["id"] == "***4444"
+        assert payload["guilds"][0]["categories"][0]["channels"][0]["name"] == "***"
+    finally:
+        set_redaction_config(RedactionConfig())
 
 
 def test_render_channels_rich_outputs_text():
@@ -58,6 +105,41 @@ def test_render_channels_rich_outputs_text():
     text = console.export_text()
     assert "Alpha" in text
     assert "general" in text
+
+
+def test_render_channels_rich_redacts_names_and_ids():
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
+    try:
+        console = Console(record=True)
+        data = {
+            "dms": [{"id": "111111111111111111", "name": "Amy", "type": "DM"}],
+            "guilds": [
+                {
+                    "id": "222222222222222222",
+                    "name": "Alpha",
+                    "categories": [
+                        {
+                            "id": "333333333333333333",
+                            "name": "Secrets",
+                            "channels": [{"id": "444444444444444444", "name": "general", "type": "GuildText"}],
+                        }
+                    ],
+                }
+            ],
+        }
+        render_channels_rich(data, console)
+        text = console.export_text()
+        assert "Amy" not in text
+        assert "Alpha" not in text
+        assert "Secrets" not in text
+        assert "general" not in text
+        assert "111111111111111111" not in text
+        assert "***1111" in text
+        assert "***2222" in text
+        assert "***3333" in text
+        assert "***4444" in text
+    finally:
+        set_redaction_config(RedactionConfig())
 
 
 def test_render_guilds_rich_empty_outputs_notice():

@@ -47,6 +47,28 @@ def test_parse_args_list_channels_json_flag():
     assert args.json is True
 
 
+def test_parse_args_list_channels_accepts_scope_filters():
+    args = parse_args(
+        "1.0.0",
+        argv=["list", "channels", "--include-ids", "guild-1", "category-1", "--exclude-ids", "channel-1"],
+    )
+    assert args.command == "list"
+    assert args.list_command == "channels"
+    assert args.include_ids == ["guild-1", "category-1"]
+    assert args.exclude_ids == ["channel-1"]
+
+
+def test_parse_args_list_guilds_accepts_scope_filters():
+    args = parse_args(
+        "1.0.0",
+        argv=["list", "guilds", "--include-ids", "guild-1", "--exclude-ids", "guild-2"],
+    )
+    assert args.command == "list"
+    assert args.list_command == "guilds"
+    assert args.include_ids == ["guild-1"]
+    assert args.exclude_ids == ["guild-2"]
+
+
 def test_parse_args_list_channels_no_json_flag():
     args = parse_args("1.0.0", argv=["list", "channels", "--no-json"])
     assert args.command == "list"

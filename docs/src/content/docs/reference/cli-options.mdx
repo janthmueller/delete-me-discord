@@ -98,6 +98,8 @@ Other top-level commands are:
 
 - `--token`
 - `--config-path`
+- `--include-ids`
+- `--exclude-ids`
 - `--json`
 - `--quiet`
 - `--verbose`
@@ -257,7 +259,7 @@ This matters most when a profile enables one of these options and you want to tu
 
 ### Sensitive Redaction
 
-`--redact-sensitive` redacts sensitive values in normal CLI logs and JSON logs.
+`--redact-sensitive` redacts sensitive values in normal CLI logs, JSON logs, and discovery output.
 
 Examples:
 
@@ -265,7 +267,7 @@ Examples:
 - `--redact-sensitive 0 4`
 - `--redact-sensitive 4 4`
 
-Discovery output from `dmd list guilds` and `dmd list channels` is intentionally left unchanged, because those commands exist to reveal IDs and names.
+For `dmd list guilds` and `dmd list channels`, this redacts guild names, channel names, category names, DM names, and IDs.
 
 See [Value Formats](../value-formats/#redaction-values) for profile redaction values.
 

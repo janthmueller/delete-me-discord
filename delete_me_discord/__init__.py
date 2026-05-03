@@ -151,8 +151,8 @@ def _run_list(args) -> None:
         api=api,
         list_guilds=list_guilds,
         list_channels=list_channels,
-        include_ids=[],
-        exclude_ids=[],
+        include_ids=args.include_ids,
+        exclude_ids=args.exclude_ids,
         json_output=args.json,
     )
 
