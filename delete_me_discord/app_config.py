@@ -72,8 +72,8 @@ ProfileValueMode = Literal["cli-set", "stored", "runtime"]
 
 
 PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
-    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching IDs."},
-    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching IDs from cleanup."},
+    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching full IDs. Profile commands resolve unique suffixes before storing."},
+    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching full IDs. Profile commands resolve unique suffixes before storing."},
     {"name": "keep_last", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Keep the last N messages in each channel."},
     {"name": "keep_last_scope", "type": "mine|all", "parser": "enum", "choices": ("mine", "all"), "nullable": False, "description": "Count keep_last against your messages or all recent messages."},
     {"name": "keep_within", "type": "time delta string", "parser": "time_delta", "nullable": False, "description": "Keep messages and reactions newer than this window."},

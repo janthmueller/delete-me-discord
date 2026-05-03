@@ -61,6 +61,10 @@ dmd profile add nightly-dms \
   --set preserve_cache=true
 ```
 
+For `include_ids` and `exclude_ids`, profile commands accept full IDs or unique ID suffixes.
+They validate those values through Discord and store full IDs in `config.json`.
+When scope fields are set, profile commands use your stored login, `DISCORD_TOKEN`, or `--token` for validation.
+
 Show what is stored:
 
 ```bash

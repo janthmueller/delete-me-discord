@@ -126,7 +126,10 @@ Profile `--set` accepts:
 --set include_ids='["123","456"]'
 ```
 
-Hand-written profile config accepts the same input shapes:
+For `include_ids` and `exclude_ids`, values may be full Discord IDs or unique ID suffixes when set through `dmd profile add` or `dmd profile update`.
+Profile commands resolve them through Discord before writing config, and store full IDs.
+
+Hand-written profile config accepts the same list shapes:
 
 ```json
 {

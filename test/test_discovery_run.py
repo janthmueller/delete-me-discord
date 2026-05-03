@@ -59,3 +59,30 @@ def test_run_discovery_commands_rich_calls_rich_renderers(monkeypatch):
     )
     assert called["guilds"] is True
     assert called["channels"] is True
+
+
+def test_run_discovery_commands_list_guilds_without_scope_does_not_fetch_channels(monkeypatch):
+    called = {"guilds": False}
+
+    class GuildOnlyAPI:
+        def get_guilds(self):
+            return [{"id": "1", "name": "G"}]
+
+        def get_root_channels(self):
+            raise AssertionError("root channels should not be fetched for plain guild listing")
+
+        def get_guild_channels(self, guild_id):
+            raise AssertionError("guild channels should not be fetched for plain guild listing")
+
+    monkeypatch.setattr(discovery, "render_guilds_rich", lambda *_: called.__setitem__("guilds", True))
+
+    discovery.run_discovery_commands(
+        api=GuildOnlyAPI(),
+        list_guilds=True,
+        list_channels=False,
+        include_ids=[],
+        exclude_ids=[],
+        json_output=False,
+    )
+
+    assert called["guilds"] is True

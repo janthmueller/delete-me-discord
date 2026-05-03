@@ -37,8 +37,8 @@ Other top-level commands are:
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
-| `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent/category IDs. |
-| `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent/category IDs from processing. |
+| `-i` | `--include-ids` | all eligible | Restrict processing to matching full IDs or unique ID suffixes. |
+| `-x` | `--exclude-ids` | none | Exclude matching full IDs or unique ID suffixes from processing. |
 | `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
 | `-t` | `--token` | unset | Override stored credentials and `DISCORD_TOKEN` for this command only. |
 
@@ -108,6 +108,8 @@ Other top-level commands are:
 - `--redact-names` / `--no-redact-names`
 - retry flags
 
+`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guild, category, channel, DM, and Group DM IDs before filtering.
+
 `dmd list profiles` supports:
 
 - `--config-path`
@@ -169,7 +171,11 @@ Profile commands are useful once you want saved cleanup presets.
 Examples:
 
 - `dmd profile add nightly-dms --set include_ids=123456789012345678 --set keep_within=2w`
+- `dmd profile add nightly-dms --set include_ids=490059 --set keep_within=2w`
 - `dmd profile add nightly-dms --set preserve_cache=true`
+
+When `include_ids` or `exclude_ids` are set, profile commands resolve full IDs or unique suffixes through Discord before writing `config.json`. Stored profiles contain full IDs.
+Because that validation calls Discord, `profile add` and `profile update` also accept `--token`, `--config-path`, and retry flags.
 
 ### Update
 

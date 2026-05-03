@@ -11,6 +11,7 @@ from .models import ActionKind, ChannelPlan, DiscordChannel, DiscordEmoji, Disco
 from .utils import channel_str, should_include_channel, format_timestamp
 from .privacy import sensitive
 from .preserve_cache import PreserveCache
+from .scope_inventory import ScopeInventory
 
 
 class MessageCleaner:
@@ -23,7 +24,8 @@ class MessageCleaner:
         preserve_last: timedelta = timedelta(0),
         preserve_n: int = 0,
         preserve_n_mode: str = "all",
-        preserve_cache: Optional[PreserveCache] = None
+        preserve_cache: Optional[PreserveCache] = None,
+        scope_inventory: Optional[ScopeInventory] = None,
     ):
         """
         Initializes the MessageCleaner.
@@ -62,6 +64,7 @@ class MessageCleaner:
         self.preserve_n_mode = preserve_n_mode
         self.logger = logging.getLogger(self.__class__.__name__)
         self.preserve_cache = preserve_cache
+        self.scope_inventory = scope_inventory
 
         if self.include_ids.intersection(self.exclude_ids):
             raise ValueError("Include and exclude IDs must be disjoint.")
@@ -76,13 +79,17 @@ class MessageCleaner:
         all_channels = []
         channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
 
-        # Fetch guilds and their channels
-        guilds = self.api.get_guilds()
-        guild_ids = [guild["id"] for guild in guilds]
-        guild_channels = self.api.get_guild_channels_multiple(guild_ids)
+        if self.scope_inventory:
+            root_channels = self.scope_inventory.root_channels
+            guild_channels = self.scope_inventory.all_guild_channels()
+        else:
+            # Fetch guilds and their channels
+            guilds = self.api.get_guilds()
+            guild_ids = [guild["id"] for guild in guilds]
+            guild_channels = self.api.get_guild_channels_multiple(guild_ids)
 
-        # Fetch root channels (DMs)
-        root_channels = self.api.get_root_channels()
+            # Fetch root channels (DMs)
+            root_channels = self.api.get_root_channels()
 
         # Process root channels
         for channel in root_channels:

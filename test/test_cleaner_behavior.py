@@ -13,6 +13,7 @@ import pytest
 from delete_me_discord.cleaner import MessageCleaner
 from delete_me_discord.models import ActionKind, PlannedAction
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
+from delete_me_discord.scope_inventory import ScopeInventory
 from delete_me_discord.utils import DETAIL_LEVEL, EVENT_LEVEL, PROGRESS_LEVEL
 
 
@@ -475,6 +476,35 @@ def test_get_all_channels_filters_unknown_types():
     cleaner = MessageCleaner(api=Api(), user_id="me")
     channels = cleaner.get_all_channels()
     assert [c["id"] for c in channels] == ["dm1", "c1"]
+
+
+def test_get_all_channels_reuses_scope_inventory_without_fetching_api():
+    class Api:
+        def get_guilds(self):
+            raise AssertionError("guilds should not be fetched when scope inventory is provided")
+
+        def get_guild_channels_multiple(self, guild_ids):
+            raise AssertionError("guild channels should not be fetched when scope inventory is provided")
+
+        def get_root_channels(self):
+            raise AssertionError("root channels should not be fetched when scope inventory is provided")
+
+    inventory = ScopeInventory(
+        guilds=[{"id": "g1", "name": "Guild"}],
+        root_channels=[{"id": "dm1", "type": 1, "recipients": [{"username": "Amy"}]}],
+        guild_channels_by_guild={
+            "g1": [
+                {"id": "c1", "type": 0, "name": "chan"},
+                {"id": "cat1", "type": 4, "name": "category"},
+            ],
+        },
+    )
+    cleaner = MessageCleaner(api=Api(), user_id="me", scope_inventory=inventory)
+
+    channels = cleaner.get_all_channels()
+
+    assert [channel["id"] for channel in channels] == ["dm1", "c1"]
+    assert channels[1]["guild_id"] == "g1"
 
 
 def test_clean_messages_non_dry_run_summary(monkeypatch):

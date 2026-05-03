@@ -91,7 +91,10 @@ def _base_profile_args(tmp_path, **overrides):
         name="nightly-dms",
         profile_set=[],
         profile_unset=[],
+        token="test-token",
         config_path=str(tmp_path / "config.json"),
+        max_retries=1,
+        retry_time_buffer=["1", "1"],
         quiet=False,
         verbose=0,
         json=False,
@@ -119,7 +122,7 @@ def test_main_cache_clear_exits_early(tmp_path, monkeypatch):
 
 
 def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
-    args = _base_list_args(tmp_path, list_command="guilds", include_ids=["guild-1"], exclude_ids=["guild-2"])
+    args = _base_list_args(tmp_path, list_command="guilds", include_ids=["0001"], exclude_ids=["0002"])
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
@@ -129,14 +132,26 @@ def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        def get_guilds(self):
+            return [
+                {"id": "1111111111110001", "name": "Alpha"},
+                {"id": "2222222222220002", "name": "Beta"},
+            ]
+
+        def get_root_channels(self):
+            return []
+
+        def get_guild_channels(self, guild_id):
+            return []
+
     called = {"discovery": False}
 
     def fake_discovery(**kwargs):
         called["discovery"] = True
         assert kwargs["list_guilds"] is True
         assert kwargs["list_channels"] is False
-        assert kwargs["include_ids"] == ["guild-1"]
-        assert kwargs["exclude_ids"] == ["guild-2"]
+        assert kwargs["include_ids"] == ["1111111111110001"]
+        assert kwargs["exclude_ids"] == ["2222222222220002"]
 
     monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "run_discovery_commands", fake_discovery)
@@ -199,6 +214,38 @@ def test_main_profile_add_updates_config(tmp_path, monkeypatch):
     assert data["profiles"]["nightly-dms"]["dry_run"] is True
 
 
+def test_main_profile_add_resolves_scope_ids_before_writing(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="add",
+        profile_set=["include_ids=0001", "exclude_ids=0002"],
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_guilds(self):
+            return [{"id": "1111111111110001", "name": "Alpha"}]
+
+        def get_root_channels(self):
+            return [{"id": "2222222222220002", "type": 1, "recipients": [{"username": "Amy"}]}]
+
+        def get_guild_channels(self, guild_id):
+            return []
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+
+    delete_me_discord.main()
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"]["include_ids"] == ["1111111111110001"]
+    assert data["profiles"]["nightly-dms"]["exclude_ids"] == ["2222222222220002"]
+
+
 def test_main_profile_add_requires_set(tmp_path, monkeypatch, capsys):
     args = _base_profile_args(tmp_path, profile_command="add", profile_set=[])
 
@@ -229,6 +276,80 @@ def test_main_profile_update_set_none_unsets_field(tmp_path, monkeypatch):
     delete_me_discord.main()
     data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
     assert data["profiles"]["nightly-dms"] == {"keep_last": 5}
+
+
+def test_main_profile_update_resolves_scope_ids_before_writing(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["include_ids=0001"],
+    )
+    Path(args.config_path).write_text(
+        '{"profiles":{"nightly-dms":{"keep_last":5}}}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_guilds(self):
+            return [{"id": "1111111111110001", "name": "Alpha"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_guild_channels(self, guild_id):
+            return []
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+
+    delete_me_discord.main()
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"]["include_ids"] == ["1111111111110001"]
+
+
+def test_main_profile_update_checks_existing_scope_ids_before_writing(tmp_path, monkeypatch, capsys):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="update",
+        profile_set=["include_ids=0001"],
+    )
+    Path(args.config_path).write_text(
+        '{"profiles":{"nightly-dms":{"exclude_ids":["1111111111110001"]}}}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_guilds(self):
+            return [{"id": "1111111111110001", "name": "Alpha"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_guild_channels(self, guild_id):
+            return []
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+
+    assert exc.value.code == 1
+    assert "disjoint" in capsys.readouterr().err
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    assert data["profiles"]["nightly-dms"] == {"exclude_ids": ["1111111111110001"]}
 
 
 def test_main_profile_update_accepts_redaction_comma_form(tmp_path, monkeypatch):
@@ -589,6 +710,44 @@ def test_run_clean_logs_redacted_authenticated_user(tmp_path, monkeypatch, caplo
     assert "Authenticated as *** (***5678)." in caplog.text
     assert "example-user" not in caplog.text
     assert "123456789012345678" not in caplog.text
+
+
+def test_run_clean_resolves_scope_selectors_before_cleaner_creation(tmp_path, monkeypatch):
+    args = _base_clean_args(tmp_path, include_ids=["0001"], exclude_ids=["0002"])
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+        def get_guilds(self):
+            return [{"id": "1111111111110001", "name": "Alpha"}]
+
+        def get_root_channels(self):
+            return [{"id": "2222222222220002", "type": 1, "recipients": [{"username": "Amy"}]}]
+
+        def get_guild_channels(self, guild_id):
+            return []
+
+    captured = {}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def clean_messages(self, **kwargs):
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord._run_clean(args)
+
+    assert captured["include_ids"] == ["1111111111110001"]
+    assert captured["exclude_ids"] == ["2222222222220002"]
 
 
 def test_run_clean_exits_early_without_any_token(tmp_path, monkeypatch):

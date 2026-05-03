@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from rich.console import Console
 
 from .api import DiscordAPI
+from .scope_inventory import ScopeInventory
 from .utils import should_include_channel
 from .discovery_renderers import (
     render_guilds_json,
@@ -23,6 +24,7 @@ def run_discovery_commands(
     include_ids,
     exclude_ids,
     json_output: bool = False,
+    inventory: ScopeInventory | None = None,
 ) -> None:
     """
     Handle discovery-only commands and exit afterwards.
@@ -32,16 +34,20 @@ def run_discovery_commands(
     console = None
     if not json_output:
         console = Console()
-
     if list_guilds:
-        guilds = collect_guilds(api, include_set, exclude_set)
+        guilds = (
+            collect_guilds_from_inventory(inventory, include_set, exclude_set)
+            if inventory
+            else collect_guilds(api, include_set, exclude_set)
+        )
         if json_output:
             render_guilds_json(guilds)
         else:
             render_guilds_rich(guilds, console)
 
     if list_channels:
-        data = collect_channels(api, include_set, exclude_set)
+        inventory = inventory or ScopeInventory.fetch(api)
+        data = collect_channels_from_inventory(inventory, include_set, exclude_set)
         if json_output:
             render_channels_json(data)
         else:
@@ -57,8 +63,20 @@ def collect_guilds(
     Collect guilds respecting include/exclude filters.
     """
     guilds = api.get_guilds()
+    inventory = ScopeInventory(guilds=guilds, root_channels=[], guild_channels_by_guild={})
+    return collect_guilds_from_inventory(inventory, include_set, exclude_set)
+
+
+def collect_guilds_from_inventory(
+    inventory: ScopeInventory,
+    include_set,
+    exclude_set,
+) -> List[Dict[str, Any]]:
+    """
+    Collect guilds respecting include/exclude filters from a fetched scope inventory.
+    """
     items = []
-    for guild in sorted(guilds, key=_guild_sort_key):
+    for guild in sorted(inventory.guilds, key=_guild_sort_key):
         guild_id = guild.get("id")
         if guild_id in exclude_set:
             continue
@@ -79,6 +97,17 @@ def collect_channels(
     """
     Collect channels grouped by DMs and guilds, respecting include/exclude filters.
     """
+    return collect_channels_from_inventory(ScopeInventory.fetch(api), include_set, exclude_set)
+
+
+def collect_channels_from_inventory(
+    inventory: ScopeInventory,
+    include_set,
+    exclude_set,
+) -> Dict[str, Any]:
+    """
+    Collect channels grouped by DMs and guilds from a fetched scope inventory.
+    """
     channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
 
     def include_channel(channel):
@@ -96,9 +125,8 @@ def collect_channels(
             name = ', '.join([recipient.get("username", "Unknown") for recipient in recipients])
         return (type_order.get(channel.get("type"), 99), name.lower(), channel.get("id"))
 
-    root_channels = api.get_root_channels()
     included_dms = []
-    for channel in root_channels:
+    for channel in inventory.root_channels:
         if channel.get("type") not in channel_types:
             continue
         if not include_channel(channel):
@@ -115,13 +143,12 @@ def collect_channels(
             "type": channel_types.get(channel.get("type"), f"Type {channel.get('type')}"),
         })
 
-    guilds = api.get_guilds()
     json_guilds = []
-    for guild in sorted(guilds, key=_guild_sort_key):
+    for guild in sorted(inventory.guilds, key=_guild_sort_key):
         guild_id = guild.get("id")
         guild_name = guild.get("name", "Unknown")
 
-        channels = api.get_guild_channels(guild_id)
+        channels = inventory.guild_channels(guild_id)
 
         category_names = {
             c.get("id"): c.get("name") or "Unknown category"

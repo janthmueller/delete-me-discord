@@ -10,6 +10,7 @@ from .app_config import (
     EffectiveCleanSettings,
     add_profile,
     get_profile_field_specs,
+    load_profile,
     load_profile_names,
     load_raw_profile,
     parse_profile_set_assignments,
@@ -24,6 +25,8 @@ from .discovery import run_discovery_commands
 from .options import parse_args
 from .preserve_cache import PreserveCache
 from .privacy import sensitive, sensitive_name
+from .scope_inventory import ScopeInventory
+from .scope_selectors import resolve_scope_selectors
 from .utils import AuthenticationError, parse_random_range, setup_logging
 
 try:
@@ -113,6 +116,16 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         sensitive_name(current_user.get("username", "unknown")),
         sensitive(user_id),
     )
+    inventory = None
+    include_ids = settings.include_ids
+    exclude_ids = settings.exclude_ids
+    if include_ids or exclude_ids:
+        inventory = ScopeInventory.fetch(api)
+        try:
+            include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
+        except ValueError as exc:
+            logging.error("%s", exc)
+            raise SystemExit(1)
 
     preserve_cache = PreserveCache(
         path=settings.preserve_cache_path,
@@ -121,12 +134,13 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
     cleaner = MessageCleaner(
         api=api,
         user_id=user_id,
-        include_ids=settings.include_ids,
-        exclude_ids=settings.exclude_ids,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
         preserve_last=settings.keep_within,
         preserve_n=settings.keep_last,
         preserve_n_mode=settings.keep_last_scope,
         preserve_cache=preserve_cache,
+        scope_inventory=inventory,
     )
 
     cleaner.clean_messages(
@@ -145,15 +159,26 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
 
 def _run_list(args) -> None:
     api = _build_api(args)
+    inventory = None
+    include_ids = args.include_ids
+    exclude_ids = args.exclude_ids
+    try:
+        if include_ids or exclude_ids:
+            inventory = ScopeInventory.fetch(api)
+            include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
+    except ValueError as exc:
+        logging.error("%s", exc)
+        raise SystemExit(1)
     list_guilds = args.list_command == "guilds"
     list_channels = args.list_command == "channels"
     run_discovery_commands(
         api=api,
         list_guilds=list_guilds,
         list_channels=list_channels,
-        include_ids=args.include_ids,
-        exclude_ids=args.exclude_ids,
+        include_ids=include_ids,
+        exclude_ids=exclude_ids,
         json_output=args.json,
+        inventory=inventory,
     )
 
 
@@ -199,9 +224,10 @@ def _run_profile_add(args) -> None:
         if not args.profile_set:
             raise ValueError("profile add requires at least one --set value.")
         profile_data = parse_profile_set_assignments(args.profile_set)
+        _resolve_profile_scope_updates(args, profile_data)
         profile_data = {field: value for field, value in profile_data.items() if value is not None}
         add_profile(args.config_path, args.name, profile_data)
-    except ValueError as exc:
+    except (ValueError, AuthenticationError) as exc:
         _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
     _emit_profile_command_success(args, "created")
 
@@ -217,12 +243,41 @@ def _run_profile_update(args) -> None:
         unset_from_none = [field for field, value in profile_updates.items() if value is None]
         profile_updates = {field: value for field, value in profile_updates.items() if value is not None}
         unset_fields = validate_profile_unset_fields(args.profile_unset + unset_from_none)
+        _resolve_profile_scope_updates(args, profile_updates, unset_fields=unset_fields)
         if not profile_updates and not unset_fields:
             raise ValueError("profile update requires at least one --set or --unset value.")
         update_profile(args.config_path, args.name, profile_updates, unset_fields)
-    except ValueError as exc:
+    except (ValueError, AuthenticationError) as exc:
         _emit_config_error_and_exit(str(exc), getattr(args, "json", False))
     _emit_profile_command_success(args, "updated")
+
+
+def _resolve_profile_scope_updates(args, profile_updates: dict, unset_fields: list[str] | None = None) -> None:
+    if "include_ids" not in profile_updates and "exclude_ids" not in profile_updates:
+        return
+    unset_fields = unset_fields or []
+    scope_values = {}
+    if args.profile_command == "update":
+        current = load_profile(args.config_path, args.name)
+        for field in ("include_ids", "exclude_ids"):
+            if field in current and field not in unset_fields:
+                scope_values[field] = current[field]
+    scope_values.update({
+        field: profile_updates[field]
+        for field in ("include_ids", "exclude_ids")
+        if field in profile_updates
+    })
+    api = _build_api(args)
+    inventory = ScopeInventory.fetch(api)
+    include_ids, exclude_ids = resolve_scope_selectors(
+        inventory,
+        scope_values.get("include_ids", []),
+        scope_values.get("exclude_ids", []),
+    )
+    if "include_ids" in scope_values:
+        profile_updates["include_ids"] = include_ids
+    if "exclude_ids" in scope_values:
+        profile_updates["exclude_ids"] = exclude_ids
 
 
 def _run_profile_remove(args) -> None:

@@ -137,14 +137,14 @@ def _scope_parent(*, clean_defaults: dict[str, object] | None = None) -> argpars
         type=str,
         nargs="*",
         default=_clean_default("include_ids", clean_defaults),
-        help="List of channel, guild, or parent/category IDs to include."
+        help="List of channel, guild, or parent/category full IDs or unique ID suffixes to include."
     )
     parser.add_argument(
         "-x", "--exclude-ids",
         type=str,
         nargs="*",
         default=_clean_default("exclude_ids", clean_defaults),
-        help="List of channel, guild, or parent/category IDs to exclude."
+        help="List of channel, guild, or parent/category full IDs or unique ID suffixes to exclude."
     )
     return parser
 
@@ -324,7 +324,7 @@ def build_parser(
     profile_add_parser = profile_subparsers.add_parser(
         "add",
         help="Create a new cleanup profile.",
-        parents=[output_parent, config_parent],
+        parents=[output_parent, auth_parent, api_parent],
     )
     profile_add_parser.add_argument("name", type=str, help="Profile name.")
     profile_add_parser.add_argument(
@@ -339,7 +339,7 @@ def build_parser(
     profile_update_parser = profile_subparsers.add_parser(
         "update",
         help="Update an existing cleanup profile.",
-        parents=[output_parent, config_parent],
+        parents=[output_parent, auth_parent, api_parent],
     )
     profile_update_parser.add_argument("name", type=str, help="Profile name.")
     profile_update_parser.add_argument(

@@ -14,10 +14,12 @@ This page assumes you already:
 
 ```bash
 dmd list guilds
-dmd list channels
+dmd list channels -r 4
 ```
 
 This gives you the IDs you need for `--include-ids` and helps avoid deleting from the wrong place.
+`-r 4` redacts private names and shows only ID suffixes; scope flags accept a visible suffix as long as it uniquely matches one discovered ID.
+If a suffix is ambiguous, use more visible digits, for example `-r 6`, and rerun discovery.
 
 At this stage, choose one specific target:
 
@@ -30,7 +32,7 @@ Do not start with multiple IDs on your first run.
 ## 2. Start with dry-run
 
 ```bash
-dmd clean --include-ids <channel_id> --dry-run
+dmd clean --include-ids <channel_id_or_suffix> --dry-run
 ```
 
 This example targets one channel. By default, it also removes your reactions and preserves nothing because:
@@ -53,7 +55,7 @@ Drop `--dry-run` once you are satisfied with the output.
 That gives you the same command shape, but with actual deletion:
 
 ```bash
-dmd clean --include-ids <channel_id>
+dmd clean --include-ids <channel_id_or_suffix>
 ```
 
 ## How to read the dry-run output

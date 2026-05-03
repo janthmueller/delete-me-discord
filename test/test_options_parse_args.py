@@ -123,11 +123,25 @@ def test_parse_args_profile_fields_redaction_options():
 def test_parse_args_profile_add():
     args = parse_args(
         "1.0.0",
-        argv=["profile", "add", "nightly-dms", "--set", "keep_last=20", "--set", "dry_run=true"],
+        argv=[
+            "profile",
+            "add",
+            "nightly-dms",
+            "--token",
+            "abc",
+            "--max-retries",
+            "2",
+            "--set",
+            "keep_last=20",
+            "--set",
+            "dry_run=true",
+        ],
     )
     assert args.command == "profile"
     assert args.profile_command == "add"
     assert args.name == "nightly-dms"
+    assert args.token == "abc"
+    assert args.max_retries == 2
     assert args.profile_set == ["keep_last=20", "dry_run=true"]
 
 
