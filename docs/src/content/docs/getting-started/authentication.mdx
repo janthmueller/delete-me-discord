@@ -3,7 +3,7 @@ title: Authentication
 description: Configure the Discord token used by the CLI.
 ---
 
-`delete-me-discord` and `dmd` authenticate with Discord through your user token.
+The CLI authenticates with Discord through your user token.
 
 The simplest path is to store the token once in your system keyring:
 
@@ -12,8 +12,6 @@ dmd login
 ```
 
 `dmd login` validates the token before storing it.
-The token is not written to `config.json`.
-If an older plaintext token exists in `config.json`, `dmd login` migrates it to the keyring and removes it from the config file.
 Use `dmd login --replace` when you want to replace the stored token.
 
 You can also use a token from the environment:
@@ -34,6 +32,13 @@ The active token can be checked with:
 dmd whoami
 ```
 
+## Legacy config tokens
+
+Current versions store login tokens in the system keyring, not in `config.json`.
+
+If an older plaintext token exists in `config.json`, `dmd login` migrates it to the keyring and removes it from the config file.
+`dmd logout` also cleans up legacy plaintext tokens from older config files.
+
 ## Finding your token
 
 You can use this external guide to obtain your Discord token:
@@ -44,7 +49,7 @@ You can use this external guide to obtain your Discord token:
 
 - Keep the token private. Anyone with the token can act as your Discord user.
 - Prefer `dmd login` or a session-local environment variable instead of hardcoding it in scripts.
-- `dmd logout` removes the keyring token and also cleans up legacy plaintext tokens from older config files.
+- `dmd logout` removes the stored keyring token.
 - On headless systems without a usable keyring, use `DISCORD_TOKEN` or pass `--token` to the command you are running.
 - Be aware that using automated tooling on Discord may violate Discord's Terms of Service.
 
