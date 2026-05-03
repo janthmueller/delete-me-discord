@@ -40,7 +40,7 @@ Other top-level commands are:
 | `-i` | `--include-ids` | all eligible | Restrict processing to matching channel, guild, or parent/category IDs. |
 | `-x` | `--exclude-ids` | none | Exclude matching channel, guild, or parent/category IDs from processing. |
 | `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
-| `-t` | `--token` | unset | Override stored config and `DISCORD_TOKEN` for this command only. |
+| `-t` | `--token` | unset | Override stored credentials and `DISCORD_TOKEN` for this command only. |
 
 ### Retention
 
@@ -116,11 +116,16 @@ Other top-level commands are:
 
 ### Login
 
-`dmd login` stores and validates a token. If `--token` is omitted, the CLI prompts for it interactively.
+`dmd login` ensures a token is stored in the system keyring.
+If a keyring token already exists, it validates that token and exits without prompting.
+If a legacy plaintext token exists in `config.json`, it migrates that token to the keyring and removes it from the config file.
+If no stored token exists, it prompts for one interactively.
+
+Use `dmd login --replace` to prompt for a new token and replace the stored keyring token.
 
 ### Logout
 
-`dmd logout` removes the stored token from the config file.
+`dmd logout` removes the stored token from the system keyring and deletes any legacy plaintext token from `config.json`.
 
 ### Identity Check
 

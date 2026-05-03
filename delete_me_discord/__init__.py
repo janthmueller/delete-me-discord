@@ -59,7 +59,7 @@ def _build_api_from_token_config(
 ) -> DiscordAPI:
     token, _token_source = resolve_token(token_arg, config_path)
     if not token:
-        logging.error("Discord token not provided. Use --token, dmd login, or set DISCORD_TOKEN.")
+        logging.error("Discord token not provided. Run dmd login, set DISCORD_TOKEN, or use --token.")
         raise SystemExit(1)
 
     return DiscordAPI(

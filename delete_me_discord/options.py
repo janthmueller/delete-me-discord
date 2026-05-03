@@ -118,7 +118,7 @@ def _auth_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse
         "-t", "--token",
         type=str,
         default=_clean_default("token", clean_defaults),
-        help="Discord token to use for this command. Overrides stored config and DISCORD_TOKEN."
+        help="Discord token to use for this command. Overrides stored credentials and DISCORD_TOKEN."
     )
     return parser
 
@@ -354,15 +354,20 @@ def build_parser(
 
     login_parser = subparsers.add_parser(
         "login",
-        help="Store and validate a Discord token.",
-        parents=[output_parent, auth_parent, api_parent],
+        help="Validate a Discord token and store it in the system keyring.",
+        parents=[output_parent, config_parent, api_parent],
+    )
+    login_parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Prompt for a new token even if a stored token already exists.",
     )
     login_parser.set_defaults(command="login")
 
     logout_parser = subparsers.add_parser(
         "logout",
-        help="Remove the stored Discord token.",
-        parents=[output_parent, auth_parent],
+        help="Remove the stored Discord token from the system keyring.",
+        parents=[output_parent, config_parent],
     )
     logout_parser.set_defaults(command="logout")
 

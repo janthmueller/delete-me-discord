@@ -28,6 +28,7 @@
           ];
 
           dependencies = with pythonPackages; [
+            keyring
             requests
             rich
           ];
@@ -75,6 +76,7 @@
           ];
 
           shellHook = ''
+            unset PYTHONPATH
             if [ ! -d .venv ]; then
               python -m venv .venv
             fi

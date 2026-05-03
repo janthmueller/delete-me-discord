@@ -10,6 +10,7 @@ readme = "README.md"
 description = "Tool to mass delete your Discord messages and reactions with filters and retention controls."
 requires-python = ">=3.10"
 dependencies = [
+    "keyring>=25",
     "requests>=2.0.0",
     "rich>=13,<15",
 ]

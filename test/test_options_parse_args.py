@@ -192,10 +192,23 @@ def test_parse_args_redact_sensitive_rejects_comma_form(capsys):
 
 
 def test_parse_args_login_command():
-    args = parse_args("1.0.0", argv=["login", "--token", "abc"])
+    args = parse_args("1.0.0", argv=["login"])
     assert args.command == "login"
-    assert args.token == "abc"
+    assert args.replace is False
     assert args.config_path.endswith("config.json")
+
+
+def test_parse_args_login_replace_command():
+    args = parse_args("1.0.0", argv=["login", "--replace"])
+    assert args.command == "login"
+    assert args.replace is True
+
+
+def test_parse_args_login_rejects_token(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=["login", "--token", "abc"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_parse_args_whoami_command_with_json():
