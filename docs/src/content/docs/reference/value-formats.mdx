@@ -171,8 +171,10 @@ The normal CLI flag uses space-separated values:
 
 ```bash
 --redact-sensitive
+--redact-sensitive 4
 --redact-sensitive 0 4
 --redact-sensitive 4 4
+-r 4
 ```
 
 Profile `--set` and hand-written profile config accept:
@@ -180,15 +182,18 @@ Profile `--set` and hand-written profile config accept:
 ```bash
 --set redact_sensitive=true
 --set redact_sensitive=false
+--set redact_sensitive=4
 --set redact_sensitive=0,4
 --set redact_sensitive="0 4"
 --set redact_sensitive='[0,4]'
+--set redact_names=false
 ```
 
 When profile commands rewrite the profile:
 
 - `true` and `false` are stored as JSON booleans
-- prefix/suffix windows are stored as JSON arrays, for example `[0, 4]`
+- suffix-only windows are stored as one-item JSON arrays, for example `[4]`
+- prefix/suffix windows are stored as two-item JSON arrays, for example `[0, 4]`
 
 ## Profile Config Normalization
 

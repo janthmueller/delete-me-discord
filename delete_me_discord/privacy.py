@@ -4,11 +4,17 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class RedactionConfig:
-    """Runtime redaction configuration for log-facing sensitive values."""
+    """Runtime redaction configuration for log-facing sensitive values.
+
+    ``redact_names`` controls human-readable Discord display names only:
+    usernames, guild names, category names, channel names, and DM labels.
+    It does not unredact message content, local paths, tokens, emoji names, or IDs.
+    """
 
     enabled: bool = False
     prefix: int = 0
     suffix: int = 0
+    redact_names: bool = True
     mask: str = "***"
 
     def redact(self, value: object) -> str:
@@ -45,9 +51,10 @@ def get_redaction_config() -> RedactionConfig:
 class SensitiveValue:
     """Wrapper whose string rendering respects the active redaction config."""
 
-    def __init__(self, value: object, full: bool = False):
+    def __init__(self, value: object, full: bool = False, name: bool = False):
         self._value = value
         self._full = full
+        self._name = name
 
     def get_sensitive_value(self) -> str:
         """Return the unredacted underlying value as a string."""
@@ -57,6 +64,8 @@ class SensitiveValue:
         config = get_redaction_config()
         if not config.enabled:
             return str(self._value)
+        if self._name and not config.redact_names:
+            return str(self._value)
         if self._full:
             return config.mask
         return config.redact(self._value)
@@ -65,6 +74,11 @@ class SensitiveValue:
         return str(self)
 
 
-def sensitive(value: object, full: bool = False) -> SensitiveValue:
+def sensitive(value: object, full: bool = False, name: bool = False) -> SensitiveValue:
     """Wrap a value so log formatting redacts it when enabled."""
-    return SensitiveValue(value, full=full)
+    return SensitiveValue(value, full=full, name=name)
+
+
+def sensitive_name(value: object) -> SensitiveValue:
+    """Wrap a human-readable Discord display name for name-specific redaction."""
+    return SensitiveValue(value, full=True, name=True)

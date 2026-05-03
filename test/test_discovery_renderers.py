@@ -142,6 +142,59 @@ def test_render_channels_rich_redacts_names_and_ids():
         set_redaction_config(RedactionConfig())
 
 
+def test_render_channels_rich_can_show_names_while_redacting_ids():
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4, redact_names=False))
+    try:
+        console = Console(record=True)
+        data = {
+            "dms": [{"id": "111111111111111111", "name": "Amy", "type": "DM"}],
+            "guilds": [
+                {
+                    "id": "222222222222222222",
+                    "name": "Alpha",
+                    "categories": [
+                        {
+                            "id": "333333333333333333",
+                            "name": "Secrets",
+                            "channels": [{"id": "444444444444444444", "name": "general", "type": "GuildText"}],
+                        }
+                    ],
+                }
+            ],
+        }
+        render_channels_rich(data, console)
+        text = console.export_text()
+        assert "Amy" in text
+        assert "Alpha" in text
+        assert "Secrets" in text
+        assert "general" in text
+        assert "111111111111111111" not in text
+        assert "***1111" in text
+        assert "***2222" in text
+        assert "***3333" in text
+        assert "***4444" in text
+    finally:
+        set_redaction_config(RedactionConfig())
+
+
+def test_render_channels_json_can_show_names_while_redacting_ids(capsys):
+    set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4, redact_names=False))
+    try:
+        data = {
+            "dms": [{"id": "111111111111111111", "name": "Amy", "type": "DM"}],
+            "guilds": [{"id": "222222222222222222", "name": "Alpha", "categories": []}],
+        }
+        render_channels_json(data)
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload["dms"][0]["id"] == "***1111"
+        assert payload["dms"][0]["name"] == "Amy"
+        assert payload["guilds"][0]["id"] == "***2222"
+        assert payload["guilds"][0]["name"] == "Alpha"
+    finally:
+        set_redaction_config(RedactionConfig())
+
+
 def test_render_guilds_rich_empty_outputs_notice():
     console = Console(record=True)
     render_guilds_rich([], console)

@@ -38,6 +38,7 @@ def test_parse_args_clean_defaults():
     assert args.preserve_cache is False
     assert args.json is False
     assert args.redact_sensitive is None
+    assert args.redact_names is True
 
 
 def test_parse_args_list_channels_json_flag():
@@ -76,6 +77,17 @@ def test_parse_args_list_channels_no_json_flag():
     assert args.json is False
 
 
+def test_parse_args_list_channels_redaction_options():
+    args = parse_args("1.0.0", argv=["list", "channels", "-r", "4", "--no-redact-names"])
+    assert args.command == "list"
+    assert args.list_command == "channels"
+    assert args.redact_names is False
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+    assert args.redact_sensitive.redact_names is False
+
+
 def test_parse_args_list_profiles():
     args = parse_args("1.0.0", argv=["list", "profiles"])
     assert args.command == "list"
@@ -95,6 +107,17 @@ def test_parse_args_profile_fields():
     assert args.command == "profile"
     assert args.profile_command == "fields"
     assert args.json is True
+
+
+def test_parse_args_profile_fields_redaction_options():
+    args = parse_args("1.0.0", argv=["profile", "fields", "-r", "4", "--no-redact-names"])
+    assert args.command == "profile"
+    assert args.profile_command == "fields"
+    assert args.redact_names is False
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+    assert args.redact_sensitive.redact_names is False
 
 
 def test_parse_args_profile_add():
@@ -188,6 +211,7 @@ def test_parse_args_redact_sensitive_default_mask():
     assert args.redact_sensitive.enabled is True
     assert args.redact_sensitive.prefix == 0
     assert args.redact_sensitive.suffix == 0
+    assert args.redact_sensitive.redact_names is True
 
 
 def test_parse_args_redact_sensitive_custom_window():
@@ -195,14 +219,38 @@ def test_parse_args_redact_sensitive_custom_window():
     assert args.redact_sensitive.enabled is True
     assert args.redact_sensitive.prefix == 4
     assert args.redact_sensitive.suffix == 4
+    assert args.redact_sensitive.redact_names is True
 
 
-def test_parse_args_redact_sensitive_rejects_invalid_spec(capsys):
+def test_parse_args_redact_sensitive_suffix_only():
+    args = parse_args("1.0.0", argv=["clean", "--redact-sensitive", "4"])
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+
+
+def test_parse_args_redact_sensitive_short_alias():
+    args = parse_args("1.0.0", argv=["clean", "-r", "4"])
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+
+
+def test_parse_args_no_redact_names_updates_redaction_config():
+    args = parse_args("1.0.0", argv=["clean", "-r", "4", "--no-redact-names"])
+    assert args.redact_names is False
+    assert args.redact_sensitive.enabled is True
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+    assert args.redact_sensitive.redact_names is False
+
+
+def test_parse_args_redact_sensitive_rejects_too_many_values(capsys):
     with pytest.raises(SystemExit) as exc:
-        parse_args("1.0.0", argv=["clean", "--redact-sensitive", "4"])
+        parse_args("1.0.0", argv=["clean", "--redact-sensitive", "0", "4", "8"])
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "two integers" in err
+    assert "one suffix integer" in err
 
 
 def test_parse_args_redact_sensitive_rejects_comma_form(capsys):
@@ -210,7 +258,7 @@ def test_parse_args_redact_sensitive_rejects_comma_form(capsys):
         parse_args("1.0.0", argv=["clean", "--redact-sensitive", "0,4"])
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "two integers" in err
+    assert "must be integers" in err
 
 
 def test_parse_args_login_command():

@@ -13,7 +13,7 @@ from rich.padding import Padding
 from rich.table import Table
 from rich.text import Text
 
-from .privacy import RedactionConfig, sensitive, set_redaction_config
+from .privacy import RedactionConfig, sensitive, sensitive_name, set_redaction_config
 
 
 PROGRESS_LEVEL = 15
@@ -176,7 +176,7 @@ def channel_str(channel: Dict[str, Any]) -> str:
     channel_name = channel.get("name") or ', '.join(
         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
     )
-    return f"{channel_type} {sensitive(channel_name, full=True)} (ID: {sensitive(channel.get('id', 'unknown'))})"
+    return f"{channel_type} {sensitive_name(channel_name)} (ID: {sensitive(channel.get('id', 'unknown'))})"
 
 
 def parse_redaction_spec(values: List[str]) -> RedactionConfig:
@@ -185,6 +185,7 @@ def parse_redaction_spec(values: List[str]) -> RedactionConfig:
 
     Examples:
     - [] fully masks sensitive values
+    - ["4"] keeps the last 4 characters
     - ["0", "4"] keeps the last 4 characters
     - ["4", "4"] keeps the first and last 4 characters
     """
@@ -192,14 +193,18 @@ def parse_redaction_spec(values: List[str]) -> RedactionConfig:
         return RedactionConfig(enabled=True)
 
     parts = [part.strip() for part in values if part.strip()]
-    if len(parts) != 2:
+    if len(parts) not in {1, 2}:
         raise argparse.ArgumentTypeError(
-            "Invalid redact-sensitive format. Use '--redact-sensitive' for full masking or provide two integers like '0 4'."
+            "Invalid redact-sensitive format. Use '--redact-sensitive' for full masking, one suffix integer like '4', or two integers like '0 4'."
         )
 
     try:
-        prefix = int(parts[0])
-        suffix = int(parts[1])
+        if len(parts) == 1:
+            prefix = 0
+            suffix = int(parts[0])
+        else:
+            prefix = int(parts[0])
+            suffix = int(parts[1])
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
             "Invalid redact-sensitive format. Prefix and suffix must be integers."

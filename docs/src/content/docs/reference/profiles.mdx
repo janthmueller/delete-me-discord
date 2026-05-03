@@ -156,7 +156,8 @@ Examples:
 --set preserve_cache=true
 --set include_ids=123,456
 --set retry_time_buffer=25,35
---set redact_sensitive=0,4
+--set redact_sensitive=4
+--set redact_names=false
 ```
 
 Detailed parsing rules live in [Value Formats](../value-formats/).
@@ -197,6 +198,7 @@ Profiles can define cleanup behavior and run-style settings for `dmd clean`, inc
 - `verbose`
 - `json`
 - `redact_sensitive`
+- `redact_names`
 
 Not allowed:
 

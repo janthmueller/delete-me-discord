@@ -154,6 +154,7 @@ def test_load_profile_rejects_unknown_field(tmp_path):
         ("json=false", {"json": False}),
         ("redact_sensitive=true", {"redact_sensitive": True}),
         ("redact_sensitive=false", {"redact_sensitive": False}),
+        ("redact_sensitive=1", {"redact_sensitive": [1]}),
         ("redact_sensitive=0,1", {"redact_sensitive": [0, 1]}),
         ("redact_sensitive=0 1", {"redact_sensitive": [0, 1]}),
         ("redact_sensitive=[0,1]", {"redact_sensitive": [0, 1]}),
@@ -219,10 +220,16 @@ def test_parse_profile_set_assignments_accepts_all_supported_shapes(assignment, 
         ("redact_sensitive", "true", ("redaction", 0, 0)),
         ("redact_sensitive", False, None),
         ("redact_sensitive", "false", None),
+        ("redact_sensitive", [1], ("redaction", 0, 1)),
+        ("redact_sensitive", "1", ("redaction", 0, 1)),
         ("redact_sensitive", [0, 1], ("redaction", 0, 1)),
         ("redact_sensitive", "0,1", ("redaction", 0, 1)),
         ("redact_sensitive", "0 1", ("redaction", 0, 1)),
         ("redact_sensitive", "[0,1]", ("redaction", 0, 1)),
+        ("redact_names", True, True),
+        ("redact_names", "true", True),
+        ("redact_names", False, False),
+        ("redact_names", "false", False),
     ],
 )
 def test_load_profile_accepts_all_supported_config_shapes(tmp_path, field, raw_value, expected_runtime):
@@ -261,7 +268,9 @@ def test_load_profile_accepts_all_supported_config_shapes(tmp_path, field, raw_v
         ("json", "true", True),
         ("redact_sensitive", "true", True),
         ("redact_sensitive", "false", False),
+        ("redact_sensitive", "1", [1]),
         ("redact_sensitive", "0,1", [0, 1]),
+        ("redact_names", "false", False),
     ],
 )
 def test_update_profile_normalizes_all_supported_stored_shapes(tmp_path, field, raw_value, expected_stored):
@@ -287,7 +296,7 @@ def test_update_profile_normalizes_all_supported_stored_shapes(tmp_path, field, 
         ("max_retries", True, "non-negative integer"),
         ("retry_time_buffer", "bad", "invalid"),
         ("verbose", 4, "between 0 and 3"),
-        ("redact_sensitive", [1], "two-integer list"),
+        ("redact_sensitive", [1, 2, 3], "one-integer suffix list"),
     ],
 )
 def test_load_profile_rejects_invalid_field_values(tmp_path, field, value, match):
@@ -313,7 +322,7 @@ def test_parse_profile_set_assignments_parses_and_validates_values():
             "verbose=2",
             "fetch_within=none",
             "max_messages=5",
-            "redact_sensitive=0,4",
+            "redact_sensitive=4",
         ]
     )
 
@@ -326,7 +335,7 @@ def test_parse_profile_set_assignments_parses_and_validates_values():
     assert parsed["verbose"] == 2
     assert parsed["fetch_within"] is None
     assert parsed["max_messages"] == 5
-    assert parsed["redact_sensitive"] == [0, 4]
+    assert parsed["redact_sensitive"] == [4]
 
 
 def test_load_profile_accepts_config_convenience_strings(tmp_path):
@@ -345,6 +354,7 @@ def test_load_profile_accepts_config_convenience_strings(tmp_path):
                         "preserve_cache": "true",
                         "retry_time_buffer": "25,35",
                         "redact_sensitive": "0,4",
+                        "redact_names": "false",
                     }
                 }
             }
@@ -364,6 +374,7 @@ def test_load_profile_accepts_config_convenience_strings(tmp_path):
     assert loaded["retry_time_buffer"] == [25.0, 35.0]
     assert loaded["redact_sensitive"].prefix == 0
     assert loaded["redact_sensitive"].suffix == 4
+    assert loaded["redact_names"] is False
 
 
 def test_load_profile_accepts_redact_sensitive_false_without_unsetting(tmp_path):
@@ -412,8 +423,8 @@ def test_parse_profile_set_assignments_accepts_none_for_nullable_fields():
         ("preserve_cache=maybe", "true or false"),
         ("keep_within=banana", "invalid"),
         ("retry_time_buffer=abc", "invalid"),
-        ("redact_sensitive=abc", "two-integer list"),
-        ("redact_sensitive=0,abc", "two-integer list"),
+        ("redact_sensitive=abc", "one-integer suffix list"),
+        ("redact_sensitive=0,abc", "one-integer suffix list"),
         ("include_ids=", "empty list string"),
         ("retry_time_buffer=", "empty list string"),
         ("wat=1", "Unsupported profile field"),
@@ -496,6 +507,7 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
                         "preserve_cache": "true",
                         "retry_time_buffer": "25,35",
                         "redact_sensitive": "false",
+                        "redact_names": "false",
                     }
                 }
             }
@@ -511,6 +523,7 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
         "keep_last": 10,
         "preserve_cache": True,
         "redact_sensitive": False,
+        "redact_names": False,
         "retry_time_buffer": [25.0, 35.0],
     }
 
@@ -631,6 +644,40 @@ def test_parse_args_profile_applies_defaults(tmp_path):
     assert args.keep_last == 25
     assert args.dry_run is True
     assert args.verbose == 2
+
+
+def test_parse_args_profile_applies_redact_names_to_redaction_config(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"redact_sensitive":"0,4","redact_names":false}}}',
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--config-path", str(config_path), "--profile", "nightly-dms"],
+    )
+
+    assert args.redact_names is False
+    assert args.redact_sensitive.prefix == 0
+    assert args.redact_sensitive.suffix == 4
+    assert args.redact_sensitive.redact_names is False
+
+
+def test_parse_args_cli_can_enable_profile_redact_names_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"redact_sensitive":"0,4","redact_names":false}}}',
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--config-path", str(config_path), "--profile", "nightly-dms", "--redact-names"],
+    )
+
+    assert args.redact_names is True
+    assert args.redact_sensitive.redact_names is True
 
 
 def test_parse_args_cli_values_override_profile_defaults(tmp_path):

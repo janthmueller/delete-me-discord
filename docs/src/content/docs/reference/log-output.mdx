@@ -102,10 +102,15 @@ In `--json` mode:
 ## Sensitive value redaction
 
 Use `--redact-sensitive` when you want to share logs without exposing private names, IDs, or local paths.
+Use `--no-redact-names` when you want human-readable names to stay visible while IDs and other sensitive values remain redacted.
 
 When redaction is enabled:
 
 - IDs use the configured prefix/suffix window
-- human-readable sensitive values are fully hidden as `***`
+- human-readable sensitive values are fully hidden as `***` by default
+- human-readable names remain visible when `--no-redact-names` is set
+
+Names means Discord display names used to identify targets and accounts: authenticated username, guild names, category names, channel names, and DM / Group DM display names.
+It does not include message content, local paths, tokens, or emoji names.
 
 This applies to normal CLI logs, JSON logs, and discovery output from `dmd list guilds` or `dmd list channels`.

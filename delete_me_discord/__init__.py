@@ -23,7 +23,7 @@ from .cleaner import MessageCleaner
 from .discovery import run_discovery_commands
 from .options import parse_args
 from .preserve_cache import PreserveCache
-from .privacy import sensitive
+from .privacy import sensitive, sensitive_name
 from .utils import AuthenticationError, parse_random_range, setup_logging
 
 try:
@@ -110,7 +110,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         raise SystemExit(1)
     logging.info(
         "Authenticated as %s (%s).",
-        sensitive(current_user.get("username", "unknown"), full=True),
+        sensitive_name(current_user.get("username", "unknown")),
         sensitive(user_id),
     )
 

@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.tree import Tree
 
-from .privacy import sensitive
+from .privacy import sensitive, sensitive_name
 
 
 def render_guilds_json(guilds: List[Dict[str, Any]]) -> None:
@@ -100,4 +100,4 @@ def _redact_id(value) -> str | None:
 
 
 def _redact_name(value) -> str:
-    return str(sensitive(value, full=True))
+    return str(sensitive_name(value))

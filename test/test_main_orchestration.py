@@ -44,6 +44,7 @@ def _base_clean_args(tmp_path, **overrides):
         verbose=0,
         json=False,
         redact_sensitive=None,
+        redact_names=True,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -63,6 +64,7 @@ def _base_list_args(tmp_path, **overrides):
         verbose=0,
         json=False,
         redact_sensitive=None,
+        redact_names=True,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

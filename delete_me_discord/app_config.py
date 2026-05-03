@@ -37,6 +37,7 @@ class EffectiveCleanSettings:
     verbose: int
     json: bool
     redact_sensitive: Optional[RedactionConfig]
+    redact_names: bool
 
 
 CLEAN_ARG_DEFAULTS: dict[str, Any] = {
@@ -63,6 +64,7 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "verbose": 0,
     "json": False,
     "redact_sensitive": None,
+    "redact_names": True,
 }
 
 
@@ -89,7 +91,8 @@ PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
     {"name": "quiet", "type": "true|false", "parser": "bool", "nullable": False, "description": "Only show warnings and errors for runs using this profile."},
     {"name": "verbose", "type": "0..3 integer", "parser": "int", "nullable": False, "description": "Default verbosity level for runs using this profile."},
     {"name": "json", "type": "true|false", "parser": "bool", "nullable": False, "description": "Emit JSON output for runs using this profile."},
-    {"name": "redact_sensitive", "type": "true|false or prefix,suffix", "parser": "redact_sensitive", "nullable": False, "description": "Redact sensitive values in logs."},
+    {"name": "redact_sensitive", "type": "true|false, suffix, or prefix,suffix", "parser": "redact_sensitive", "nullable": False, "description": "Redact sensitive values in logs and discovery output."},
+    {"name": "redact_names", "type": "true|false", "parser": "bool", "nullable": False, "description": "Redact human-readable names when sensitive redaction is enabled."},
 ]
 
 
@@ -270,6 +273,7 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         verbose=args.verbose,
         json=args.json,
         redact_sensitive=args.redact_sensitive,
+        redact_names=args.redact_names,
     )
 
 
@@ -457,20 +461,24 @@ def _expect_random_range(source_label: str, field: str, value: Any) -> list[floa
 def _expect_redaction_config(source_label: str, field: str, value: Any) -> Optional[RedactionConfig]:
     if isinstance(value, bool):
         return RedactionConfig(enabled=True) if value else None
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], int) and value[0] >= 0:
+        return RedactionConfig(enabled=True, prefix=0, suffix=value[0])
     if isinstance(value, list) and len(value) == 2 and all(isinstance(item, int) and item >= 0 for item in value):
         return RedactionConfig(enabled=True, prefix=value[0], suffix=value[1])
     raise ValueError(
-        f"{source_label} field '{field}' must be true, false, or a two-integer list like [0, 4]."
+        f"{source_label} field '{field}' must be true, false, a one-integer suffix list like [4], or a two-integer list like [0, 4]."
     )
 
 
 def _expect_stored_redaction_config(source_label: str, field: str, value: Any) -> bool | list[int]:
     if isinstance(value, bool):
         return value
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], int) and value[0] >= 0:
+        return list(value)
     if isinstance(value, list) and len(value) == 2 and all(isinstance(item, int) and item >= 0 for item in value):
         return list(value)
     raise ValueError(
-        f"{source_label} field '{field}' must be true, false, or a two-integer list like [0, 4]."
+        f"{source_label} field '{field}' must be true, false, a one-integer suffix list like [4], or a two-integer list like [0, 4]."
     )
 
 

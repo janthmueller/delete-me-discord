@@ -11,6 +11,7 @@ from .app_config import (
 )
 from .auth import DEFAULT_CONFIG_PATH
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
+from .privacy import RedactionConfig
 from .utils import parse_redaction_spec, parse_time_delta
 
 
@@ -92,11 +93,17 @@ def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) ->
         help="Emit JSON output (logs and discovery output)."
     )
     parser.add_argument(
-        "--redact-sensitive",
+        "-r", "--redact-sensitive",
         nargs="*",
         default=_clean_default("redact_sensitive", clean_defaults),
         metavar="N",
-        help="Redact sensitive values in normal logs. Without values, fully masks them. Provide two integers like '--redact-sensitive 0 4' to keep part of IDs visible."
+        help="Redact sensitive values in logs and discovery output. Without values, fully masks them. Provide one suffix integer like '-r 4' or two integers like '0 4' to keep part of IDs visible."
+    )
+    parser.add_argument(
+        "--redact-names",
+        action=argparse.BooleanOptionalAction,
+        default=_clean_default("redact_names", clean_defaults),
+        help="Redact human-readable names when sensitive redaction is enabled."
     )
     return parser
 
@@ -480,4 +487,12 @@ def parse_args(version: str, argv=None):
             args.redact_sensitive = parse_redaction_spec(args.redact_sensitive)
         except argparse.ArgumentTypeError as exc:
             parser.error(str(exc))
+    if args.redact_sensitive is not None:
+        args.redact_sensitive = RedactionConfig(
+            enabled=args.redact_sensitive.enabled,
+            prefix=args.redact_sensitive.prefix,
+            suffix=args.redact_sensitive.suffix,
+            redact_names=args.redact_names,
+            mask=args.redact_sensitive.mask,
+        )
     return args

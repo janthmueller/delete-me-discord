@@ -5,7 +5,7 @@ import os
 from typing import Optional, Tuple
 
 from .api import DiscordAPI
-from .privacy import sensitive
+from .privacy import sensitive, sensitive_name
 from .utils import AuthenticationError, parse_random_range
 
 
@@ -202,7 +202,7 @@ def run_auth_command(args) -> None:
                 logger.error("%s Use DISCORD_TOKEN or a command-specific --token override instead.", exc)
                 raise SystemExit(1)
         legacy_deleted = config.clear_token()
-        username = sensitive(current_user.get("username", "unknown"), full=True)
+        username = sensitive_name(current_user.get("username", "unknown"))
         user_id = sensitive(current_user.get("id", "unknown"))
         if token_source == "keyring":
             if legacy_deleted:
@@ -247,7 +247,7 @@ def run_auth_command(args) -> None:
 
         logger.info(
             "Authenticated as %s (%s) using token from %s.",
-            sensitive(current_user.get("username", "unknown"), full=True),
+            sensitive_name(current_user.get("username", "unknown")),
             sensitive(current_user.get("id", "unknown")),
             source,
         )

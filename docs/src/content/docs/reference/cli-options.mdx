@@ -77,7 +77,8 @@ Other top-level commands are:
 | `-q` | `--quiet` | off | Only show warnings and errors. |
 | `-v` | `--verbose` | `0` | Increase output detail. Repeat for more verbosity. |
 | `-j` | `--json` | off | Emit JSON output for logs and discovery output. |
-| `-` | `--redact-sensitive [PREFIX SUFFIX]` | off | Redact sensitive values in logs. |
+| `-r` | `--redact-sensitive [SUFFIX]` or `[PREFIX SUFFIX]` | off | Redact sensitive values in logs and discovery output. |
+| `-` | `--redact-names` / `--no-redact-names` | on | Redact human-readable names when sensitive redaction is enabled. |
 | `-V` | `--version` | n/a | Show the version and exit. |
 
 ## Discovery Commands
@@ -104,6 +105,7 @@ Other top-level commands are:
 - `--quiet`
 - `--verbose`
 - `--redact-sensitive`
+- `--redact-names` / `--no-redact-names`
 - retry flags
 
 `dmd list profiles` supports:
@@ -113,6 +115,7 @@ Other top-level commands are:
 - `--quiet`
 - `--verbose`
 - `--redact-sensitive`
+- `--redact-names` / `--no-redact-names`
 
 ## Authentication Commands
 
@@ -254,20 +257,33 @@ Examples:
 - `--buffer-per-channel` / `--no-buffer-per-channel`
 - `--quiet` / `--no-quiet`
 - `--json` / `--no-json`
+- `--redact-names` / `--no-redact-names`
 
 This matters most when a profile enables one of these options and you want to turn it off for a single run.
 
 ### Sensitive Redaction
 
 `--redact-sensitive` redacts sensitive values in normal CLI logs, JSON logs, and discovery output.
+`-r` is the short alias.
 
 Examples:
 
 - `--redact-sensitive`
+- `--redact-sensitive 4`
 - `--redact-sensitive 0 4`
 - `--redact-sensitive 4 4`
+- `-r 4 --no-redact-names`
 
 For `dmd list guilds` and `dmd list channels`, this redacts guild names, channel names, category names, DM names, and IDs.
+Use `--no-redact-names` when you want names to stay visible while IDs remain redacted.
+
+Here, "names" means Discord display names used to identify targets and accounts:
+
+- authenticated username
+- guild names
+- category names
+- channel names
+- DM and Group DM display names
 
 See [Value Formats](../value-formats/#redaction-values) for profile redaction values.
 
