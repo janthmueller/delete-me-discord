@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v2.2.0 (2026-05-03)
+
+### Bug Fixes
+
+- **list**: Restore scoped discovery filters
+  ([`cf07032`](https://github.com/janthmueller/delete-me-discord/commit/cf07032368d1d9c89d7afc77ce47dafff8dbbb22))
+
+### Documentation
+
+- **auth**: Streamline authentication guide
+  ([`9c2dca0`](https://github.com/janthmueller/delete-me-discord/commit/9c2dca0d2f347643e573d8b96a0ab064b469203e))
+
+### Features
+
+- **redaction**: Add name controls and suffix shorthand
+  ([`59c9048`](https://github.com/janthmueller/delete-me-discord/commit/59c90486168efa658fb75d57b3d968fbeee4c38a))
+
+- **scope**: Support unique ID suffix selectors
+  ([`3dc87e7`](https://github.com/janthmueller/delete-me-discord/commit/3dc87e7597c3b716da1dde5e0ff78087ce01b84a))
+
+
 ## v2.1.1 (2026-05-03)
 
 ### Bug Fixes
