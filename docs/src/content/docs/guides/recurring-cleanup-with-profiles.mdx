@@ -26,7 +26,7 @@ Example:
 
 ```bash
 dmd profile add nightly-dms \
-  --set include_ids=<channel_id> \
+  --set include_ids=<id> \
   --set keep_within=2w \
   --set keep_last=20 \
   --set preserve_cache=true
@@ -34,7 +34,8 @@ dmd profile add nightly-dms \
 
 This creates a baseline profile that can seed the preserve-cache before you introduce a narrow fetch window.
 
-Replace `<channel_id>` with the target you already validated in a manual dry-run.
+Replace `<id>` with a guild, category, guild text channel, DM, or Group DM ID.
+If you want multiple IDs, use a comma-separated list such as `include_ids=123,456`.
 
 The scope field is not required by the CLI. If you omit `include_ids` and `exclude_ids`, the profile uses the default cleanup scope: all eligible channels.
 

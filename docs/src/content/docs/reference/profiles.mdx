@@ -21,7 +21,7 @@ A profile is a saved baseline for `dmd clean`.
 Instead of typing:
 
 ```bash
-dmd clean --include-ids <channel_id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
 every time, you can store that shape once and run:
@@ -56,7 +56,7 @@ Create a profile:
 
 ```bash
 dmd profile add nightly-dms \
-  --set include_ids=<channel_id> \
+  --set include_ids=<id> \
   --set keep_within=2w \
   --set preserve_cache=true
 ```
@@ -137,7 +137,7 @@ Examples:
 
 ```bash
 dmd profile add nightly-dms --json \
-  --set include_ids=<channel_id> \
+  --set include_ids=<id> \
   --set keep_last=20 \
   --set dry_run=true
 dmd profile update nightly-dms --set verbose=1 --unset fetch_within

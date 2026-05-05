@@ -108,7 +108,7 @@ Other top-level commands are:
 - `--redact-names` / `--no-redact-names`
 - retry flags
 
-`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guild, category, channel, DM, and Group DM IDs before filtering.
+`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guild, category, guild text channel, DM, and Group DM IDs before filtering.
 
 `dmd list profiles` supports:
 
@@ -125,14 +125,14 @@ Other top-level commands are:
 
 `dmd login` ensures a token is stored in the system keyring.
 If a keyring token already exists, it validates that token and exits without prompting.
-If a legacy plaintext token exists in `config.json`, it migrates that token to the keyring and removes it from the config file.
+If an old plaintext token exists, it migrates that token to the keyring and removes the plaintext copy.
 If no stored token exists, it prompts for one interactively.
 
 Use `dmd login --replace` to prompt for a new token and replace the stored keyring token.
 
 ### Logout
 
-`dmd logout` removes the stored token from the system keyring and deletes any legacy plaintext token from `config.json`.
+`dmd logout` removes the stored token from the system keyring and deletes any old plaintext token.
 
 ### Identity Check
 
@@ -221,7 +221,7 @@ The default is `all`.
 
 ### Keep Within
 
-`--keep-within` keeps messages and reactions newer than a given time delta.
+`--keep-within` keeps messages and reactions newer than a given time delta, measured backwards from the time the command runs.
 
 Examples:
 
@@ -233,7 +233,7 @@ See [Value Formats](../value-formats/#time-deltas) for the full time delta synta
 
 ### Fetch Within
 
-`--fetch-within` limits how much history is fetched from each channel.
+`--fetch-within` limits how much history is fetched from each channel, measured backwards from the time the command runs.
 
 This improves speed, but it also means the tool only sees a slice of history unless you widen the fetch window or use preserve-cache strategically.
 

@@ -23,7 +23,7 @@ export DISCORD_TOKEN=<your_token>
 Or override it for a single command:
 
 ```bash
-dmd clean --token <your_token> --include-ids <channel_id> --dry-run
+dmd clean --token <your_token> --include-ids <id> --dry-run
 ```
 
 The active token can be checked with:
@@ -31,13 +31,6 @@ The active token can be checked with:
 ```bash
 dmd whoami
 ```
-
-## Legacy config tokens
-
-Current versions store login tokens in the system keyring, not in `config.json`.
-
-If an older plaintext token exists in `config.json`, `dmd login` migrates it to the keyring and removes it from the config file.
-`dmd logout` also cleans up legacy plaintext tokens from older config files.
 
 ## Finding your token
 

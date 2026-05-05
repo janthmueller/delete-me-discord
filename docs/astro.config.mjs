@@ -31,7 +31,6 @@ export default defineConfig({
         {
           label: 'Recipes',
           items: [
-            { label: 'Full Channel Cleanup', link: '/guides/full-channel-cleanup/' },
             { label: 'Rolling Retention', link: '/guides/rolling-retention/' },
             { label: 'Recurring Cleanup with Profiles', link: '/guides/recurring-cleanup-with-profiles/' },
           ],

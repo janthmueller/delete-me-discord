@@ -7,11 +7,11 @@
 
 > ⚠️ Using automated tools on Discord may violate Discord’s [Terms of Service](https://discord.com/terms). Use at your own risk.
 
-It is built around a cautious workflow:
+Typical workflow:
 
 - discover targets first
-- preview one explicit target with `dmd clean --include-ids <channel_id> --dry-run`
-- only then execute
+- preview with `dmd clean --include-ids <id> --dry-run`
+- execute once the plan matches your intent
 
 ## Installation
 
@@ -44,13 +44,15 @@ dmd list guilds
 dmd list channels
 ```
 
-Preview one channel safely:
+Preview the selected scope:
 
 ```bash
-dmd clean --include-ids <channel_id> --dry-run
+dmd clean --include-ids <id> --dry-run
 ```
 
 Then rerun without `--dry-run` when the plan looks right.
+`--include-ids` accepts one or more guild, category, guild text channel, DM, or Group DM IDs.
+Omit `--include-ids` to use the default scope: all eligible channels the tool can see.
 
 Alternative auth for one shell:
 

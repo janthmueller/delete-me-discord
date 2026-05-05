@@ -20,6 +20,9 @@ Time deltas are used by:
 - `--fetch-within`
 - profile fields `keep_within` and `fetch_within`
 
+For cleanup runs, these values are relative durations measured backwards from the time the command runs.
+For example, `--keep-within 2w` means "keep items newer than two weeks before this run starts", and `--fetch-within 1d6h` means "fetch items newer than 30 hours before this run starts".
+
 There are two supported styles.
 
 ### Key/value style

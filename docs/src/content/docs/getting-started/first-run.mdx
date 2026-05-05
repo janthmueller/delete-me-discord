@@ -1,9 +1,9 @@
 ---
 title: First Run
-description: Safest first-run workflow using discovery and dry-run mode.
+description: First cleanup preview using discovery and dry-run mode.
 ---
 
-The safest first run is deliberately narrow: discover IDs, choose one target, and preview the result in `--dry-run`.
+This page walks through a first cleanup preview from discovery to execution.
 
 This page assumes you already:
 
@@ -14,72 +14,59 @@ This page assumes you already:
 
 ```bash
 dmd list guilds
-dmd list channels -r 4
+dmd list channels
 ```
 
-This gives you the IDs you need for `--include-ids` and helps avoid deleting from the wrong place.
-`-r 4` redacts private names and shows only ID suffixes; scope flags accept a visible suffix as long as it uniquely matches one discovered ID.
-If a suffix is ambiguous, use more visible digits, for example `-r 6`, and rerun discovery.
-
-At this stage, choose one specific target:
-
-- one DM
-- one Group DM
-- or one guild text channel
-
-Do not start with multiple IDs on your first run.
+This shows the IDs you can pass to `--include-ids`.
+IDs can refer to guilds, categories, guild text channels, DMs, or Group DMs.
 
 ## 2. Start with dry-run
 
 ```bash
-dmd clean --include-ids <channel_id_or_suffix> --dry-run
+dmd clean --include-ids <id> --dry-run
 ```
 
-This example targets one channel. By default, it also removes your reactions and preserves nothing because:
+`--dry-run` makes `dmd` fetch and evaluate messages without deleting messages or reactions.
+Use it to check the selected targets and retention rules before running the same command for real.
+
+`--include-ids` accepts one or more IDs.
+Omit it to use the default scope: all eligible channels the tool can see.
+
+By default, the run also removes your reactions and preserves nothing because:
 
 - `--keep-last` defaults to `0`
 - `--keep-within` defaults to `0`
 - reactions are deleted unless you opt out with `--keep-reactions`
 
-What you want to see here is:
-
-- the correct channel name
-- a believable number of messages or reactions in scope
-- a per-channel summary that matches your expectation
-- no surprise channels in the output
-
-## 3. Execute only after the plan looks right
-
-Drop `--dry-run` once you are satisfied with the output.
-
-That gives you the same command shape, but with actual deletion:
-
-```bash
-dmd clean --include-ids <channel_id_or_suffix>
-```
-
-## How to read the dry-run output
-
-Dry-run now reports per-channel planning details such as:
+Dry-run reports per-channel planning details such as:
 
 - messages and reactions that would be deleted
 - `scan time`
 - `est. execute time`
 - `est. total time`
 
-## Recommended progression
+Check that the output matches your intent:
 
-1. Start with one `--include-ids` target.
-2. Use `--dry-run`.
-3. Adjust `--keep-within`, `--keep-last`, and `--fetch-within`.
-4. Only then expand scope or remove `--dry-run`.
+- the correct channel name
+- a believable number of messages or reactions in scope
+- a per-channel summary that matches your expectation
+- no surprise channels in the output
 
-Useful next adjustments:
+## 3. Adjust the command
+
+Common adjustments:
 
 - Add `--keep-within 2w` if you want to protect recent history.
 - Add `--keep-last 20` if you always want to keep the last N messages in a channel.
 - Add `--fetch-within 2w1d` later if repeated runs should only inspect a recent slice.
+- Add `--max-messages 100` if you only want to inspect a small recent slice first.
 
-If you want a one-off cleanup of a single target, continue with [Full Channel Cleanup](../../guides/full-channel-cleanup/).
+## 4. Execute when the plan looks right
+
+Drop `--dry-run` once you are satisfied with the output:
+
+```bash
+dmd clean --include-ids <id>
+```
 
 If you want repeated cleanup over time, continue with [Rolling Retention](../../guides/rolling-retention/).
