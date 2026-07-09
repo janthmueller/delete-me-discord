@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v2.2.4 (2026-07-09)
+
+### Bug Fixes
+
+- **deps**: Update dependency rich to >=13.9.4,<15
+  ([`5304f43`](https://github.com/janthmueller/delete-me-discord/commit/5304f4346eec64244e3b23edef8bf795bb1d3d14))
+
+### Chores
+
+- **ci**: Keep docs updates non-releasing
+  ([`74ec2e1`](https://github.com/janthmueller/delete-me-discord/commit/74ec2e12400f3de6e3dd57766e4a62fc655298ae))
+
+- **deps**: Update actions/checkout action to v7
+  ([`aa87ced`](https://github.com/janthmueller/delete-me-discord/commit/aa87ced4e9ce365707231ca1d65c5fbb27dea550))
+
+- **deps**: Update dependency python to v3.14.6
+  ([`10e7020`](https://github.com/janthmueller/delete-me-discord/commit/10e70205933e233e5248d8aedad55622f12489da))
+
+- **deps**: Update docs dependencies
+  ([`760d2a5`](https://github.com/janthmueller/delete-me-discord/commit/760d2a583c7745f019648f028ddc0f304ffe4b46))
+
+
 ## v2.2.3 (2026-07-09)
 
 ### Bug Fixes
