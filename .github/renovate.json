@@ -12,10 +12,11 @@
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
   "rangeStrategy": "bump",
-  "rebaseWhen": "conflicted",
+  "rebaseWhen": "behind-base-branch",
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on monday"]
+    "schedule": ["before 5am on monday"],
+    "automerge": true
   },
   "packageRules": [
     {
@@ -28,7 +29,8 @@
       "matchManagers": ["npm"],
       "matchFileNames": ["docs/package.json", "docs/pnpm-lock.yaml"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "groupName": "docs dependencies"
+      "groupName": "docs dependencies",
+      "automerge": true
     },
     {
       "description": "Group non-major Python dependency updates together.",
