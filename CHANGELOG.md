@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v2.2.1 (2026-07-09)
+
+### Bug Fixes
+
+- **ci**: Remove invalid renovate rule
+  ([`4168854`](https://github.com/janthmueller/delete-me-discord/commit/41688545d507bbce3a8bd0f198f201be2fe12195))
+
+### Chores
+
+- **ci**: Add renovate and docs pr gate
+  ([`47117c4`](https://github.com/janthmueller/delete-me-discord/commit/47117c4bd812961a526336be37c39b4ea72ed855))
+
+- **ci**: Use release token for checkout
+  ([`451b524`](https://github.com/janthmueller/delete-me-discord/commit/451b524bdb2925453e27d11073ba6fb9507e413a))
+
+- **deps**: Update dependency astro to v6.4.6 [security]
+  ([`701bce1`](https://github.com/janthmueller/delete-me-discord/commit/701bce112a9faeef044e49327b98305323b17345))
+
+- **deps**: Update github actions
+  ([`75aefbd`](https://github.com/janthmueller/delete-me-discord/commit/75aefbd860631e5659bfdaae853eb539e931a14b))
+
+### Documentation
+
+- Rework cleanup guides
+  ([`85aa866`](https://github.com/janthmueller/delete-me-discord/commit/85aa86637931531af4c56c85f0d239e89f2b63a8))
+
+- **readme**: Trim auth quick start [skip ci]
+  ([`e1ef795`](https://github.com/janthmueller/delete-me-discord/commit/e1ef795dfa20e1046fe97eaa14decbf83fa05276))
+
+
 ## v2.2.0 (2026-05-03)
 
 ### Bug Fixes
