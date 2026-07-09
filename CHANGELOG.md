@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v2.2.2 (2026-07-09)
+
+### Bug Fixes
+
+- **deps**: Update dependency keyring to >=25.7.0
+  ([`a0c50cd`](https://github.com/janthmueller/delete-me-discord/commit/a0c50cde8388367a932e6d00c5470c70cbbdd421))
+
+### Chores
+
+- **ci**: Add dependency audit gates
+  ([`40f20f7`](https://github.com/janthmueller/delete-me-discord/commit/40f20f71cd30a7b9d346260c5f714317604836cc))
+
+- **ci**: Tune renovate automerge
+  ([`756bdff`](https://github.com/janthmueller/delete-me-discord/commit/756bdff39e7ddd20b6c6e9d2772b336b57e7ccc5))
+
+
 ## v2.2.1 (2026-07-09)
 
 ### Bug Fixes
