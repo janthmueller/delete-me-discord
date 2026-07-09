@@ -70,6 +70,7 @@
               ps.packaging
               ps.pytest-cov
             ]))
+            pkgs.uv
             pkgs.pre-commit
             pkgs.nodejs_22
             pkgs.pnpm
