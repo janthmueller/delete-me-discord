@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.3 (2026-07-09)
+
+### Bug Fixes
+
+- **deps**: Update dependency requests to >=2.34.2
+  ([`48a3fc3`](https://github.com/janthmueller/delete-me-discord/commit/48a3fc30e4ac819b0780eb6f35dbedf2eaa2093e))
+
+
 ## v2.2.2 (2026-07-09)
 
 ### Bug Fixes
