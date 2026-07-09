@@ -22,7 +22,8 @@
     {
       "description": "Wait before proposing npm updates, reducing exposure to freshly published broken or unpublished packages.",
       "matchDatasources": ["npm"],
-      "minimumReleaseAge": "3 days"
+      "minimumReleaseAge": "3 days",
+      "semanticCommitType": "chore"
     },
     {
       "description": "Group non-major docs dependency updates together.",
@@ -30,6 +31,7 @@
       "matchFileNames": ["docs/package.json", "docs/pnpm-lock.yaml"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "groupName": "docs dependencies",
+      "semanticCommitType": "chore",
       "automerge": true
     },
     {
