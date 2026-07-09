@@ -1,0 +1,57 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "timezone": "Europe/Berlin",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "rebaseWhen": "conflicted",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Wait before proposing npm updates, reducing exposure to freshly published broken or unpublished packages.",
+      "matchDatasources": ["npm"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Group non-major docs dependency updates together.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["docs/package.json", "docs/pnpm-lock.yaml"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "docs dependencies"
+    },
+    {
+      "description": "Group non-major Python dependency updates together.",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "python dependencies"
+    },
+    {
+      "description": "Publish patch releases when runtime package dependency metadata changes.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["project.dependencies"],
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Group non-major GitHub Actions updates together.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "Keep major updates separate for easier review.",
+      "matchUpdateTypes": ["major"],
+      "separateMajorMinor": true
+    }
+  ]
+}
