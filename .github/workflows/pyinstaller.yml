@@ -85,7 +85,7 @@ jobs:
           echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
 
       - name: Skip if asset already exists
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         id: asset_check
         with:
           script: |
