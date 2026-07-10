@@ -41,7 +41,7 @@ jobs:
         run: pnpm build
 
       - name: Upload docs build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs-dist
           path: docs/dist
@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Download docs build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: docs-dist
           path: docs/dist
