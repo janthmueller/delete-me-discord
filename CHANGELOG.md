@@ -2,6 +2,49 @@
 
 <!-- version list -->
 
+## v2.2.5 (2026-07-10)
+
+### Bug Fixes
+
+- **deps**: Update dependency rich to v15
+  ([`5b2bea5`](https://github.com/janthmueller/delete-me-discord/commit/5b2bea5471e55982c792cfa77ae2ad3844735ecf))
+
+### Chores
+
+- **deps**: Lock file maintenance
+  ([`dcb4d5b`](https://github.com/janthmueller/delete-me-discord/commit/dcb4d5b1257e378a00efb455deef1a97ddbb6304))
+
+- **deps**: Update actions/configure-pages action to v6
+  ([`4237a3d`](https://github.com/janthmueller/delete-me-discord/commit/4237a3d2fc3b2806dd28e53ce13084cdf8d9c53d))
+
+- **deps**: Update actions/deploy-pages action to v5
+  ([`d14d80f`](https://github.com/janthmueller/delete-me-discord/commit/d14d80ffd29a5bb78012e0dd9c97b4d3b6b25358))
+
+- **deps**: Update actions/github-script action to v9
+  ([`34a7fa8`](https://github.com/janthmueller/delete-me-discord/commit/34a7fa85a2e91c1184d0864d07f2078fc1877101))
+
+- **deps**: Update actions/setup-node action to v6
+  ([`6d30d43`](https://github.com/janthmueller/delete-me-discord/commit/6d30d43b578467184c60e73609b00f026d234d5f))
+
+- **deps**: Update actions/setup-python action to v6
+  ([`870ff1b`](https://github.com/janthmueller/delete-me-discord/commit/870ff1b59c985b5f0410742cabe1077e4902c399))
+
+- **deps**: Update actions/upload-pages-artifact action to v5
+  ([`9476a94`](https://github.com/janthmueller/delete-me-discord/commit/9476a94006111893915b85bf6cd757084b385daa))
+
+- **deps**: Update dependency node to v24
+  ([`7bd004e`](https://github.com/janthmueller/delete-me-discord/commit/7bd004ebae034b4c3f5ae8b9b2b9942dc6a1cd6b))
+
+- **deps**: Update github artifact actions
+  ([`c05980c`](https://github.com/janthmueller/delete-me-discord/commit/c05980c1a703a649bcbcc2dd2afd204663ee957e))
+
+- **deps**: Update pnpm/action-setup action to v6
+  ([`f63f22c`](https://github.com/janthmueller/delete-me-discord/commit/f63f22c006ed6fe0a552809f26a1bf01bf5e5f26))
+
+- **deps**: Update softprops/action-gh-release action to v3
+  ([`97a66b4`](https://github.com/janthmueller/delete-me-discord/commit/97a66b4533ee621bca293d5ab21737310050344c))
+
+
 ## v2.2.4 (2026-07-09)
 
 ### Bug Fixes
