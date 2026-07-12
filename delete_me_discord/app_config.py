@@ -7,8 +7,11 @@ from datetime import timedelta
 from typing import Any, Literal, Optional
 
 from .auth import DEFAULT_CONFIG_PATH
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
+from .scope_filter import THREAD_STATES
+from .storage import atomic_write_json
 from .utils import parse_random_range, parse_time_delta
 
 
@@ -19,6 +22,9 @@ class EffectiveCleanSettings:
     profile: Optional[str]
     include_ids: list[str]
     exclude_ids: list[str]
+    exclude_channel_types: list[str]
+    exclude_thread_states: list[str]
+    exclude_threads: bool
     keep_last: int
     keep_last_scope: str
     keep_within: timedelta
@@ -30,6 +36,7 @@ class EffectiveCleanSettings:
     preserve_cache_path: str
     max_retries: int
     retry_time_buffer: tuple[float, float]
+    request_intervals: dict[str, tuple[float, float]]
     fetch_sleep_time: tuple[float, float]
     delete_sleep_time: tuple[float, float]
     dry_run: bool
@@ -46,6 +53,9 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "profile": None,
     "include_ids": [],
     "exclude_ids": [],
+    "exclude_channel_types": [],
+    "exclude_thread_states": [],
+    "exclude_threads": False,
     "keep_last": 0,
     "keep_last_scope": "all",
     "keep_within": timedelta(0),
@@ -56,7 +66,8 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "preserve_cache": False,
     "preserve_cache_path": DEFAULT_PRESERVE_CACHE_PATH,
     "max_retries": 5,
-    "retry_time_buffer": [25, 35],
+    "retry_time_buffer": [0.1, 0.3],
+    "request_intervals": [],
     "fetch_sleep_time": [0.2, 0.4],
     "delete_sleep_time": [1.5, 2],
     "dry_run": False,
@@ -74,6 +85,9 @@ ProfileValueMode = Literal["cli-set", "stored", "runtime"]
 PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
     {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching full IDs. Profile commands resolve unique suffixes before storing."},
     {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching full IDs. Profile commands resolve unique suffixes before storing."},
+    {"name": "exclude_channel_types", "type": "channel type list", "parser": "enum_list", "choices": FILTERABLE_CHANNEL_TYPE_NAMES, "nullable": False, "description": "Exclude message-bearing Discord channel types from discovery and cleanup."},
+    {"name": "exclude_thread_states", "type": "active|archived list", "parser": "enum_list", "choices": THREAD_STATES, "nullable": False, "description": "Exclude active or archived threads from discovery and cleanup."},
+    {"name": "exclude_threads", "type": "true|false", "parser": "bool", "nullable": False, "description": "Exclude all announcement, public, and private threads."},
     {"name": "keep_last", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Keep the last N messages in each channel."},
     {"name": "keep_last_scope", "type": "mine|all", "parser": "enum", "choices": ("mine", "all"), "nullable": False, "description": "Count keep_last against your messages or all recent messages."},
     {"name": "keep_within", "type": "time delta string", "parser": "time_delta", "nullable": False, "description": "Keep messages and reactions newer than this window."},
@@ -84,9 +98,9 @@ PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
     {"name": "preserve_cache", "type": "true|false", "parser": "bool", "nullable": False, "description": "Enable preserve cache between runs."},
     {"name": "preserve_cache_path", "type": "string path", "parser": "non_empty_string", "nullable": False, "description": "Override the preserve cache path."},
     {"name": "max_retries", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Maximum retry attempts for retryable API requests."},
-    {"name": "retry_time_buffer", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers added after rate limit waits."},
-    {"name": "fetch_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers for sleep between fetch requests."},
-    {"name": "delete_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two numbers for sleep between delete actions."},
+    {"name": "retry_time_buffer", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two jitter values added to server-provided retry delays."},
+    {"name": "fetch_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two minimum intervals between message fetch requests."},
+    {"name": "delete_sleep_time", "type": "number list", "parser": "number_list", "nullable": False, "description": "One or two minimum intervals between delete requests."},
     {"name": "dry_run", "type": "true|false", "parser": "bool", "nullable": False, "description": "Simulate deletions without making changes."},
     {"name": "quiet", "type": "true|false", "parser": "bool", "nullable": False, "description": "Only show warnings and errors for runs using this profile."},
     {"name": "verbose", "type": "0..3 integer", "parser": "int", "nullable": False, "description": "Default verbosity level for runs using this profile."},
@@ -209,7 +223,7 @@ def update_profile(
     if not isinstance(current_raw, dict):
         raise ValueError(f"Profile '{name}' must be a JSON object.")
 
-    current = dict(current_raw)
+    current = dict(_migrate_legacy_thread_fields(f"Profile '{name}'", current_raw))
     missing_unset_fields = [field for field in unset_fields if field not in current]
     if missing_unset_fields:
         joined = ", ".join(sorted(missing_unset_fields))
@@ -255,6 +269,9 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         profile=args.profile,
         include_ids=list(args.include_ids),
         exclude_ids=list(args.exclude_ids),
+        exclude_channel_types=list(args.exclude_channel_types),
+        exclude_thread_states=list(args.exclude_thread_states),
+        exclude_threads=args.exclude_threads,
         keep_last=args.keep_last,
         keep_last_scope=args.keep_last_scope,
         keep_within=args.keep_within,
@@ -266,6 +283,7 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         preserve_cache_path=_apply_dry_run_suffix(args.preserve_cache_path, bool(args.dry_run)),
         max_retries=args.max_retries,
         retry_time_buffer=parse_random_range(args.retry_time_buffer, "retry-time-buffer"),
+        request_intervals=dict(getattr(args, "request_intervals", {})),
         fetch_sleep_time=parse_random_range(args.fetch_sleep_time, "fetch-sleep-time"),
         delete_sleep_time=parse_random_range(args.delete_sleep_time, "delete-sleep-time"),
         dry_run=args.dry_run,
@@ -331,6 +349,8 @@ def _normalize_profile_data(source_label: str, raw: Any, *, mode: ProfileValueMo
     if not isinstance(raw, dict):
         raise ValueError(f"{source_label} must be a JSON object.")
 
+    raw = _migrate_legacy_thread_fields(source_label, raw)
+
     unknown = sorted(set(raw.keys()) - _PROFILE_FIELD_NAMES)
     if unknown:
         joined = ", ".join(unknown)
@@ -345,6 +365,53 @@ def _normalize_profile_data(source_label: str, raw: Any, *, mode: ProfileValueMo
     return normalized
 
 
+def _migrate_legacy_thread_fields(source_label: str, raw: dict[str, Any]) -> dict[str, Any]:
+    legacy_fields = {"threads", "include_threads", "include_archived_threads"}
+    present = legacy_fields.intersection(raw)
+    if not present:
+        return raw
+    current_fields = {
+        "exclude_channel_types",
+        "exclude_thread_states",
+        "exclude_threads",
+    }
+    if current_fields.intersection(raw):
+        raise ValueError(
+            f"{source_label} cannot combine current and legacy thread filters."
+        )
+
+    migrated = dict(raw)
+    if "threads" in migrated:
+        if {"include_threads", "include_archived_threads"}.intersection(migrated):
+            raise ValueError(
+                f"{source_label} cannot combine 'threads' with older thread fields."
+            )
+        mode = _normalize_profile_enum(
+            source_label,
+            "threads",
+            migrated.pop("threads"),
+            ("none", "active", "all"),
+        )
+    else:
+        include_threads = _normalize_profile_bool(
+            source_label,
+            "include_threads",
+            migrated.pop("include_threads", False),
+        )
+        include_archived = _normalize_profile_bool(
+            source_label,
+            "include_archived_threads",
+            migrated.pop("include_archived_threads", False),
+        )
+        mode = "all" if include_archived else "active" if include_threads else "none"
+
+    if mode == "none":
+        migrated["exclude_threads"] = True
+    elif mode == "active":
+        migrated["exclude_thread_states"] = ["archived"]
+    return migrated
+
+
 def _normalize_profile_value(source_label: str, field: str, value: Any, *, mode: ProfileValueMode) -> Any:
     spec = _PROFILE_FIELD_SPEC_BY_NAME.get(field)
     if spec is None:
@@ -357,6 +424,8 @@ def _normalize_profile_value(source_label: str, field: str, value: Any, *, mode:
     parser_name = spec["parser"]
     if parser_name == "string_list":
         return _expect_string_list(source_label, field, _coerce_string_list(source_label, field, value))
+    if parser_name == "enum_list":
+        return _normalize_profile_enum_list(source_label, field, value, spec["choices"])
     if parser_name == "number_list":
         return _expect_random_range(source_label, field, _coerce_number_list(source_label, field, value))
     if parser_name == "int":
@@ -397,6 +466,28 @@ def _normalize_profile_enum(source_label: str, field: str, value: Any, choices: 
         rendered = " or ".join(f"'{choice}'" for choice in choices)
         raise ValueError(f"{source_label} field '{field}' must be {rendered}.")
     return value
+
+
+def _normalize_profile_enum_list(
+    source_label: str,
+    field: str,
+    value: Any,
+    choices: tuple[str, ...],
+) -> list[str]:
+    values = _expect_string_list(
+        source_label,
+        field,
+        _coerce_string_list(source_label, field, value),
+    )
+    unknown = sorted(set(values) - set(choices))
+    if unknown:
+        rendered = ", ".join(unknown)
+        expected = ", ".join(choices)
+        raise ValueError(
+            f"{source_label} field '{field}' contains unsupported value(s): "
+            f"{rendered}. Expected: {expected}."
+        )
+    return list(dict.fromkeys(values))
 
 
 def _expect_string_list(source_label: str, field: str, value: Any) -> list[str]:
@@ -512,10 +603,7 @@ def _mutable_profiles(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_config(path: str, config: dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, sort_keys=True)
-        f.write("\n")
+    atomic_write_json(path, config)
 
 
 def _parse_json_value(field: str, raw_value: str) -> Any:

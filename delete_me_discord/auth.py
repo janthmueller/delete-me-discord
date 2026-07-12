@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 
 from .api import DiscordAPI
 from .privacy import sensitive, sensitive_name
+from .storage import atomic_write_json
 from .utils import AuthenticationError, parse_random_range
 
 
@@ -48,15 +49,13 @@ class AuthConfig:
         return token if isinstance(token, str) and token.strip() else None
 
     def save_legacy_token(self, token: str) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         payload = self.load()
         auth = payload.get("auth")
         if not isinstance(auth, dict):
             auth = {}
         auth["token"] = token
         payload["auth"] = auth
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, sort_keys=True)
+        atomic_write_json(self.path, payload)
 
     def clear_token(self) -> bool:
         payload = self.load()
@@ -75,9 +74,7 @@ class AuthConfig:
         else:
             payload.pop("auth", None)
         if payload:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, sort_keys=True)
+            atomic_write_json(self.path, payload)
         elif os.path.exists(self.path):
             os.remove(self.path)
         return True
@@ -136,9 +133,13 @@ class KeyringTokenStore:
 
 
 def resolve_token(token_arg: Optional[str], config_path: str) -> Tuple[Optional[str], Optional[str]]:
-    """Resolve token by priority: CLI arg, keyring, legacy config file, environment variable."""
+    """Resolve token by priority: CLI arg, environment, keyring, legacy config file."""
     if token_arg:
         return token_arg, "argument"
+
+    token = os.getenv("DISCORD_TOKEN")
+    if token:
+        return token, "environment"
 
     token = KeyringTokenStore(config_path).get_token()
     if token:
@@ -151,10 +152,6 @@ def resolve_token(token_arg: Optional[str], config_path: str) -> Tuple[Optional[
             "Token is stored in legacy plaintext config. Run `dmd login` to move it to the system keyring."
         )
         return token, "legacy config"
-
-    token = os.getenv("DISCORD_TOKEN")
-    if token:
-        return token, "environment"
 
     return None, None
 
@@ -266,9 +263,10 @@ def _validate_token(token: str, *, args=None) -> dict:
 
 
 def _build_auth_api(token: str, args=None) -> DiscordAPI:
-    retry_time_buffer = getattr(args, "retry_time_buffer", ["25", "35"])
+    retry_time_buffer = getattr(args, "retry_time_buffer", ["0.1", "0.3"])
     return DiscordAPI(
         token=token,
         max_retries=getattr(args, "max_retries", 5),
         retry_time_buffer=parse_random_range(retry_time_buffer, "retry-time-buffer"),
+        request_intervals=getattr(args, "request_intervals", {}),
     )

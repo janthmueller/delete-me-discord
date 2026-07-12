@@ -3,17 +3,21 @@
 import argparse
 import json
 import logging
+import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Tuple, Set, Optional, Generator
+from typing import List, Dict, Any, Tuple, Set, Optional
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.padding import Padding
+
+from .channel_types import channel_type_name
 from rich.table import Table
 from rich.text import Text
 
 from .privacy import RedactionConfig, sensitive, sensitive_name, set_redaction_config
+from .scope_filter import ScopeFilter
 
 
 PROGRESS_LEVEL = 15
@@ -171,8 +175,7 @@ def channel_str(channel: Dict[str, Any]) -> str:
     Returns:
         str: A formatted string representing the channel.
     """
-    channel_types: Dict[int, str] = {0: "GuildText", 1: "DM", 3: "GroupDM"}
-    channel_type = channel_types.get(channel["type"], "Unknown")
+    channel_type = channel_type_name(channel.get("type"))
     channel_name = channel.get("name") or ', '.join(
         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
     )
@@ -219,42 +222,38 @@ def should_include_channel(
     channel: Dict[str, Any],
     include_ids: Set[str],
     exclude_ids: Set[str],
+    scope_filter: ScopeFilter | None = None,
 ) -> bool:
     """
     Decide whether a channel should be included based on include/exclude IDs.
 
-    Exclude takes precedence unless the channel itself is explicitly included.
+    Type and thread-state exclusions always win. ID scope uses nearest-target precedence.
 
     Returns:
         bool: True if the channel should be included, False otherwise.
     """
+    if scope_filter is not None and not scope_filter.includes_channel(channel):
+        return False
+
     channel_id = channel.get("id")
     guild_id = channel.get("guild_id")
-    parent_id = channel.get("parent_id")
+    scope_chain = (
+        channel_id,
+        channel.get("parent_id"),
+        channel.get("category_id"),
+        guild_id,
+    )
 
-    # Always honor explicit channel exclusion.
-    if channel_id in exclude_ids:
-        return False
+    # The nearest explicit scope wins: channel, parent channel, category, then guild.
+    for scope_id in scope_chain:
+        if scope_id is None:
+            continue
+        if scope_id in exclude_ids:
+            return False
+        if scope_id in include_ids:
+            return True
 
-    # Allow channel-level override.
-    if channel_id in include_ids:
-        return True
-
-    # Allow parent/category include to carve out channels even if the guild/parent is excluded.
-    if parent_id and parent_id in include_ids:
-        return True
-
-    # Exclude parent/guild if matched.
-    if parent_id in exclude_ids:
-        return False
-    if guild_id in exclude_ids:
-        return False
-
-    # If include_ids is provided, require a match on channel/guild/parent.
-    if include_ids and not include_ids.intersection({channel_id, guild_id, parent_id}):
-        return False
-
-    return True
+    return not include_ids
 
 
 def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, float]:
@@ -276,6 +275,8 @@ def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, floa
     """
     try:
         values = [float(value) for value in arg]
+        if any(not math.isfinite(value) or value < 0 for value in values):
+            raise ValueError(f"Values for {parameter_name} must be finite and non-negative.")
         if len(values) == 1:
             return (values[0], values[0])
         elif len(values) == 2:

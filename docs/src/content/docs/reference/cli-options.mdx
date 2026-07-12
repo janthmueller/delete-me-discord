@@ -1,7 +1,9 @@
 ---
 title: CLI Options
-description: Reference for the v2 delete-me-discord command tree and flags.
+description: Reference for the v3 delete-me-discord command tree and flags.
 ---
+
+import { Aside } from '@astrojs/starlight/components';
 
 This page is the main reference for the current CLI surface.
 
@@ -23,6 +25,8 @@ Other top-level commands are:
 - `dmd list guilds`
 - `dmd list channels`
 - `dmd list profiles`
+- `dmd list channel-types`
+- `dmd list thread-states`
 - `dmd cache clear`
 - `dmd profile fields`
 - `dmd profile show`
@@ -39,6 +43,9 @@ Other top-level commands are:
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
 | `-i` | `--include-ids` | all eligible | Restrict processing to matching full IDs or unique ID suffixes. |
 | `-x` | `--exclude-ids` | none | Exclude matching full IDs or unique ID suffixes from processing. |
+| `-` | `--exclude-channel-types TYPE...` | none | Exclude exact message-bearing Discord channel types such as `GuildVoice` or `PrivateThread`. |
+| `-` | `--exclude-thread-states STATE...` | none | Exclude `active` or `archived` threads. |
+| `-` | `--exclude-threads` | off | Exclude all announcement, public, and private threads. |
 | `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
 | `-t` | `--token` | unset | Override stored credentials and `DISCORD_TOKEN` for this command only. |
 
@@ -60,15 +67,36 @@ Other top-level commands are:
 | `-f` | `--fetch-within` | unlimited | Fetch only messages newer than this time delta. |
 | `-m` | `--max-messages` | unlimited | Maximum number of messages to fetch per channel. |
 | `-` | `--buffer-per-channel` | off | Buffer one channel at a time before evaluation. |
-| `-` | `--fetch-sleep-time` | `0.2 0.4` | Sleep between fetch requests. One value is fixed, two define a random range in seconds. |
-| `-` | `--delete-sleep-time` | `1.5 2` | Sleep between delete actions. One value is fixed, two define a random range in seconds. |
+| `-` | `--fetch-sleep-time` | `0.2 0.4` | Minimum interval between message fetch requests. One value is fixed, two define a random range in seconds. |
+| `-` | `--delete-sleep-time` | `1.5 2` | Minimum interval between delete requests. One value is fixed, two define a random range in seconds. |
 
 ### Timing and retries
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
 | `-` | `--max-retries` | `5` | Maximum retry attempts for retryable API requests. |
-| `-` | `--retry-time-buffer` | `25 35` | Extra wait after rate limits. One value is fixed, two define a random range in seconds. |
+| `-` | `--retry-safety-jitter` | `0.1 0.3` | Small jitter added to server-provided retry delays. One value is fixed, two define a random range in seconds. `--retry-time-buffer` remains a compatibility alias. |
+| `-` | `--request-interval` | policy defaults | Override a named minimum interval as `POLICY=MIN` or `POLICY=MIN,MAX`. Repeat for multiple policies. |
+
+DMD tracks Discord's global, route, bucket, and route-family rate-limit state in memory for the duration of a run. It learns from response headers and `429` payloads, then waits immediately before the next affected request. A user-scoped `429` can teach the scheduler a minimum interval shared by the same normalized endpoint across different channel or guild IDs. Fetch and delete intervals use the same scheduler, so there is no unconditional sleep after the final request in a sequence.
+
+Named policy defaults:
+
+| Policy | Default interval |
+| --- | --- |
+| `read` | `0.1 0.25` |
+| `fetch` | `0.2 0.4` |
+| `delete` | `1.5 2.0` |
+| `thread-search` | `0.2 0.4` |
+
+For example:
+
+```bash
+dmd list channels \
+  --request-interval thread-search=0.5,0.8
+```
+
+An explicit `--request-interval` takes precedence over the corresponding `--fetch-sleep-time` or `--delete-sleep-time` compatibility option for that run.
 
 ### Output
 
@@ -89,11 +117,31 @@ Other top-level commands are:
 
 ### Channel listing
 
-`dmd list channels` lists channels grouped by guild/category/parent plus DMs.
+`dmd list channels` lists supported channels and all accessible active and archived threads, grouped by guild/category/parent plus DMs.
+
+<Aside type="note" title="Thread discovery is the v3 default">
+Starting with v3, `dmd list channels` searches every relevant text, announcement, forum, and media parent for accessible active and archived threads. Results are paginated and Discord may need to build a search index, so a complete listing can take noticeably longer than it did before v3.
+
+When thread information is not needed, skip every thread search:
+
+```bash
+dmd list channels --exclude-threads
+```
+
+The same default and exclusion apply to `dmd clean`.
+</Aside>
 
 ### Profile listing
 
 `dmd list profiles` lists the configured cleanup profile names from `config.json`.
+
+### Filter value listings
+
+`dmd list channel-types` lists the canonical values accepted by `--exclude-channel-types`.
+
+`dmd list thread-states` lists the values accepted by `--exclude-thread-states`.
+
+Both commands are local and do not require a Discord token. Add `--json` for a JSON array.
 
 `dmd list guilds` and `dmd list channels` support:
 
@@ -108,7 +156,9 @@ Other top-level commands are:
 - `--redact-names` / `--no-redact-names`
 - retry flags
 
-`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guild, category, guild text channel, DM, and Group DM IDs before filtering.
+`dmd list channels` also supports `--exclude-channel-types`, `--exclude-thread-states`, and `--exclude-threads`.
+
+`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guilds, categories, supported message channels, thread parents, and threads.
 
 `dmd list profiles` supports:
 
@@ -251,6 +301,35 @@ If a profile defines a message limit and you want to remove it for one run, use:
 
 - `--max-messages none`
 
+### Thread Discovery
+
+All accessible announcement, public, and private threads are discovered by default, including active and archived threads.
+
+Use these local commands to inspect the accepted filter values:
+
+```bash
+dmd list channel-types
+dmd list thread-states
+```
+
+Channel-type exclusions use the canonical names shown in discovery output. Supported values are:
+
+- `GuildText`, `GuildAnnouncement`, `GuildVoice`, and `GuildStageVoice`
+- `AnnouncementThread`, `PublicThread`, and `PrivateThread`
+- `DM` and `GroupDM`
+
+Thread state is independent of channel type. Use `--exclude-thread-states archived` to search active threads only, or `--exclude-thread-states active` to retain only archived threads.
+
+Use `--exclude-threads` as a shortcut for excluding `AnnouncementThread`, `PublicThread`, and `PrivateThread` together.
+
+Type and state exclusions always win over ID includes. Existing ID hierarchy remains available for specific targets: use `--exclude-ids <category-id>` to exclude one Discord category and its selected descendants.
+
+Forum and media channels are containers rather than message channels. Thread discovery makes those parent IDs selectable, while cleanup operates on their discovered thread posts.
+
+The Rich terminal tree nests each thread below its visible parent channel. If the parent is unavailable or filtered out, the thread remains at category level with parent context. JSON output keeps its existing flat channel entries and `parent_id` fields for compatibility.
+
+Thread discovery can issue one or more paginated API requests for every relevant thread-capable channel in each visible guild. Exclusions avoid searches when none of the remaining thread types can exist under a parent. Discord permits message deletion in archived threads but restricts other mutations, so `dmd` skips reaction removal there.
+
 ### Boolean Overrides
 
 Boolean clean flags support explicit negative forms as well.
@@ -261,6 +340,7 @@ Examples:
 - `--keep-reactions` / `--no-keep-reactions`
 - `--preserve-cache` / `--no-preserve-cache`
 - `--buffer-per-channel` / `--no-buffer-per-channel`
+- `--exclude-threads` / `--no-exclude-threads`
 - `--quiet` / `--no-quiet`
 - `--json` / `--no-json`
 - `--redact-names` / `--no-redact-names`

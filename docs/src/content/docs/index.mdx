@@ -13,7 +13,7 @@ Delete Me Discord is a command-line tool for deleting your own Discord messages 
 
 It is best for two kinds of work:
 
-- cleanup of selected guilds, categories, guild text channels, DMs, or Group DMs
+- cleanup of selected guilds, categories, guild text or announcement channels, text chat in voice or stage channels, DMs, or Group DMs
 - recurring cleanup where you want to keep a recent slice and remove older history
 
 Typical workflow:
@@ -41,7 +41,10 @@ If you are new to the tool, follow this order:
 ## Core ideas
 
 - `--dry-run` scans and plans without deleting.
-- `--include-ids` scopes the run; omit it to use all eligible channels the tool can see.
+- `--include-ids` scopes the run; omit it to use all eligible channels and accessible threads the tool can see.
+- `--exclude-channel-types` removes exact Discord channel types from discovery and cleanup.
+- `--exclude-thread-states` removes active or archived threads from discovery and cleanup.
+- `--exclude-threads` removes every thread type as a convenience shortcut.
 - `--keep-within` keeps messages newer than a given time delta.
 - `--keep-last` keeps the last N messages per channel.
 - `--fetch-within` limits the fetched slice of history.

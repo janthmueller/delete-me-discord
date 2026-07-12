@@ -27,6 +27,14 @@
             setuptools
           ];
 
+          nativeCheckInputs = with pythonPackages; [
+            pytestCheckHook
+          ];
+
+          pytestFlags = [
+            "tests"
+          ];
+
           dependencies = with pythonPackages; [
             keyring
             requests
@@ -62,6 +70,8 @@
         devShells.default = pkgs.mkShell {
           packages = [
             (python.withPackages (ps: [
+              ps.build
+              ps.keyring
               ps.pip
               ps.requests
               ps.rich
@@ -69,20 +79,20 @@
               ps.pyinstaller
               ps.packaging
               ps.pytest-cov
+              ps.twine
             ]))
             pkgs.uv
             pkgs.pre-commit
-            pkgs.nodejs_22
+            pkgs.ruff
+            pkgs.nodejs_24
             pkgs.pnpm
           ];
 
           shellHook = ''
             unset PYTHONPATH
-            if [ ! -d .venv ]; then
-              python -m venv .venv
-            fi
-            source .venv/bin/activate
-            export PIP_REQUIRE_VIRTUALENV=1
+            unset VIRTUAL_ENV
+            export UV_PYTHON="${python}/bin/python"
+            export UV_PYTHON_DOWNLOADS=never
             export PNPM_HOME="$PWD/.pnpm-home"
             export PATH="$PNPM_HOME:$PATH"
           '';

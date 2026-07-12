@@ -14,11 +14,11 @@ dependencies = [
     "requests>=2.34.2",
     "rich>=15.0.0,<16",
 ]
+license = "MIT"
 
 classifiers = [
         "Intended Audience :: Developers",
         "Topic :: Communications :: Chat",
-        "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
@@ -32,9 +32,6 @@ classifiers = [
 name = "Jan T. Müller"
 email = "mail@jantmueller.com"
 
-[project.license]
-text = "MIT"
-
 [project.urls]
 homepage = "https://github.com/janthmueller/delete-me-discord"
 documentation = "https://janthmueller.github.io/delete-me-discord/"
@@ -46,10 +43,14 @@ delete-me-discord = "delete_me_discord:main"
 dmd = "delete_me_discord:main"
 
 [tool.setuptools.packages.find]
-exclude = ["tests"]
+include = ["delete_me_discord*"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
+version_variables = ["delete_me_discord/_version.py:__version__"]
 commit_parser = "conventional"
 branch = "main"  
 upload_to_repository = true

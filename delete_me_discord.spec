@@ -1,14 +1,25 @@
 # PyInstaller spec for delete-me-discord
 # Build with: pyinstaller delete_me_discord.spec
 
+from pathlib import Path
+
+import charset_normalizer
+from PyInstaller.utils.hooks import collect_submodules
+
+charset_normalizer_site_packages = Path(charset_normalizer.__file__).parent.parent
+charset_normalizer_mypyc_binaries = [
+    (str(path), '.')
+    for path in charset_normalizer_site_packages.glob('*__mypyc*')
+]
+
 block_cipher = None
 
 a = Analysis(
     ['pyinstaller_runner.py'],
     pathex=[],
-    binaries=[],
+    binaries=charset_normalizer_mypyc_binaries,
     datas=[],
-    hiddenimports=['delete_me_discord'],
+    hiddenimports=['delete_me_discord', *collect_submodules('charset_normalizer')],
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

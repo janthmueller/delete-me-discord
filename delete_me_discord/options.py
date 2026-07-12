@@ -1,7 +1,6 @@
 import argparse
 import json
 import sys
-from datetime import timedelta
 
 from .app_config import (
     CLEAN_ARG_DEFAULTS,
@@ -10,9 +9,12 @@ from .app_config import (
     profile_requests_json_output,
 )
 from .auth import DEFAULT_CONFIG_PATH
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
-from .utils import parse_redaction_spec, parse_time_delta
+from .rate_limits import REQUEST_POLICY_DEFAULTS
+from .scope_filter import THREAD_STATES
+from .utils import parse_random_range, parse_redaction_spec, parse_time_delta
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -54,6 +56,30 @@ def _optional_non_negative_int(value: str):
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be a non-negative integer or 'none'")
     return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
+def _request_interval(value: str) -> tuple[str, tuple[float, float]]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("expected POLICY=MIN or POLICY=MIN,MAX")
+    policy, raw_interval = (part.strip() for part in value.split("=", 1))
+    if policy not in REQUEST_POLICY_DEFAULTS:
+        expected = ", ".join(sorted(REQUEST_POLICY_DEFAULTS))
+        raise argparse.ArgumentTypeError(
+            f"unknown request policy '{policy}'; expected one of: {expected}"
+        )
+    values = [part for part in raw_interval.replace(",", " ").split() if part]
+    try:
+        interval = parse_random_range(values, f"request-interval {policy}")
+    except argparse.ArgumentTypeError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return policy, interval
 
 
 def _argv_json_setting(argv) -> bool | None:
@@ -130,7 +156,11 @@ def _auth_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse
     return parser
 
 
-def _scope_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
+def _scope_parent(
+    *,
+    clean_defaults: dict[str, object] | None = None,
+    channel_filter_options: bool = True,
+) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "-i", "--include-ids",
@@ -146,23 +176,60 @@ def _scope_parent(*, clean_defaults: dict[str, object] | None = None) -> argpars
         default=_clean_default("exclude_ids", clean_defaults),
         help="List of channel, guild, or parent/category full IDs or unique ID suffixes to exclude."
     )
+    if channel_filter_options:
+        parser.add_argument(
+            "--exclude-channel-types",
+            nargs="*",
+            choices=FILTERABLE_CHANNEL_TYPE_NAMES,
+            default=_clean_default("exclude_channel_types", clean_defaults),
+            metavar="TYPE",
+            help="Exclude message-bearing Discord channel types from discovery and cleanup."
+        )
+        parser.add_argument(
+            "--exclude-thread-states",
+            nargs="*",
+            choices=THREAD_STATES,
+            default=_clean_default("exclude_thread_states", clean_defaults),
+            metavar="STATE",
+            help="Exclude active or archived threads from discovery and cleanup."
+        )
+        parser.add_argument(
+            "--exclude-threads",
+            action=argparse.BooleanOptionalAction,
+            default=_clean_default("exclude_threads", clean_defaults),
+            help="Exclude all announcement, public, and private threads."
+        )
     return parser
 
 
 def _api_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
+    policy_names = ", ".join(sorted(REQUEST_POLICY_DEFAULTS))
     parser.add_argument(
         "--max-retries",
-        type=int,
+        type=_non_negative_int,
         default=_clean_default("max_retries", clean_defaults),
         help="Maximum number of retries for API requests in case of rate limiting. Default is 5."
     )
     parser.add_argument(
+        "--retry-safety-jitter",
         "--retry-time-buffer",
+        dest="retry_time_buffer",
         nargs="+",
         default=_clean_default("retry_time_buffer", clean_defaults),
         metavar=("MIN", "MAX"),
-        help="Additional time (in seconds) to wait after rate limit responses. Provide one value or two values for randomness. Default is [25, 35]."
+        help="Small jitter (in seconds) added to server-provided retry delays. Provide one value or two values for randomness. Default is [0.1, 0.3]."
+    )
+    parser.add_argument(
+        "--request-interval",
+        action="append",
+        type=_request_interval,
+        default=list(_clean_default("request_intervals", clean_defaults)),
+        metavar="POLICY=MIN[,MAX]",
+        help=(
+            "Override a named minimum request interval. Repeat for multiple policies. "
+            f"Available policies: {policy_names}."
+        )
     )
     return parser
 
@@ -178,6 +245,7 @@ def build_parser(
     auth_parent = _auth_parent()
     clean_auth_parent = _auth_parent(clean_defaults=clean_defaults)
     scope_parent = _scope_parent()
+    guild_scope_parent = _scope_parent(channel_filter_options=False)
     clean_scope_parent = _scope_parent(clean_defaults=clean_defaults)
     api_parent = _api_parent()
     clean_api_parent = _api_parent(clean_defaults=clean_defaults)
@@ -273,25 +341,25 @@ def build_parser(
         nargs="+",
         default=_clean_default("fetch_sleep_time", clean_defaults),
         metavar=("MIN", "MAX"),
-        help="Sleep time (in seconds) between message fetch requests. Provide one value or two values for randomness. Default is [0.2, 0.4]."
+        help="Minimum interval (in seconds) between message fetch requests. Provide one value or two values for randomness. Default is [0.2, 0.4]."
     )
     clean_parser.add_argument(
         "--delete-sleep-time",
         nargs="+",
         default=_clean_default("delete_sleep_time", clean_defaults),
         metavar=("MIN", "MAX"),
-        help="Sleep time (in seconds) between message deletion attempts. Provide one value or two values for randomness. Default is [1.5, 2]."
+        help="Minimum interval (in seconds) between delete requests. Provide one value or two values for randomness. Default is [1.5, 2]."
     )
 
     list_parser = subparsers.add_parser(
         "list",
-        help="Discover guilds or channels available to the authenticated user.",
+        help="Discover available targets and supported scope-filter values.",
     )
     list_subparsers = list_parser.add_subparsers(dest="list_command", required=True)
     list_subparsers.add_parser(
         "guilds",
         help="List guild IDs and names.",
-        parents=[output_parent, auth_parent, scope_parent, api_parent],
+        parents=[output_parent, auth_parent, guild_scope_parent, api_parent],
     )
     list_subparsers.add_parser(
         "channels",
@@ -302,6 +370,16 @@ def build_parser(
         "profiles",
         help="List available cleanup profiles from config.json.",
         parents=[output_parent, config_parent],
+    )
+    list_subparsers.add_parser(
+        "channel-types",
+        help="List channel type names accepted by --exclude-channel-types.",
+        parents=[output_parent],
+    )
+    list_subparsers.add_parser(
+        "thread-states",
+        help="List thread state names accepted by --exclude-thread-states.",
+        parents=[output_parent],
     )
 
     profile_parser = subparsers.add_parser(
@@ -437,6 +515,8 @@ def _bootstrap_parse(argv: list[str]):
     channels_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
     profiles_parser = list_subparsers.add_parser("profiles", add_help=False)
     profiles_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
+    list_subparsers.add_parser("channel-types", add_help=False)
+    list_subparsers.add_parser("thread-states", add_help=False)
 
     cache_parser = subparsers.add_parser("cache", add_help=False)
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command")
@@ -480,6 +560,14 @@ def parse_args(version: str, argv=None):
 
     parser = build_parser(version, json_output=json_output, clean_defaults=clean_defaults)
     args = parser.parse_args(raw_argv)
+    if hasattr(args, "request_interval"):
+        request_intervals = {}
+        for policy, interval in args.request_interval:
+            if policy in request_intervals:
+                parser.error(f"request policy '{policy}' was overridden more than once")
+            request_intervals[policy] = interval
+        args.request_intervals = request_intervals
+        del args.request_interval
     if getattr(args, "command", None) == "clean" and args.verbose is None:
         args.verbose = _clean_default("verbose", clean_defaults)
     if isinstance(args.redact_sensitive, list):

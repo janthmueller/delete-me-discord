@@ -10,14 +10,16 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 from delete_me_discord.api import DiscordAPI
+from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.utils import AuthenticationError, ResourceUnavailable
 from delete_me_discord.type_enums import MessageType
 
 
 class FakeResponse:
-    def __init__(self, status_code, payload):
+    def __init__(self, status_code, payload, headers=None):
         self.status_code = status_code
         self._payload = payload
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -29,11 +31,13 @@ class FakeSession:
         self.last_url = None
         self.last_params = None
         self.last_method = None
+        self.last_timeout = None
 
-    def request(self, method, url, params=None, json=None):
+    def request(self, method, url, params=None, json=None, timeout=None):
         self.last_method = method
         self.last_url = url
         self.last_params = params or {}
+        self.last_timeout = timeout
         return self.response
 
 
@@ -62,6 +66,7 @@ def test_fetch_message_by_id_uses_around_cursor_and_maps_fields():
 
     assert session.last_url.endswith(f"/channels/{channel_id}/messages")
     assert session.last_params == {"around": message_id, "limit": 1}
+    assert session.last_timeout == (10.0, 30.0)
     assert result["message_id"] == message_id
     assert result["channel_id"] == channel_id
     assert result["author_id"] == "user-1"
@@ -136,17 +141,70 @@ def test_fetch_messages_paginates_and_respects_before(monkeypatch):
         [],
     ]
 
-    def fake_request(url, description, params=None, method="get"):
+    def fake_request(url, description, params=None, method="get", pacing_policy="read"):
         calls.append(params or {})
+        assert pacing_policy == "fetch"
         return responses.pop(0)
 
     monkeypatch.setattr(api, "_request", fake_request)
-    monkeypatch.setattr("delete_me_discord.api.time.sleep", lambda *_: None)
 
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
     assert [m["message_id"] for m in messages] == ["200", "150"]
     assert calls[0] == {"limit": 100}
     assert calls[1]["before"] == "150"
+
+
+def test_fetch_summary_reports_wait_before_next_page_only(monkeypatch):
+    class FakeClock:
+        def __init__(self):
+            self.now = 100.0
+            self.sleeps = []
+
+        def __call__(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    clock = FakeClock()
+    scheduler = DiscordRequestScheduler(
+        retry_jitter=(0, 0),
+        default_interval=(0, 0),
+        clock=clock,
+        sleeper=clock.sleep,
+        random_between=lambda minimum, _maximum: minimum,
+    )
+    api = DiscordAPI(token="dummy-token", request_scheduler=scheduler)
+    responses = [
+        FakeResponse(
+            200,
+            [
+                {
+                    "id": "200",
+                    "timestamp": "2026-01-02T00:00:00.000000+00:00",
+                    "type": 0,
+                    "author": {"id": "u1"},
+                    "reactions": [],
+                }
+            ],
+        ),
+        FakeResponse(200, []),
+    ]
+    monkeypatch.setattr(api.session, "request", lambda **_: responses.pop(0))
+
+    messages = list(
+        api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(1.5, 1.5))
+    )
+
+    assert [message["message_id"] for message in messages] == ["200"]
+    assert clock.sleeps == [1.5]
+    assert api.get_last_fetch_summary("c1") == {
+        "fetched_count": 1,
+        "stop_reason": "exhausted channel history",
+        "wait_count": 1,
+        "waited_seconds": 1.5,
+    }
 
 
 def test_fetch_messages_stops_at_max_messages(monkeypatch):
@@ -190,3 +248,20 @@ def test_fetch_messages_handles_unavailable_channel(monkeypatch):
     monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
     assert messages == []
+
+
+def test_fetch_messages_keeps_unknown_message_type_without_aborting(monkeypatch, caplog):
+    api = DiscordAPI(token="dummy-token")
+    responses = [[{
+        "id": "200",
+        "timestamp": "2026-01-02T00:00:00.000000+00:00",
+        "type": 999,
+        "author": {"id": "u1"},
+        "reactions": [],
+    }], []]
+    monkeypatch.setattr(api, "_request", lambda *_, **__: responses.pop(0))
+
+    messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
+
+    assert messages[0]["type"] == 999
+    assert "unsupported message type 999" in caplog.text

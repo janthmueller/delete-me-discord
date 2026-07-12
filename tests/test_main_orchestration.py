@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import delete_me_discord
 from delete_me_discord.privacy import RedactionConfig
 from delete_me_discord.privacy import set_redaction_config
+from delete_me_discord.scope_filter import ScopeFilter
 
 
 def _base_clean_args(tmp_path, **overrides):
@@ -24,6 +25,9 @@ def _base_clean_args(tmp_path, **overrides):
         _explicit_fields=set(),
         include_ids=[],
         exclude_ids=[],
+        exclude_channel_types=[],
+        exclude_thread_states=[],
+        exclude_threads=False,
         token="test-token",
         config_path=str(tmp_path / "config.json"),
         keep_within=None,
@@ -60,6 +64,9 @@ def _base_list_args(tmp_path, **overrides):
         retry_time_buffer=["1", "1"],
         include_ids=[],
         exclude_ids=[],
+        exclude_channel_types=[],
+        exclude_thread_states=[],
+        exclude_threads=False,
         quiet=False,
         verbose=0,
         json=False,
@@ -159,6 +166,42 @@ def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
     assert called["discovery"] is True
 
 
+def test_main_list_channels_applies_requested_scope_filter(tmp_path, monkeypatch):
+    args = _base_list_args(
+        tmp_path,
+        list_command="channels",
+        exclude_thread_states=["archived"],
+    )
+    scope_filter = ScopeFilter.from_names(excluded_thread_states=["archived"])
+    inventory = delete_me_discord.ScopeInventory(
+        guilds=[],
+        root_channels=[],
+        guild_channels_by_guild={},
+        scope_filter=scope_filter,
+    )
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def fake_fetch(api, **kwargs):
+        captured["fetch_kwargs"] = kwargs
+        return inventory
+
+    def fake_discovery(**kwargs):
+        captured["inventory"] = kwargs["inventory"]
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
+    monkeypatch.setattr(delete_me_discord, "run_discovery_commands", fake_discovery)
+
+    delete_me_discord._run_list(args)
+
+    assert captured["fetch_kwargs"] == {"scope_filter": scope_filter}
+    assert captured["inventory"] is inventory
+
+
 def test_main_list_profiles_outputs_names(tmp_path, monkeypatch, capsys):
     args = _base_list_args(tmp_path, list_command="profiles")
     config_path = Path(args.config_path)
@@ -170,6 +213,49 @@ def test_main_list_profiles_outputs_names(tmp_path, monkeypatch, capsys):
     delete_me_discord.main()
     out = capsys.readouterr().out.strip().splitlines()
     assert out == ["manual-review", "nightly-dms"]
+
+
+@pytest.mark.parametrize(
+    ("list_command", "expected"),
+    [
+        (
+            "channel-types",
+            [
+                "GuildText",
+                "GuildAnnouncement",
+                "GuildVoice",
+                "GuildStageVoice",
+                "AnnouncementThread",
+                "PublicThread",
+                "PrivateThread",
+                "DM",
+                "GroupDM",
+            ],
+        ),
+        ("thread-states", ["active", "archived"]),
+    ],
+)
+def test_main_lists_static_scope_filter_values(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    list_command,
+    expected,
+):
+    args = _base_list_args(tmp_path, list_command=list_command)
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+
+    class BoomAPI:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Static filter lists must not create DiscordAPI.")
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", BoomAPI)
+
+    delete_me_discord.main()
+
+    assert capsys.readouterr().out.strip().splitlines() == expected
 
 
 def test_main_profile_show_outputs_raw_profile(tmp_path, monkeypatch, capsys):
@@ -244,6 +330,46 @@ def test_main_profile_add_resolves_scope_ids_before_writing(tmp_path, monkeypatc
     data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
     assert data["profiles"]["nightly-dms"]["include_ids"] == ["1111111111110001"]
     assert data["profiles"]["nightly-dms"]["exclude_ids"] == ["2222222222220002"]
+
+
+def test_main_profile_add_discovers_threads_before_resolving_thread_scope(tmp_path, monkeypatch):
+    args = _base_profile_args(
+        tmp_path,
+        profile_command="add",
+        profile_set=["exclude_thread_states=archived", "include_ids=0003"],
+    )
+    scope_filter = ScopeFilter.from_names(excluded_thread_states=["archived"])
+    inventory = delete_me_discord.ScopeInventory(
+        guilds=[{"id": "g1", "name": "Guild"}],
+        root_channels=[],
+        guild_channels_by_guild={"g1": [{"id": "c1", "type": 0, "name": "Text"}]},
+        threads_by_guild={
+            "g1": [{"id": "3333333333330003", "type": 11, "name": "Thread", "parent_id": "c1"}],
+        },
+        scope_filter=scope_filter,
+    )
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def fake_fetch(api, **kwargs):
+        captured.update(kwargs)
+        return inventory
+
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
+
+    delete_me_discord.main()
+
+    data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
+    profile = data["profiles"]["nightly-dms"]
+    assert profile["include_ids"] == ["3333333333330003"]
+    assert profile["exclude_thread_states"] == ["archived"]
+    assert captured == {"scope_filter": scope_filter}
 
 
 def test_main_profile_add_requires_set(tmp_path, monkeypatch, capsys):
@@ -748,6 +874,41 @@ def test_run_clean_resolves_scope_selectors_before_cleaner_creation(tmp_path, mo
 
     assert captured["include_ids"] == ["1111111111110001"]
     assert captured["exclude_ids"] == ["2222222222220002"]
+
+
+def test_run_clean_passes_scope_filter_to_cleaner(tmp_path, monkeypatch):
+    args = _base_clean_args(
+        tmp_path,
+        exclude_channel_types=["GuildVoice", "PrivateThread"],
+        exclude_thread_states=["archived"],
+    )
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            captured["cleaner_inventory"] = kwargs["scope_inventory"]
+            captured["scope_filter"] = kwargs["scope_filter"]
+
+        def clean_messages(self, **kwargs):
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord._run_clean(args)
+
+    assert captured["cleaner_inventory"] is None
+    assert captured["scope_filter"] == ScopeFilter.from_names(
+        ["GuildVoice", "PrivateThread"],
+        ["archived"],
+    )
 
 
 def test_run_clean_exits_early_without_any_token(tmp_path, monkeypatch):

@@ -1,0 +1,12 @@
+include LICENSE
+include README.md
+include pyproject.toml
+include setup.py
+prune build
+prune dist
+prune docs
+prune scripts
+prune tests
+prune tools
+global-exclude __pycache__
+global-exclude *.py[cod]

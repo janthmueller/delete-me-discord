@@ -13,8 +13,9 @@ import pytest
 from delete_me_discord.cleaner import MessageCleaner
 from delete_me_discord.models import ActionKind, PlannedAction
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
+from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
-from delete_me_discord.utils import DETAIL_LEVEL, EVENT_LEVEL, PROGRESS_LEVEL
+from delete_me_discord.utils import DETAIL_LEVEL, PROGRESS_LEVEL
 
 
 class DummyType:
@@ -216,12 +217,16 @@ def test_clean_messages_merges_cached_ids(monkeypatch):
     class FakeCache:
         def __init__(self):
             self.set_calls = []
+            self.save_calls = 0
 
         def get_ids(self, channel_id):
             return ["90"]
 
         def set_ids(self, channel_id, message_ids):
             self.set_calls.append((channel_id, list(message_ids)))
+
+        def save(self):
+            self.save_calls += 1
 
     api = RecordingAPI()
     cache = FakeCache()
@@ -252,6 +257,18 @@ def test_clean_messages_merges_cached_ids(monkeypatch):
     assert api.fetched == ["90"]
     assert cache.set_calls[0][0] == "c1"
     assert set(cache.set_calls[0][1]) == {"100", "90"}
+    assert cache.save_calls == 1
+
+
+def test_unknown_message_type_is_not_deleted():
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    message = make_message("1", "me", datetime.now(timezone.utc))
+    message["type"] = 999
+
+    facts = cleaner._build_message_facts(message=message, delete_reactions=False)
+
+    assert facts.is_author is True
+    assert facts.is_deletable is False
 
 
 def test_prepare_channel_messages_buffers_single_channel(monkeypatch):
@@ -382,7 +399,6 @@ def test_delete_reaction_logs_redact_emoji_name_and_ids(caplog):
         with caplog.at_level("DEBUG"):
             executed = cleaner._execute_action(
                 action=action,
-                delete_sleep_time_range=(0, 0),
                 dry_run=True,
             )
     finally:
@@ -461,11 +477,19 @@ def test_get_all_channels_filters_unknown_types():
         def get_guilds(self):
             return [{"id": "g1"}]
 
-        def get_guild_channels_multiple(self, guild_ids):
+        def get_guild_channels(self, guild_id):
+            assert guild_id == "g1"
             return [
                 {"id": "c1", "type": 0, "name": "chan"},
-                {"id": "c2", "type": 99, "name": "unknown"},
+                {"id": "c2", "type": 2, "name": "voice"},
+                {"id": "c3", "type": 5, "name": "announcements"},
+                {"id": "c4", "type": 13, "name": "stage"},
+                {"id": "forum", "type": 15, "name": "forum"},
+                {"id": "unknown", "type": 99, "name": "unknown"},
             ]
+
+        def search_channel_threads(self, channel_id, *, include_archived=False):
+            return []
 
         def get_root_channels(self):
             return [
@@ -475,7 +499,64 @@ def test_get_all_channels_filters_unknown_types():
 
     cleaner = MessageCleaner(api=Api(), user_id="me")
     channels = cleaner.get_all_channels()
-    assert [c["id"] for c in channels] == ["dm1", "c1"]
+    assert [c["id"] for c in channels] == ["dm1", "c1", "c2", "c3", "c4"]
+
+
+def test_get_all_channels_discovers_all_threads_by_default():
+    class Api:
+        def __init__(self):
+            self.search_calls = []
+
+        def get_guilds(self):
+            return [{"id": "g1"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_guild_channels(self, guild_id):
+            return [{"id": "text", "type": 0, "name": "text"}]
+
+        def search_channel_threads(self, channel_id, *, include_archived=False):
+            self.search_calls.append((channel_id, include_archived))
+            return [{
+                "id": "thread",
+                "type": 11,
+                "name": "thread",
+                "parent_id": channel_id,
+                "thread_metadata": {"archived": True},
+            }]
+
+    api = Api()
+    cleaner = MessageCleaner(api=api, user_id="me")
+
+    assert [channel["id"] for channel in cleaner.get_all_channels()] == [
+        "text",
+        "thread",
+    ]
+    assert api.search_calls == [("text", True)]
+
+
+def test_get_all_channels_exclude_threads_shortcut_avoids_search():
+    class Api:
+        def get_guilds(self):
+            return [{"id": "g1"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_guild_channels(self, guild_id):
+            return [{"id": "text", "type": 0, "name": "text"}]
+
+        def search_channel_threads(self, channel_id, *, include_archived=False):
+            raise AssertionError("Thread search should be skipped.")
+
+    cleaner = MessageCleaner(
+        api=Api(),
+        user_id="me",
+        scope_filter=ScopeFilter.from_names(exclude_threads=True),
+    )
+
+    assert [channel["id"] for channel in cleaner.get_all_channels()] == ["text"]
 
 
 def test_get_all_channels_reuses_scope_inventory_without_fetching_api():
@@ -554,7 +635,7 @@ def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(mo
 
     assert total == 1
     assert "Buffered messages=1, scan time=" in caplog.text
-    assert "est. execute time=00:00:01" in caplog.text
+    assert "est. execute time=00:00:00" in caplog.text
     assert "Planned " not in caplog.text
 
 
@@ -629,9 +710,9 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
 
     assert total == 1
     assert "Summary: messages 1 delete / 0 keep, reactions 1 delete / 0 keep" in caplog.text
-    assert "scan time=00:00:04, est. execute time=00:00:02, est. total time=00:00:06" in caplog.text
+    assert "scan time=00:00:04, est. execute time=00:00:01, est. total time=00:00:05" in caplog.text
     assert "Summary: messages 1 delete / 0 keep, reactions 1 delete / 0 keep" in caplog.text
-    assert "scan time=00:00:06, est. execute time=00:00:02, est. total time=00:00:08" in caplog.text
+    assert "scan time=00:00:06, est. execute time=00:00:01, est. total time=00:00:07" in caplog.text
 
 
 def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monkeypatch, caplog):

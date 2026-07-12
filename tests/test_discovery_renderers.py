@@ -62,7 +62,13 @@ def test_render_channels_json_redacts_nested_names_and_ids(capsys):
                         {
                             "id": "333333333333333333",
                             "name": "Secrets",
-                            "channels": [{"id": "444444444444444444", "name": "general", "type": "GuildText"}],
+                            "channels": [{
+                                "id": "444444444444444444",
+                                "name": "thread",
+                                "type": "PublicThread",
+                                "parent_id": "555555555555555555",
+                                "parent_name": "general",
+                            }],
                         }
                     ],
                 }
@@ -79,6 +85,8 @@ def test_render_channels_json_redacts_nested_names_and_ids(capsys):
         assert payload["guilds"][0]["categories"][0]["name"] == "***"
         assert payload["guilds"][0]["categories"][0]["channels"][0]["id"] == "***4444"
         assert payload["guilds"][0]["categories"][0]["channels"][0]["name"] == "***"
+        assert payload["guilds"][0]["categories"][0]["channels"][0]["parent_id"] == "***5555"
+        assert payload["guilds"][0]["categories"][0]["channels"][0]["parent_name"] == "***"
     finally:
         set_redaction_config(RedactionConfig())
 
@@ -105,6 +113,80 @@ def test_render_channels_rich_outputs_text():
     text = console.export_text()
     assert "Alpha" in text
     assert "general" in text
+
+
+def test_render_channels_rich_nests_threads_under_visible_parent():
+    console = Console(record=True, width=140)
+    data = {
+        "dms": [],
+        "guilds": [
+            {
+                "id": "g1",
+                "name": "Guild",
+                "categories": [
+                    {
+                        "id": "cat",
+                        "name": "Category",
+                        "channels": [
+                            {"id": "text", "name": "Text", "type": "GuildText"},
+                            {
+                                "id": "thread",
+                                "name": "Nested thread",
+                                "type": "PublicThread",
+                                "parent_id": "text",
+                                "parent_name": "Text",
+                                "archived": False,
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    render_channels_rich(data, console)
+    lines = console.export_text().splitlines()
+
+    parent_line = next(line for line in lines if "GuildText Text" in line)
+    thread_line = next(line for line in lines if "PublicThread Nested thread" in line)
+    assert parent_line.index("GuildText") < thread_line.index("PublicThread")
+    assert "(active)" in thread_line
+    assert "parent:" not in thread_line
+
+
+def test_render_channels_rich_keeps_orphan_thread_at_category_level():
+    console = Console(record=True, width=140)
+    data = {
+        "dms": [],
+        "guilds": [
+            {
+                "id": "g1",
+                "name": "Guild",
+                "categories": [
+                    {
+                        "id": "cat",
+                        "name": "Category",
+                        "channels": [
+                            {
+                                "id": "thread",
+                                "name": "Orphan thread",
+                                "type": "PrivateThread",
+                                "parent_id": "missing",
+                                "parent_name": "Missing parent",
+                                "archived": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    render_channels_rich(data, console)
+    text = console.export_text()
+
+    assert "PrivateThread Orphan thread" in text
+    assert "parent: Missing parent, archived" in text
 
 
 def test_render_channels_rich_redacts_names_and_ids():

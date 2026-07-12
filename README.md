@@ -44,6 +44,16 @@ dmd list guilds
 dmd list channels
 ```
 
+All accessible active and archived threads are discovered by default. Exclude thread states or channel types when needed:
+
+```bash
+dmd list channels --exclude-thread-states archived
+dmd list channels --exclude-channel-types PrivateThread
+dmd list channels --exclude-threads
+```
+
+Inspect accepted filter values locally with `dmd list channel-types` and `dmd list thread-states`.
+
 Preview the selected scope:
 
 ```bash
@@ -51,8 +61,10 @@ dmd clean --include-ids <id> --dry-run
 ```
 
 Then rerun without `--dry-run` when the plan looks right.
-`--include-ids` accepts one or more guild, category, guild text channel, DM, or Group DM IDs.
+`--include-ids` accepts one or more guild, category, supported channel, thread-parent, or thread IDs.
 Omit `--include-ids` to use the default scope: all eligible channels the tool can see.
+
+Starting with v3, the default scope includes guild text and announcement channels, text chat in voice and stage channels, DMs, Group DMs, and all accessible announcement, public, and private threads. Use `--exclude-threads` when thread discovery is not needed. Use `--exclude-channel-types` for exact channel-type exclusions and `--exclude-thread-states` to omit active or archived threads. Thread discovery can make additional paginated Discord API requests for every thread-capable parent, so `dmd list channels` may take noticeably longer than before v3. In archived threads, the tool can delete your messages but skips reaction removal because Discord restricts archived-thread mutations.
 
 Alternative auth for one shell:
 

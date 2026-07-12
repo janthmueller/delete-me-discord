@@ -21,26 +21,17 @@ from .app_config import (
 )
 from .auth import resolve_token, run_auth_command
 from .cleaner import MessageCleaner
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
 from .discovery import run_discovery_commands
 from .options import parse_args
 from .preserve_cache import PreserveCache
 from .privacy import sensitive, sensitive_name
+from .scope_filter import ScopeFilter
+from .scope_filter import THREAD_STATES
 from .scope_inventory import ScopeInventory
 from .scope_selectors import resolve_scope_selectors
 from .utils import AuthenticationError, parse_random_range, setup_logging
-
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _version
-
-    __version__ = _version("delete-me-discord")
-except PackageNotFoundError:
-    try:
-        from setuptools_scm import get_version
-
-        __version__ = get_version(root=".", relative_to=__file__)
-    except Exception:
-        __version__ = "0.0.0-dev"
+from ._version import __version__
 
 
 def _clear_preserve_cache(preserve_cache_path: str) -> None:
@@ -59,6 +50,7 @@ def _build_api_from_token_config(
     config_path: str,
     max_retries: int,
     retry_time_buffer,
+    request_intervals=None,
 ) -> DiscordAPI:
     token, _token_source = resolve_token(token_arg, config_path)
     if not token:
@@ -69,6 +61,7 @@ def _build_api_from_token_config(
         token=token,
         max_retries=max_retries,
         retry_time_buffer=retry_time_buffer,
+        request_intervals=request_intervals,
     )
 
 
@@ -78,6 +71,7 @@ def _build_api(args) -> DiscordAPI:
         config_path=args.config_path,
         max_retries=args.max_retries,
         retry_time_buffer=parse_random_range(args.retry_time_buffer, "retry-time-buffer"),
+        request_intervals=getattr(args, "request_intervals", {}),
     )
 
 
@@ -87,6 +81,19 @@ def _build_api_from_settings(settings: EffectiveCleanSettings) -> DiscordAPI:
         config_path=settings.config_path,
         max_retries=settings.max_retries,
         retry_time_buffer=settings.retry_time_buffer,
+        request_intervals=getattr(settings, "request_intervals", {}),
+    )
+
+
+def _build_scope_filter(
+    exclude_channel_types,
+    exclude_thread_states,
+    exclude_threads: bool = False,
+) -> ScopeFilter:
+    return ScopeFilter.from_names(
+        excluded_channel_types=exclude_channel_types,
+        excluded_thread_states=exclude_thread_states,
+        exclude_threads=exclude_threads,
     )
 
 
@@ -119,8 +126,22 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
     inventory = None
     include_ids = settings.include_ids
     exclude_ids = settings.exclude_ids
+    scope_filter = _build_scope_filter(
+        settings.exclude_channel_types,
+        settings.exclude_thread_states,
+        settings.exclude_threads,
+    )
     if include_ids or exclude_ids:
-        inventory = ScopeInventory.fetch(api)
+        target_label = (
+            "channels and threads"
+            if scope_filter.thread_discovery_mode != "none"
+            else "channels"
+        )
+        logging.getLogger("discovery").progress("Discovering %s.", target_label)
+        inventory = ScopeInventory.fetch(
+            api,
+            scope_filter=scope_filter,
+        )
         try:
             include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
         except ValueError as exc:
@@ -141,6 +162,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         preserve_n_mode=settings.keep_last_scope,
         preserve_cache=preserve_cache,
         scope_inventory=inventory,
+        scope_filter=scope_filter,
     )
 
     cleaner.clean_messages(
@@ -162,15 +184,36 @@ def _run_list(args) -> None:
     inventory = None
     include_ids = args.include_ids
     exclude_ids = args.exclude_ids
+    list_guilds = args.list_command == "guilds"
+    list_channels = args.list_command == "channels"
     try:
-        if include_ids or exclude_ids:
-            inventory = ScopeInventory.fetch(api)
+        if list_channels:
+            scope_filter = _build_scope_filter(
+                args.exclude_channel_types,
+                args.exclude_thread_states,
+                args.exclude_threads,
+            )
+            if not args.json:
+                target_label = (
+                    "channels and threads"
+                    if scope_filter.thread_discovery_mode != "none"
+                    else "channels"
+                )
+                logging.getLogger("discovery").progress("Discovering %s.", target_label)
+            inventory = ScopeInventory.fetch(
+                api,
+                scope_filter=scope_filter,
+            )
+        elif include_ids or exclude_ids:
+            inventory = ScopeInventory.fetch(
+                api,
+                scope_filter=ScopeFilter.without_threads(),
+            )
+        if inventory is not None and (include_ids or exclude_ids):
             include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
     except ValueError as exc:
         logging.error("%s", exc)
         raise SystemExit(1)
-    list_guilds = args.list_command == "guilds"
-    list_channels = args.list_command == "channels"
     run_discovery_commands(
         api=api,
         list_guilds=list_guilds,
@@ -195,6 +238,14 @@ def _run_list_profiles(args) -> None:
         return
     for name in profile_names:
         print(name)
+
+
+def _run_list_filter_values(args, values) -> None:
+    if args.json:
+        print(json.dumps(list(values), ensure_ascii=True))
+        return
+    for value in values:
+        print(value)
 
 
 def _run_profile_show(args) -> None:
@@ -256,19 +307,28 @@ def _resolve_profile_scope_updates(args, profile_updates: dict, unset_fields: li
     if "include_ids" not in profile_updates and "exclude_ids" not in profile_updates:
         return
     unset_fields = unset_fields or []
-    scope_values = {}
+    current = {}
     if args.profile_command == "update":
         current = load_profile(args.config_path, args.name)
-        for field in ("include_ids", "exclude_ids"):
-            if field in current and field not in unset_fields:
-                scope_values[field] = current[field]
-    scope_values.update({
-        field: profile_updates[field]
+    effective_profile = dict(current)
+    for field in unset_fields:
+        effective_profile.pop(field, None)
+    effective_profile.update(profile_updates)
+    scope_values = {
+        field: effective_profile[field]
         for field in ("include_ids", "exclude_ids")
-        if field in profile_updates
-    })
+        if field in effective_profile
+    }
     api = _build_api(args)
-    inventory = ScopeInventory.fetch(api)
+    scope_filter = _build_scope_filter(
+        effective_profile.get("exclude_channel_types", []),
+        effective_profile.get("exclude_thread_states", []),
+        effective_profile.get("exclude_threads", False),
+    )
+    inventory = ScopeInventory.fetch(
+        api,
+        scope_filter=scope_filter,
+    )
     include_ids, exclude_ids = resolve_scope_selectors(
         inventory,
         scope_values.get("include_ids", []),
@@ -346,6 +406,12 @@ def main():
         if args.command == "list":
             if args.list_command == "profiles":
                 _run_list_profiles(args)
+                return
+            if args.list_command == "channel-types":
+                _run_list_filter_values(args, FILTERABLE_CHANNEL_TYPE_NAMES)
+                return
+            if args.list_command == "thread-states":
+                _run_list_filter_values(args, THREAD_STATES)
                 return
             _run_list(args)
             return

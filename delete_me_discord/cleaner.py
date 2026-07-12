@@ -1,16 +1,18 @@
 # delete_me_discord/cleaner.py
 import os
 import time
-import random
 from datetime import datetime, timezone, timedelta
 from typing import Iterable, List, Generator, Tuple, Optional, Union, Set
 import logging
 
 from .api import DiscordAPI
+from .channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CHANNEL_TYPES, is_archived_thread
 from .models import ActionKind, ChannelPlan, DiscordChannel, DiscordEmoji, DiscordMessage, MessageDecision, MessageFacts, PlannedAction
 from .utils import channel_str, should_include_channel, format_timestamp
 from .privacy import sensitive
 from .preserve_cache import PreserveCache
+from .rate_limits import DELETE_POLICY, FETCH_POLICY
+from .scope_filter import ScopeFilter
 from .scope_inventory import ScopeInventory
 
 
@@ -26,6 +28,7 @@ class MessageCleaner:
         preserve_n_mode: str = "all",
         preserve_cache: Optional[PreserveCache] = None,
         scope_inventory: Optional[ScopeInventory] = None,
+        scope_filter: Optional[ScopeFilter] = None,
     ):
         """
         Initializes the MessageCleaner.
@@ -65,9 +68,21 @@ class MessageCleaner:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.preserve_cache = preserve_cache
         self.scope_inventory = scope_inventory
+        self.scope_filter = scope_filter or (
+            scope_inventory.scope_filter if scope_inventory else ScopeFilter()
+        )
 
         if self.include_ids.intersection(self.exclude_ids):
             raise ValueError("Include and exclude IDs must be disjoint.")
+
+    def _configure_request_policy(
+        self,
+        name: str,
+        interval: Tuple[float, float],
+    ) -> None:
+        configure = getattr(self.api, "configure_request_policy", None)
+        if callable(configure):
+            configure(name, interval)
 
     def get_all_channels(self) -> List[DiscordChannel]:
         """
@@ -77,23 +92,26 @@ class MessageCleaner:
             List[DiscordChannel]: Channels eligible for processing.
         """
         all_channels = []
-        channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
-
         if self.scope_inventory:
             root_channels = self.scope_inventory.root_channels
             guild_channels = self.scope_inventory.all_guild_channels()
         else:
-            # Fetch guilds and their channels
-            guilds = self.api.get_guilds()
-            guild_ids = [guild["id"] for guild in guilds]
-            guild_channels = self.api.get_guild_channels_multiple(guild_ids)
-
-            # Fetch root channels (DMs)
-            root_channels = self.api.get_root_channels()
+            target_label = (
+                "channels and threads"
+                if self.scope_filter.thread_discovery_mode != "none"
+                else "channels"
+            )
+            self.logger.progress("Discovering %s.", target_label)
+            inventory = ScopeInventory.fetch(
+                self.api,
+                scope_filter=self.scope_filter,
+            )
+            root_channels = inventory.root_channels
+            guild_channels = inventory.all_guild_channels()
 
         # Process root channels
         for channel in root_channels:
-            if channel.get("type") not in channel_types:
+            if channel.get("type") not in ROOT_MESSAGE_CHANNEL_TYPES:
                 self.logger.debug("Skipping unknown channel type: %s", channel.get("type"))
                 continue
             if not self._should_include_channel(channel):
@@ -103,7 +121,7 @@ class MessageCleaner:
 
         # Process guild channels
         for channel in guild_channels:
-            if channel.get("type") not in channel_types:
+            if channel.get("type") not in GUILD_CLEANUP_CHANNEL_TYPES:
                 self.logger.debug("Skipping unknown channel type: %s", channel.get("type"))
                 continue
             if not self._should_include_channel(channel):
@@ -127,7 +145,8 @@ class MessageCleaner:
         allowed = should_include_channel(
             channel=channel,
             include_ids=self.include_ids,
-            exclude_ids=self.exclude_ids
+            exclude_ids=self.exclude_ids,
+            scope_filter=self.scope_filter,
         )
         if not allowed:
             self.logger.debug("Excluding channel based on include/exclude filters: %s.", channel_str(channel))
@@ -145,7 +164,7 @@ class MessageCleaner:
 
         Args:
             channel (DiscordChannel): The channel payload.
-            fetch_sleep_time_range (Tuple[float, float]): Range for sleep time between fetch requests.
+            fetch_sleep_time_range (Tuple[float, float]): Minimum interval between fetch requests.
             fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
             max_messages (Union[int, float]): Maximum number of messages to fetch.
 
@@ -181,7 +200,7 @@ class MessageCleaner:
         Args:
             messages (Iterable[DiscordMessage]): Message data in newest-to-oldest order.
             cutoff_time (datetime): The cutoff datetime; messages older than this will be deleted.
-            delete_sleep_time_range (Tuple[float, float]): Range for sleep time between deletion attempts.
+            delete_sleep_time_range (Tuple[float, float]): Minimum interval between delete requests.
             dry_run (bool): If True, simulate deletions without calling the API.
             delete_reactions (bool): If True, remove the user's reactions on messages encountered.
             channel_plan (Optional[ChannelPlan]): Optional precomputed channel plan.
@@ -190,6 +209,7 @@ class MessageCleaner:
             Tuple[List[str], dict[str, int], float]: Preserved message IDs, statistics, and action-phase elapsed time.
         """
         preserved_msg_ids = []
+        self._configure_request_policy(DELETE_POLICY, delete_sleep_time_range)
         stats = {
             "message_count": 0,
             "deleted_count": 0,
@@ -206,8 +226,6 @@ class MessageCleaner:
                 )
             )
         )
-        total_actions = plan.action_count
-
         action_start = time.monotonic()
         for decision in plan.decisions:
             stats["message_count"] += 1
@@ -238,7 +256,6 @@ class MessageCleaner:
                     continue
                 executed = self._execute_action(
                     action=action,
-                    delete_sleep_time_range=delete_sleep_time_range,
                     dry_run=dry_run,
                     facts=facts,
                 )
@@ -248,7 +265,6 @@ class MessageCleaner:
             if reaction_actions:
                 stats["reactions_removed_count"] += self._execute_reaction_actions(
                     actions=reaction_actions,
-                    delete_sleep_time_range=delete_sleep_time_range,
                     dry_run=dry_run,
                 )
         action_elapsed = time.monotonic() - action_start
@@ -258,7 +274,7 @@ class MessageCleaner:
     def clean_messages(
         self,
         dry_run: bool = False,
-        fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.5),
+        fetch_sleep_time_range: Tuple[float, float] = (0.2, 0.4),
         delete_sleep_time_range: Tuple[float, float] = (1.5, 2),
         fetch_since: Optional[datetime] = None,
         max_messages: Union[int, float] = float("inf"),
@@ -270,8 +286,8 @@ class MessageCleaner:
 
         Args:
             dry_run (bool): If True, messages will not be deleted.
-            fetch_sleep_time_range (Tuple[float, float]): Range for sleep time between fetch requests.
-            delete_sleep_time_range (Tuple[float, float]): Range for sleep time between deletion attempts.
+            fetch_sleep_time_range (Tuple[float, float]): Minimum interval between fetch requests.
+            delete_sleep_time_range (Tuple[float, float]): Minimum interval between delete requests.
             fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
             max_messages (Union[int, float]): Maximum number of messages to fetch per channel.
             buffer_channel_messages (bool): If True, fully buffer one channel before evaluation.
@@ -280,6 +296,8 @@ class MessageCleaner:
         Returns:
             int: Total number of messages deleted.
         """
+        self._configure_request_policy(FETCH_POLICY, fetch_sleep_time_range)
+        self._configure_request_policy(DELETE_POLICY, delete_sleep_time_range)
         run_started_at = time.monotonic()
         total_stats = {
             "deleted_count": 0,
@@ -310,12 +328,18 @@ class MessageCleaner:
                 buffer_channel_messages=buffer_channel_messages,
                 dry_run=dry_run,
             )
+            channel_delete_reactions = delete_reactions and not is_archived_thread(channel)
+            if delete_reactions and not channel_delete_reactions:
+                self.logger.info(
+                    "Skipping reaction cleanup in archived thread %s; Discord only permits message deletion while archived.",
+                    channel_str(channel),
+                )
             channel_plan = None
             if buffer_channel_messages:
                 channel_plan = self._build_channel_plan(
                     messages=messages,
                     cutoff_time=cutoff_time,
-                    delete_reactions=delete_reactions,
+                    delete_reactions=channel_delete_reactions,
                 )
                 if not dry_run:
                     self._log_buffered_channel_pre_execution(
@@ -329,10 +353,11 @@ class MessageCleaner:
                 delete_sleep_time_range=delete_sleep_time_range,
                 dry_run=dry_run,
                 channel_plan=channel_plan,
-                delete_reactions=delete_reactions
+                delete_reactions=channel_delete_reactions,
             )
             if self.preserve_cache:
                 self.preserve_cache.set_ids(channel_id=channel["id"], message_ids=preserved_msg_ids)
+                self.preserve_cache.save()
 
             total_stats["deleted_count"] += stats["deleted_count"]
             total_stats["preserved_deletable_count"] += stats["preserved_deletable_count"]
@@ -497,7 +522,7 @@ class MessageCleaner:
         """Derive normalized facts from one fetched message."""
         message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
         is_author = message["author_id"] == self.user_id
-        is_deletable = is_author and message["type"].deletable
+        is_deletable = is_author and bool(getattr(message["type"], "deletable", False))
         my_reactions = tuple(
             reaction for reaction in (message.get("reactions") or []) if delete_reactions and reaction.get("me")
         )
@@ -577,9 +602,9 @@ class MessageCleaner:
         action_count: int,
         delete_sleep_time_range: Tuple[float, float],
     ) -> float:
-        """Estimate execution time from a raw action count and configured sleep range."""
+        """Estimate pacing time between a sequence of planned actions."""
         average_sleep = sum(delete_sleep_time_range) / 2
-        return action_count * average_sleep
+        return max(0, action_count - 1) * average_sleep
 
     def _format_duration(self, seconds: float) -> str:
         """Format a duration in seconds as HH:MM:SS."""
@@ -711,7 +736,6 @@ class MessageCleaner:
     def _execute_action(
         self,
         action: PlannedAction,
-        delete_sleep_time_range: Tuple[float, float],
         dry_run: bool,
         facts: Optional[MessageFacts] = None,
     ) -> bool:
@@ -738,11 +762,7 @@ class MessageCleaner:
                 channel_id=action.channel_id,
                 message_id=action.message_id,
             )
-            if success:
-                sleep_time = random.uniform(*delete_sleep_time_range)
-                self.logger.diagnostic("Sleeping for %.2f seconds after deletion.", sleep_time)
-                time.sleep(sleep_time)
-            else:
+            if not success:
                 self.logger.warning(
                     "Failed to delete message %s in channel %s.",
                     sensitive(action.message_id),
@@ -774,11 +794,7 @@ class MessageCleaner:
             message_id=action.message_id,
             emoji=emoji,
         )
-        if success:
-            sleep_time = random.uniform(*delete_sleep_time_range)
-            self.logger.diagnostic("Sleeping for %.2f seconds after reaction deletion.", sleep_time)
-            time.sleep(sleep_time)
-        else:
+        if not success:
             self.logger.warning(
                 "Failed to delete reaction %s on message %s in channel %s.",
                 sensitive(emoji_name, full=True),
@@ -790,7 +806,6 @@ class MessageCleaner:
     def _execute_reaction_actions(
         self,
         actions: List[PlannedAction],
-        delete_sleep_time_range: Tuple[float, float],
         dry_run: bool,
     ) -> int:
         """Execute one or more reaction deletions for the same message as one visible event block."""
@@ -833,9 +848,6 @@ class MessageCleaner:
             )
             if success:
                 deleted_count += 1
-                sleep_time = random.uniform(*delete_sleep_time_range)
-                self.logger.diagnostic("Sleeping for %.2f seconds after reaction deletion.", sleep_time)
-                time.sleep(sleep_time)
             else:
                 self.logger.warning(
                     "Failed to delete reaction %s on message %s in channel %s.",

@@ -2,6 +2,7 @@ import pytest
 
 from delete_me_discord.api import DiscordAPI
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
+from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.utils import (
     AuthenticationError,
     ResourceUnavailable,
@@ -30,12 +31,14 @@ class FakeSession:
         self.last_params = None
         self.last_url = None
         self.last_method = None
+        self.last_timeout = None
 
-    def request(self, method, url, params=None):
+    def request(self, method, url, params=None, timeout=None):
         self.calls += 1
         self.last_method = method
         self.last_url = url
         self.last_params = params or {}
+        self.last_timeout = timeout
         try:
             response = self.responses[self.calls - 1]
         except IndexError:
@@ -44,7 +47,14 @@ class FakeSession:
 
 
 def make_api(fake_session, max_retries=2):
-    api = DiscordAPI(token="dummy", max_retries=max_retries)
+    api = DiscordAPI(
+        token="dummy",
+        max_retries=max_retries,
+        request_scheduler=DiscordRequestScheduler(
+            retry_jitter=(0, 0),
+            default_interval=(0, 0),
+        ),
+    )
     api.session = fake_session
     return api
 

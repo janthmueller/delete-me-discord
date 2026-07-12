@@ -19,13 +19,17 @@ def test_parse_args_clean_defaults():
     assert args.profile is None
     assert args.include_ids == []
     assert args.exclude_ids == []
+    assert args.exclude_channel_types == []
+    assert args.exclude_thread_states == []
+    assert args.exclude_threads is False
     assert args.token is None
     assert args.config_path.endswith("config.json")
     assert args.dry_run is False
     assert args.quiet is False
     assert args.verbose == 0
     assert args.max_retries == 5
-    assert args.retry_time_buffer == [25, 35]
+    assert args.retry_time_buffer == [0.1, 0.3]
+    assert args.request_intervals == {}
     assert args.fetch_sleep_time == [0.2, 0.4]
     assert args.delete_sleep_time == [1.5, 2]
     assert args.keep_last == 0
@@ -39,6 +43,22 @@ def test_parse_args_clean_defaults():
     assert args.json is False
     assert args.redact_sensitive is None
     assert args.redact_names is True
+
+
+def test_parse_args_rejects_negative_max_retries(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=["clean", "--max-retries", "-1"])
+    assert exc.value.code == 2
+    assert "non-negative integer" in capsys.readouterr().err
+
+
+def test_parse_args_accepts_retry_safety_jitter_name():
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--retry-safety-jitter", "0.05", "0.2"],
+    )
+
+    assert args.retry_time_buffer == ["0.05", "0.2"]
 
 
 def test_parse_args_list_channels_json_flag():
@@ -59,6 +79,88 @@ def test_parse_args_list_channels_accepts_scope_filters():
     assert args.exclude_ids == ["channel-1"]
 
 
+def test_parse_args_list_channels_accepts_channel_and_thread_exclusions():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "list",
+            "channels",
+            "--exclude-channel-types",
+            "GuildVoice",
+            "PrivateThread",
+            "--exclude-thread-states",
+            "archived",
+            "--exclude-threads",
+        ],
+    )
+
+    assert args.exclude_channel_types == ["GuildVoice", "PrivateThread"]
+    assert args.exclude_thread_states == ["archived"]
+    assert args.exclude_threads is True
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        ["--exclude-channel-types", "ForumPost"],
+        ["--exclude-thread-states", "locked"],
+    ],
+)
+def test_parse_args_list_channels_rejects_unknown_scope_exclusion(option):
+    with pytest.raises(SystemExit):
+        parse_args("1.0.0", argv=["list", "channels", *option])
+
+
+def test_parse_args_accepts_named_request_interval_overrides():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "list",
+            "channels",
+            "--request-interval",
+            "thread-search=1.1,1.3",
+            "--request-interval",
+            "read=0.2",
+        ],
+    )
+
+    assert args.request_intervals == {
+        "thread-search": (1.1, 1.3),
+        "read": (0.2, 0.2),
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["unknown=1", "read", "read=2,1", "read=-1"],
+)
+def test_parse_args_rejects_invalid_request_interval(value):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            "1.0.0",
+            argv=["list", "channels", "--request-interval", value],
+        )
+
+    assert exc.value.code == 2
+
+
+def test_parse_args_rejects_duplicate_request_interval_policy():
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            "1.0.0",
+            argv=[
+                "list",
+                "channels",
+                "--request-interval",
+                "read=0.1",
+                "--request-interval",
+                "read=0.2",
+            ],
+        )
+
+    assert exc.value.code == 2
+
+
 def test_parse_args_list_guilds_accepts_scope_filters():
     args = parse_args(
         "1.0.0",
@@ -68,6 +170,19 @@ def test_parse_args_list_guilds_accepts_scope_filters():
     assert args.list_command == "guilds"
     assert args.include_ids == ["guild-1"]
     assert args.exclude_ids == ["guild-2"]
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        ["--exclude-channel-types", "GuildVoice"],
+        ["--exclude-thread-states", "archived"],
+        ["--exclude-threads"],
+    ],
+)
+def test_parse_args_list_guilds_rejects_channel_filter_options(option):
+    with pytest.raises(SystemExit):
+        parse_args("1.0.0", argv=["list", "guilds", *option])
 
 
 def test_parse_args_list_channels_no_json_flag():
@@ -93,6 +208,21 @@ def test_parse_args_list_profiles():
     assert args.command == "list"
     assert args.list_command == "profiles"
     assert args.config_path.endswith("config.json")
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("channel-types", "channel-types"),
+        ("thread-states", "thread-states"),
+    ],
+)
+def test_parse_args_static_filter_value_lists(command, expected):
+    args = parse_args("1.0.0", argv=["list", command])
+
+    assert args.command == "list"
+    assert args.list_command == expected
+    assert args.json is False
 
 
 def test_parse_args_profile_show():

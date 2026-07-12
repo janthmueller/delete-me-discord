@@ -3,7 +3,18 @@ from typing import Dict, Any, List
 from rich.console import Console
 
 from .api import DiscordAPI
+from .channel_types import (
+    ChannelType,
+    GUILD_MESSAGE_CHANNEL_TYPES,
+    ROOT_MESSAGE_CHANNEL_TYPES,
+    THREAD_CHANNEL_TYPES,
+    THREAD_CONTAINER_CHANNEL_TYPES,
+    channel_type_name,
+    channel_type_sort_order,
+    is_archived_thread,
+)
 from .scope_inventory import ScopeInventory
+from .scope_filter import ScopeFilter
 from .utils import should_include_channel
 from .discovery_renderers import (
     render_guilds_json,
@@ -92,12 +103,18 @@ def collect_guilds_from_inventory(
 def collect_channels(
     api: DiscordAPI,
     include_set,
-    exclude_set
+    exclude_set,
+    *,
+    scope_filter: ScopeFilter | None = None,
 ) -> Dict[str, Any]:
     """
     Collect channels grouped by DMs and guilds, respecting include/exclude filters.
     """
-    return collect_channels_from_inventory(ScopeInventory.fetch(api), include_set, exclude_set)
+    inventory = ScopeInventory.fetch(
+        api,
+        scope_filter=scope_filter,
+    )
+    return collect_channels_from_inventory(inventory, include_set, exclude_set)
 
 
 def collect_channels_from_inventory(
@@ -108,26 +125,24 @@ def collect_channels_from_inventory(
     """
     Collect channels grouped by DMs and guilds from a fetched scope inventory.
     """
-    channel_types = {0: "GuildText", 1: "DM", 3: "GroupDM"}
-
     def include_channel(channel):
         return should_include_channel(
             channel=channel,
             include_ids=include_set,
-            exclude_ids=exclude_set
+            exclude_ids=exclude_set,
+            scope_filter=inventory.scope_filter,
         )
 
     def channel_sort_key(channel):
-        type_order = {0: 0, 1: 1, 3: 2}  # GuildText, DM, GroupDM
         name = channel.get("name")
         if not name:
             recipients = channel.get("recipients") or []
             name = ', '.join([recipient.get("username", "Unknown") for recipient in recipients])
-        return (type_order.get(channel.get("type"), 99), name.lower(), channel.get("id"))
+        return (channel_type_sort_order(channel.get("type")), name.lower(), channel.get("id"))
 
     included_dms = []
     for channel in inventory.root_channels:
-        if channel.get("type") not in channel_types:
+        if channel.get("type") not in ROOT_MESSAGE_CHANNEL_TYPES:
             continue
         if not include_channel(channel):
             continue
@@ -140,7 +155,7 @@ def collect_channels_from_inventory(
             "name": channel.get("name") or ', '.join(
                 [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
             ),
-            "type": channel_types.get(channel.get("type"), f"Type {channel.get('type')}"),
+            "type": channel_type_name(channel.get("type")),
         })
 
     json_guilds = []
@@ -149,16 +164,36 @@ def collect_channels_from_inventory(
         guild_name = guild.get("name", "Unknown")
 
         channels = inventory.guild_channels(guild_id)
+        threads = inventory.guild_threads(guild_id)
+        parent_by_id = {
+            str(channel["id"]): channel
+            for channel in channels
+            if channel.get("id") is not None
+        }
 
         category_names = {
             c.get("id"): c.get("name") or "Unknown category"
             for c in channels
-            if c.get("type") == 4  # Category
+            if c.get("type") == ChannelType.GUILD_CATEGORY
         }
 
+        candidate_channels = [
+            channel
+            for channel in channels
+            if channel.get("type") in GUILD_MESSAGE_CHANNEL_TYPES
+            or (
+                channel.get("type") in THREAD_CONTAINER_CHANNEL_TYPES
+                and inventory.scope_filter.searches_thread_parent(channel.get("type"))
+            )
+        ]
+        if inventory.includes_threads:
+            candidate_channels.extend(
+                thread for thread in threads if thread.get("type") in THREAD_CHANNEL_TYPES
+            )
+
         filtered_channels = []
-        for channel in channels:
-            if channel.get("type") not in channel_types:
+        for channel in candidate_channels:
+            if channel.get("type") == ChannelType.GUILD_CATEGORY:
                 continue
             if not include_channel(channel):
                 continue
@@ -169,26 +204,40 @@ def collect_channels_from_inventory(
 
         grouped = {}
         for channel in filtered_channels:
-            grouped.setdefault(channel.get("parent_id"), []).append(channel)
+            category_id = (
+                channel.get("category_id")
+                if channel.get("type") in THREAD_CHANNEL_TYPES
+                else channel.get("parent_id")
+            )
+            grouped.setdefault(category_id, []).append(channel)
 
         categories = []
 
         def category_label(parent_id):
             return category_names.get(parent_id, "(no category)")
 
-        for parent_id, chans in sorted(grouped.items(), key=lambda item: (category_label(item[0]).lower(), item[0] or "")):
+        for category_id, chans in sorted(grouped.items(), key=lambda item: (category_label(item[0]).lower(), item[0] or "")):
             entries = []
             for channel in sorted(chans, key=channel_sort_key):
-                entries.append({
+                entry = {
                     "id": channel.get("id"),
                     "name": channel.get("name") or ', '.join(
                         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
                     ),
-                    "type": channel_types.get(channel.get("type"), f"Type {channel.get('type')}"),
-                })
+                    "type": channel_type_name(channel.get("type")),
+                }
+                if channel.get("type") in THREAD_CHANNEL_TYPES:
+                    thread_parent_id = channel.get("parent_id")
+                    parent = parent_by_id.get(str(thread_parent_id)) if thread_parent_id is not None else None
+                    entry.update({
+                        "parent_id": thread_parent_id,
+                        "parent_name": (parent or {}).get("name") or "Unknown parent",
+                        "archived": is_archived_thread(channel),
+                    })
+                entries.append(entry)
             categories.append({
-                "id": parent_id,
-                "name": category_label(parent_id),
+                "id": category_id,
+                "name": category_label(category_id),
                 "channels": entries,
             })
         json_guilds.append({

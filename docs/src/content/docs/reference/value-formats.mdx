@@ -120,6 +120,8 @@ String lists are used by profile fields such as:
 
 - `include_ids`
 - `exclude_ids`
+- `exclude_channel_types`
+- `exclude_thread_states`
 
 Profile `--set` accepts:
 
@@ -131,6 +133,8 @@ Profile `--set` accepts:
 
 For `include_ids` and `exclude_ids`, values may be full Discord IDs or unique ID suffixes when set through `dmd profile add` or `dmd profile update`.
 Profile commands resolve them through Discord before writing config, and store full IDs.
+
+`exclude_channel_types` accepts canonical values from `dmd list channel-types`. `exclude_thread_states` accepts values from `dmd list thread-states`.
 
 Hand-written profile config accepts the same list shapes:
 
@@ -155,10 +159,10 @@ They accept one or two numbers.
 Profile `--set` accepts:
 
 ```bash
---set retry_time_buffer=25
---set retry_time_buffer=25,35
---set retry_time_buffer="25 35"
---set retry_time_buffer='[25,35]'
+--set retry_time_buffer=0.1
+--set retry_time_buffer=0.1,0.3
+--set retry_time_buffer="0.1 0.3"
+--set retry_time_buffer='[0.1,0.3]'
 ```
 
 Hand-written profile config accepts the same input shapes.
@@ -167,7 +171,7 @@ When profile commands rewrite the profile, number ranges are stored as JSON arra
 
 ```json
 {
-  "retry_time_buffer": [25.0, 35.0]
+  "retry_time_buffer": [0.1, 0.3]
 }
 ```
 

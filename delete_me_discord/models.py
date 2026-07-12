@@ -32,7 +32,9 @@ class DiscordChannel(TypedDict, total=False):
     name: str
     guild_id: str
     parent_id: str
+    category_id: str
     recipients: list[DiscordRecipient]
+    thread_metadata: dict[str, Any]
 
 
 class DiscordMessage(TypedDict):

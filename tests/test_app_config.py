@@ -119,6 +119,15 @@ def test_load_profile_rejects_unknown_field(tmp_path):
         ("include_ids=123 456", {"include_ids": ["123", "456"]}),
         ('include_ids=["123","456"]', {"include_ids": ["123", "456"]}),
         ("exclude_ids=789,101112", {"exclude_ids": ["789", "101112"]}),
+        (
+            "exclude_channel_types=GuildVoice,PrivateThread",
+            {"exclude_channel_types": ["GuildVoice", "PrivateThread"]},
+        ),
+        (
+            "exclude_thread_states=archived",
+            {"exclude_thread_states": ["archived"]},
+        ),
+        ("exclude_threads=true", {"exclude_threads": True}),
         ("keep_last=20", {"keep_last": 20}),
         ("keep_last_scope=mine", {"keep_last_scope": "mine"}),
         ("keep_last_scope=all", {"keep_last_scope": "all"}),
@@ -173,6 +182,16 @@ def test_parse_profile_set_assignments_accepts_all_supported_shapes(assignment, 
         ("include_ids", '["123","456"]', ["123", "456"]),
         ("exclude_ids", ["789", "101112"], ["789", "101112"]),
         ("exclude_ids", "789,101112", ["789", "101112"]),
+        (
+            "exclude_channel_types",
+            ["GuildVoice", "PrivateThread"],
+            ["GuildVoice", "PrivateThread"],
+        ),
+        ("exclude_channel_types", "GuildVoice,PrivateThread", ["GuildVoice", "PrivateThread"]),
+        ("exclude_thread_states", ["active"], ["active"]),
+        ("exclude_thread_states", "archived", ["archived"]),
+        ("exclude_threads", True, True),
+        ("exclude_threads", "false", False),
         ("keep_last", 20, 20),
         ("keep_last", "20", 20),
         ("keep_last_scope", "mine", "mine"),
@@ -249,6 +268,9 @@ def test_load_profile_accepts_all_supported_config_shapes(tmp_path, field, raw_v
     [
         ("include_ids", "123,456", ["123", "456"]),
         ("exclude_ids", "789 101112", ["789", "101112"]),
+        ("exclude_channel_types", "GuildVoice,PrivateThread", ["GuildVoice", "PrivateThread"]),
+        ("exclude_thread_states", "archived", ["archived"]),
+        ("exclude_threads", "true", True),
         ("keep_last", "20", 20),
         ("keep_last_scope", "all", "all"),
         ("keep_within", "2w", "2w"),
@@ -288,6 +310,8 @@ def test_update_profile_normalizes_all_supported_stored_shapes(tmp_path, field, 
     [
         ("include_ids", 1, "list of strings"),
         ("include_ids", "", "empty list string"),
+        ("exclude_channel_types", ["ForumPost"], "unsupported value"),
+        ("exclude_thread_states", ["locked"], "unsupported value"),
         ("keep_last", -1, "non-negative integer"),
         ("keep_last_scope", "weird", "must be 'mine' or 'all'"),
         ("keep_within", [], "field 'keep_within' must be a string or zero-like number"),
@@ -421,6 +445,8 @@ def test_parse_profile_set_assignments_accepts_none_for_nullable_fields():
         ("keep_last=abc", "non-negative integer"),
         ("verbose=9", "between 0 and 3"),
         ("preserve_cache=maybe", "true or false"),
+        ("exclude_channel_types=ForumPost", "unsupported value"),
+        ("exclude_thread_states=locked", "unsupported value"),
         ("keep_within=banana", "invalid"),
         ("retry_time_buffer=abc", "invalid"),
         ("redact_sensitive=abc", "one-integer suffix list"),
@@ -528,6 +554,63 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
     }
 
 
+@pytest.mark.parametrize(
+    ("legacy_fields", "expected_filters"),
+    [
+        (
+            {"include_threads": False},
+            {"exclude_threads": True},
+        ),
+        ({"include_threads": True}, {"exclude_thread_states": ["archived"]}),
+        ({"include_archived_threads": True}, {}),
+        ({"include_threads": True, "include_archived_threads": True}, {}),
+        ({"threads": "none"}, {"exclude_threads": True}),
+        ({"threads": "active"}, {"exclude_thread_states": ["archived"]}),
+        ({"threads": "all"}, {}),
+    ],
+)
+def test_load_profile_migrates_legacy_thread_fields(tmp_path, legacy_fields, expected_filters):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"profiles": {"nightly-dms": legacy_fields}}),
+        encoding="utf-8",
+    )
+
+    assert load_profile(str(config_path), "nightly-dms") == expected_filters
+
+
+def test_update_profile_rewrites_legacy_thread_fields(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"include_threads":true,"keep_last":1}}}',
+        encoding="utf-8",
+    )
+
+    update_profile(
+        str(config_path),
+        "nightly-dms",
+        {"exclude_thread_states": []},
+        [],
+    )
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["profiles"]["nightly-dms"] == {
+        "exclude_thread_states": [],
+        "keep_last": 1,
+    }
+
+
+def test_load_profile_rejects_combined_current_and_legacy_thread_fields(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"threads":"all","exclude_channel_types":[]}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot combine current and legacy thread filters"):
+        load_profile(str(config_path), "nightly-dms")
+
+
 def test_profile_update_can_store_redact_sensitive_false(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text('{"profiles":{"nightly-dms":{"keep_last":1}}}', encoding="utf-8")
@@ -625,6 +708,9 @@ def test_build_clean_defaults_uses_global_default_when_profile_missing():
     defaults = build_clean_defaults(None, None)
 
     assert defaults["profile"] is None
+    assert defaults["exclude_channel_types"] == []
+    assert defaults["exclude_thread_states"] == []
+    assert defaults["exclude_threads"] is False
     assert defaults["preserve_cache_path"].endswith("preserve_cache.json")
 
 
@@ -705,6 +791,32 @@ def test_parse_args_cli_values_override_profile_defaults(tmp_path):
     assert args.verbose == 3
 
 
+def test_parse_args_cli_can_reset_profile_scope_exclusions(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"profiles":{"nightly-dms":{"exclude_channel_types":["GuildVoice"],"exclude_thread_states":["archived"],"exclude_threads":true}}}',
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "clean",
+            "--config-path",
+            str(config_path),
+            "--profile",
+            "nightly-dms",
+            "--exclude-channel-types",
+            "--exclude-thread-states",
+            "--no-exclude-threads",
+        ],
+    )
+
+    assert args.exclude_channel_types == []
+    assert args.exclude_thread_states == []
+    assert args.exclude_threads is False
+
+
 def test_parse_args_cli_can_reset_profile_nullable_defaults(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -781,6 +893,44 @@ def test_parse_args_profile_keeps_true_boolean_defaults_without_cli_override(tmp
     assert args.keep_reactions is True
     assert args.preserve_cache is True
     assert args.buffer_per_channel is True
+
+
+def test_effective_settings_preserve_scope_exclusions():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "clean",
+            "--exclude-channel-types",
+            "GuildVoice",
+            "PrivateThread",
+            "--exclude-thread-states",
+            "archived",
+            "--exclude-threads",
+        ],
+    )
+
+    settings = resolve_effective_clean_settings(args)
+
+    assert settings.exclude_channel_types == ["GuildVoice", "PrivateThread"]
+    assert settings.exclude_thread_states == ["archived"]
+    assert settings.exclude_threads is True
+
+
+def test_effective_settings_include_request_interval_overrides():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "clean",
+            "--request-interval",
+            "thread-search=1.1,1.3",
+        ],
+    )
+
+    settings = resolve_effective_clean_settings(args)
+
+    assert settings.request_intervals == {
+        "thread-search": (1.1, 1.3),
+    }
 
 
 def test_resolve_effective_clean_settings_derives_profile_cache_path(tmp_path):

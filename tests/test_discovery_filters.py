@@ -25,6 +25,9 @@ class FakeAPI:
     def get_guild_channels(self, guild_id):
         return self._guild_channels_map.get(guild_id, [])
 
+    def search_channel_threads(self, channel_id, *, include_archived=False):
+        return []
+
 
 def test_collect_channels_include_parent_overrides_guild_exclude():
     api = FakeAPI(

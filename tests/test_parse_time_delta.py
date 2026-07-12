@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.utils import parse_time_delta
+from delete_me_discord.utils import parse_random_range, parse_time_delta
 
 
 def test_legacy_parsing_all_units():
@@ -54,3 +54,9 @@ def test_invalid_unit_rejected():
         parse_time_delta("months=1")
     with pytest.raises(argparse.ArgumentTypeError):
         parse_time_delta("1q")
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "-inf"])
+def test_random_range_rejects_negative_and_non_finite_values(value):
+    with pytest.raises(argparse.ArgumentTypeError, match="finite and non-negative"):
+        parse_random_range([value], "sleep-time")

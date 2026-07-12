@@ -1,6 +1,6 @@
 ---
 title: Log Output
-description: How to interpret v2 terminal and JSON output.
+description: How to interpret v3 terminal and JSON output.
 ---
 
 The CLI does not always show the same kind of output.
@@ -49,6 +49,7 @@ Shows the high-level run flow:
 - fetch summaries
 - wait timing between fetch batches
 - retry/rate-limit related diagnostics
+- unavailable thread-parent skips during thread discovery
 
 ## Dry-run output
 
@@ -87,7 +88,7 @@ This is most useful when you want stronger per-channel timing visibility in a ma
 - `execute time`: measured action time during a real buffered deletion run
 - `total time`: actual wall-clock time for that executed channel
 
-The estimates are rough. They are based on planned delete/reaction actions plus the configured delete sleep timing, not exact future API latency.
+The estimates are rough. They are based on the configured pacing intervals between planned delete/reaction actions, not exact future API latency or Discord bucket waits.
 
 ## JSON mode
 

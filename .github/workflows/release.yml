@@ -5,25 +5,22 @@ on:
     workflows: ["Test"]
     types:
       - completed
-  workflow_dispatch:
+    branches:
+      - main
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: release-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   guard:
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main'
-      )
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
@@ -40,11 +37,6 @@ jobs:
         env:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           git fetch origin main
           CURRENT_SHA="$(git rev-parse origin/main)"
 
@@ -59,6 +51,8 @@ jobs:
     needs: guard
     if: needs.guard.outputs.should_release == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -99,7 +93,11 @@ jobs:
         run: python -m build
 
       - name: Validate package
-        run: twine check dist/*
+        shell: bash
+        run: |
+          EXPECTED_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          twine check dist/*
+          python tools/verify_distribution.py dist/*.whl dist/*.tar.gz "$EXPECTED_VERSION"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.14.0

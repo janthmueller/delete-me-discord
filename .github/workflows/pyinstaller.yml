@@ -4,12 +4,19 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build binaries for
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -24,15 +31,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
 
       - name: Set release tag env
         run: |
-          TAG="${{ github.event_name == 'release' && github.event.release.tag_name || '' }}"
+          TAG="${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}"
           if [ -z "$TAG" ]; then
             echo "RELEASE_TAG not found; failing."
             exit 1
           fi
-          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
         shell: bash
 
       - name: Set up Python
@@ -46,7 +55,18 @@ jobs:
           pip install pyinstaller .
 
       - name: Build binary
-        run: pyinstaller delete_me_discord.spec
+        run: pyinstaller --noconfirm --clean delete_me_discord.spec
+
+      - name: Verify binary version
+        shell: bash
+        run: |
+          EXPECTED_VERSION="${RELEASE_TAG#v}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BINARY="dist/delete-me-discord/delete-me-discord.exe"
+          else
+            BINARY="dist/delete-me-discord/delete-me-discord"
+          fi
+          test "$("$BINARY" --version)" = "delete-me-discord $EXPECTED_VERSION"
 
       - name: Add CLI alias to build output
         shell: bash
@@ -82,7 +102,7 @@ jobs:
             echo "Archive not found at $ARCHIVE"
             exit 1
           fi
-          echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
 
       - name: Skip if asset already exists
         uses: actions/github-script@v9

@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Dict, List, Any
 from .privacy import sensitive
+from .storage import atomic_write_json
 
 DEFAULT_PRESERVE_CACHE_PATH = os.path.join(
     os.path.expanduser("~"),
@@ -77,8 +78,7 @@ class PreserveCache:
             "channels": self.data.get("channels", {}),
         }
         try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, sort_keys=True)
+            atomic_write_json(self.path, payload)
         except Exception as exc:  # pragma: no cover - defensive
             self.logger.error("Failed to write preserve cache at %s: %s", sensitive(self.path, full=True), exc)
             raise

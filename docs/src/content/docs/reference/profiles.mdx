@@ -159,7 +159,10 @@ Examples:
 --set keep_within=2w
 --set preserve_cache=true
 --set include_ids=123,456
---set retry_time_buffer=25,35
+--set exclude_channel_types=GuildVoice,PrivateThread
+--set exclude_thread_states=archived
+--set exclude_threads=true
+--set retry_time_buffer=0.1,0.3
 --set redact_sensitive=4
 --set redact_names=false
 ```
@@ -184,6 +187,9 @@ Profiles can define cleanup behavior and run-style settings for `dmd clean`, inc
 
 - `include_ids`
 - `exclude_ids`
+- `exclude_channel_types`
+- `exclude_thread_states`
+- `exclude_threads`
 - `keep_last`
 - `keep_last_scope`
 - `keep_within`

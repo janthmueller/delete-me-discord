@@ -150,7 +150,7 @@ def test_resolve_token_prefers_argument_over_stored_tokens_and_env(tmp_path, mon
     assert (token, source) == ("arg-token", "argument")
 
 
-def test_resolve_token_prefers_keyring_over_legacy_config_and_env(tmp_path, monkeypatch):
+def test_resolve_token_prefers_env_over_stored_tokens(tmp_path, monkeypatch):
     keyring = _fake_keyring(monkeypatch)
     config_path = tmp_path / "config.json"
     AuthConfig(str(config_path)).save_legacy_token("config-token")
@@ -159,6 +159,19 @@ def test_resolve_token_prefers_keyring_over_legacy_config_and_env(tmp_path, monk
     monkeypatch.setenv("DISCORD_TOKEN", "env-token")
 
     token, source = resolve_token(None, str(config_path))
+    assert (token, source) == ("env-token", "environment")
+
+
+def test_resolve_token_prefers_keyring_over_legacy_config_without_env(tmp_path, monkeypatch):
+    keyring = _fake_keyring(monkeypatch)
+    config_path = tmp_path / "config.json"
+    AuthConfig(str(config_path)).save_legacy_token("config-token")
+    store = KeyringTokenStore(str(config_path))
+    keyring.set_password(KEYRING_SERVICE, store.username, "keyring-token")
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+
+    token, source = resolve_token(None, str(config_path))
+
     assert (token, source) == ("keyring-token", "keyring")
 
 
@@ -166,7 +179,7 @@ def test_resolve_token_uses_legacy_config_when_keyring_empty(tmp_path, monkeypat
     _fake_keyring(monkeypatch)
     config_path = tmp_path / "config.json"
     AuthConfig(str(config_path)).save_legacy_token("config-token")
-    monkeypatch.setenv("DISCORD_TOKEN", "env-token")
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
 
     token, source = resolve_token(None, str(config_path))
     assert (token, source) == ("config-token", "legacy config")

@@ -34,7 +34,7 @@ dmd profile add nightly-dms \
 
 This creates a baseline profile that can seed the preserve-cache before you introduce a narrow fetch window.
 
-Replace `<id>` with a guild, category, guild text channel, DM, or Group DM ID.
+Replace `<id>` with a guild, category, supported message channel, thread parent, or thread ID. Active and archived threads are available while profile scope is resolved unless the profile sets `exclude_channel_types` or `exclude_thread_states`.
 If you want multiple IDs, use a comma-separated list such as `include_ids=123,456`.
 
 The scope field is not required by the CLI. If you omit `include_ids` and `exclude_ids`, the profile uses the default cleanup scope: all eligible channels.

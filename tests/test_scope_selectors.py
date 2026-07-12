@@ -28,6 +28,9 @@ class FakeAPI:
                 {"id": "555555555555555555", "type": 4, "name": "General"},
                 {"id": "555555555555555556", "type": 4, "name": "Voice"},
                 {"id": "666666666666666666", "type": 0, "name": "chat", "parent_id": "555555555555555555"},
+                {"id": "666666666666666667", "type": 5, "name": "news", "parent_id": "555555555555555555"},
+                {"id": "666666666666666668", "type": 2, "name": "voice", "parent_id": "555555555555555556"},
+                {"id": "666666666666666669", "type": 13, "name": "stage", "parent_id": "555555555555555556"},
             ],
             "222222222222222222": [
                 {"id": "777777777777777777", "type": 0, "name": "other"},
@@ -44,6 +47,9 @@ class FakeAPI:
     def get_guild_channels(self, guild_id):
         return self.guild_channels.get(guild_id, [])
 
+    def search_channel_threads(self, channel_id, *, include_archived=False):
+        return []
+
 
 def test_discover_scope_targets_collects_supported_target_ids():
     targets = discover_scope_targets(ScopeInventory.fetch(FakeAPI()))
@@ -53,9 +59,12 @@ def test_discover_scope_targets_collects_supported_target_ids():
     assert by_id["333333333333333333"].kind == "DM"
     assert by_id["444444444444444444"].kind == "GroupDM"
     assert by_id["555555555555555555"].kind == "Category"
-    assert "555555555555555556" not in by_id
+    assert by_id["555555555555555556"].kind == "Category"
     assert by_id["666666666666666666"].kind == "GuildText"
-    assert "888888888888888888" not in by_id
+    assert by_id["666666666666666667"].kind == "GuildAnnouncement"
+    assert by_id["666666666666666668"].kind == "GuildVoice"
+    assert by_id["666666666666666669"].kind == "GuildStageVoice"
+    assert by_id["888888888888888888"].kind == "GuildVoice"
 
 
 def test_scope_inventory_skips_unavailable_guild_channels():

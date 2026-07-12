@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from .channel_types import (
+    ChannelType,
+    GUILD_MESSAGE_CHANNEL_TYPES,
+    ROOT_MESSAGE_CHANNEL_TYPES,
+    THREAD_CHANNEL_TYPES,
+    THREAD_CONTAINER_CHANNEL_TYPES,
+    channel_type_name,
+)
 from .privacy import sensitive, sensitive_name
 from .scope_inventory import ScopeInventory
 
@@ -26,31 +34,55 @@ def discover_scope_targets(inventory: ScopeInventory) -> list[ScopeTarget]:
         if guild_id:
             targets.append(ScopeTarget(id=guild_id, kind="Guild", name=guild.get("name") or "Unknown"))
 
-    root_channel_types = {1: "DM", 3: "GroupDM"}
     for channel in inventory.root_channels:
-        kind = root_channel_types.get(channel.get("type"))
+        channel_type = channel.get("type")
+        kind = channel_type_name(channel_type) if channel_type in ROOT_MESSAGE_CHANNEL_TYPES else None
         channel_id = _string_id(channel.get("id"))
         if kind and channel_id:
             targets.append(ScopeTarget(id=channel_id, kind=kind, name=_channel_name(channel)))
 
-    guild_channel_types = {0: "GuildText", 4: "Category"}
     for guild in inventory.guilds:
         guild_id = _string_id(guild.get("id"))
         if not guild_id:
             continue
         channels = inventory.guild_channels(guild_id)
-        eligible_parent_ids = {
+        threads = inventory.guild_threads(guild_id)
+        eligible_category_ids = {
             _string_id(channel.get("parent_id"))
             for channel in channels
-            if channel.get("type") == 0 and channel.get("parent_id") is not None
+            if (
+                channel.get("type") in GUILD_MESSAGE_CHANNEL_TYPES
+                or (inventory.includes_threads and channel.get("type") in THREAD_CONTAINER_CHANNEL_TYPES)
+            )
+            and channel.get("parent_id") is not None
         }
+        eligible_category_ids.update(
+            _string_id(thread.get("category_id"))
+            for thread in threads
+            if thread.get("category_id") is not None
+        )
         for channel in channels:
-            kind = guild_channel_types.get(channel.get("type"))
+            channel_type = channel.get("type")
             channel_id = _string_id(channel.get("id"))
-            if kind == "Category" and channel_id not in eligible_parent_ids:
+            if channel_type == ChannelType.GUILD_CATEGORY:
+                if channel_id in eligible_category_ids:
+                    targets.append(ScopeTarget(id=channel_id, kind="Category", name=_channel_name(channel)))
                 continue
-            if kind and channel_id:
-                targets.append(ScopeTarget(id=channel_id, kind=kind, name=_channel_name(channel)))
+            is_direct_message_channel = channel_type in GUILD_MESSAGE_CHANNEL_TYPES
+            is_thread_container = inventory.includes_threads and channel_type in THREAD_CONTAINER_CHANNEL_TYPES
+            if channel_id and (is_direct_message_channel or is_thread_container):
+                targets.append(
+                    ScopeTarget(id=channel_id, kind=channel_type_name(channel_type), name=_channel_name(channel))
+                )
+
+        if inventory.includes_threads:
+            for thread in threads:
+                thread_type = thread.get("type")
+                thread_id = _string_id(thread.get("id"))
+                if thread_id and thread_type in THREAD_CHANNEL_TYPES:
+                    targets.append(
+                        ScopeTarget(id=thread_id, kind=channel_type_name(thread_type), name=_channel_name(thread))
+                    )
 
     return targets
 
