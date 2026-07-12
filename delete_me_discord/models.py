@@ -71,6 +71,18 @@ class ActionKind(Enum):
     DELETE_REACTION = "delete_reaction"
 
 
+class DeleteOutcome(Enum):
+    """Observed result of one idempotent delete request."""
+
+    DELETED = "deleted"
+    ABSENT = "absent"
+    FAILED = "failed"
+
+    @property
+    def desired_state_reached(self) -> bool:
+        return self in {DeleteOutcome.DELETED, DeleteOutcome.ABSENT}
+
+
 @dataclass(frozen=True, slots=True)
 class OwnedReaction:
     """One reaction variant owned by the authenticated user."""

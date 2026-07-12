@@ -1,6 +1,7 @@
 import pytest
 
 from delete_me_discord.api import DiscordAPI
+from delete_me_discord.models import DeleteOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.type_enums import ReactionType
@@ -70,8 +71,10 @@ def test_request_raises_authentication_error():
 def test_request_raises_resource_unavailable():
     session = FakeSession(FakeResponse(403, {"error": "forbidden"}))
     api = make_api(session)
-    with pytest.raises(ResourceUnavailable):
+    with pytest.raises(ResourceUnavailable) as exc_info:
         api.get_guilds()
+
+    assert exc_info.value.status_code == 403
 
 
 def test_get_channel_uses_exact_channel_route():
@@ -141,7 +144,7 @@ def test_delete_own_reaction_encodes_identifier_in_url(caplog):
         )
     finally:
         set_redaction_config(RedactionConfig())
-    assert result is True
+    assert result == DeleteOutcome.DELETED
     assert session.last_url.endswith("/reactions/sample_emoji%3A999999/@me")
 
 
@@ -156,7 +159,7 @@ def test_delete_super_reaction_uses_typed_route_and_burst_query():
         reaction_type=ReactionType.BURST,
     )
 
-    assert result is True
+    assert result == DeleteOutcome.DELETED
     assert session.last_url.endswith("/reactions/sparkles/@me/1")
     assert session.last_params == {"burst": True}
 
@@ -172,7 +175,7 @@ def test_delete_reaction_formats_deleted_custom_emoji_for_discord_route():
         reaction_type=ReactionType.BURST,
     )
 
-    assert result is True
+    assert result == DeleteOutcome.DELETED
     assert session.last_url.endswith("/reactions/null%3A999999/@me/1")
 
 
@@ -180,7 +183,7 @@ def test_delete_thread_accepts_channel_response():
     session = FakeSession(FakeResponse(200, {"id": "thread-1"}))
     api = make_api(session)
 
-    assert api.delete_thread("thread-1") is True
+    assert api.delete_thread("thread-1") == DeleteOutcome.DELETED
     assert session.last_method == "delete"
     assert session.last_url.endswith("/channels/thread-1")
 
@@ -189,7 +192,20 @@ def test_delete_thread_handles_missing_permission():
     session = FakeSession(FakeResponse(403, {"message": "Missing Permissions"}))
     api = make_api(session)
 
-    assert api.delete_thread("thread-1") is False
+    assert api.delete_thread("thread-1") == DeleteOutcome.FAILED
+
+
+def test_delete_endpoints_report_absent_on_404():
+    message_api = make_api(FakeSession(FakeResponse(404, {"message": "Unknown Message"})))
+    reaction_api = make_api(FakeSession(FakeResponse(404, {"message": "Unknown Message"})))
+    thread_api = make_api(FakeSession(FakeResponse(404, {"message": "Unknown Channel"})))
+
+    assert message_api.delete_message("c1", "m1") == DeleteOutcome.ABSENT
+    assert (
+        reaction_api.delete_own_reaction("c1", "m1", {"name": "wave"})
+        == DeleteOutcome.ABSENT
+    )
+    assert thread_api.delete_thread("thread-1") == DeleteOutcome.ABSENT
 
 
 def test_delete_own_reaction_malformed_emoji_log_is_redacted(caplog):
@@ -201,7 +217,7 @@ def test_delete_own_reaction_malformed_emoji_log_is_redacted(caplog):
         result = api.delete_own_reaction(channel_id="c1", message_id="m1", emoji={})
     finally:
         set_redaction_config(RedactionConfig())
-    assert result is False
+    assert result == DeleteOutcome.FAILED
     assert any("missing emoji identifier" in rec.message for rec in caplog.records)
 
 
@@ -219,7 +235,7 @@ def test_delete_own_reaction_unavailable_log_redacts_emoji_and_ids(monkeypatch, 
     finally:
         set_redaction_config(RedactionConfig())
 
-    assert result is False
+    assert result == DeleteOutcome.FAILED
     assert "Skipping deletion of reaction *** from message ***5679 in channel ***5678 (unavailable: gone)." in caplog.text
     assert "sample_emoji" not in caplog.text
     assert "123456789012345678" not in caplog.text

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 from delete_me_discord.api import DiscordAPI
+from delete_me_discord.models import DeleteOutcome
 from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.utils import AuthenticationError, ResourceUnavailable
 from delete_me_discord.type_enums import MessageType
@@ -107,7 +108,7 @@ def test_delete_message_succeeds_on_204_without_body():
 
     result = api.delete_message(channel_id=channel_id, message_id=message_id)
 
-    assert result is True
+    assert result == DeleteOutcome.DELETED
     assert session.last_method == "delete"
     assert session.last_url.endswith(f"/channels/{channel_id}/messages/{message_id}")
 

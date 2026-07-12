@@ -81,6 +81,8 @@ Other top-level commands are:
 
 DMD tracks Discord's global, route, bucket, and route-family rate-limit state in memory for the duration of a run. It learns from response headers and `429` payloads, then waits immediately before the next affected request. A user-scoped `429` can teach the scheduler a minimum interval shared by the same normalized endpoint across different channel or guild IDs. Fetch and delete intervals use the same scheduler, so there is no unconditional sleep after the final request in a sequence.
 
+When Discord provides multiple relative retry deadlines, DMD uses the longest valid `retry_after`, numeric `Retry-After`, or `X-RateLimit-Reset-After` value and then adds `--retry-safety-jitter`. Standard HTTP-date `Retry-After` and absolute `X-RateLimit-Reset` values are accepted only when no relative deadline exists, avoiding dependence on local clock accuracy. If a network failure, HTTP `408`, server error, indexing response, or `429` contains no usable deadline, DMD uses capped exponential backoff with full jitter instead. A hintless user-scoped `429` blocks the affected route family for that retry without teaching a permanent interval from an unknown limit.
+
 Named policy defaults:
 
 | Policy | Default interval |

@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 from delete_me_discord.cleaner import MessageCleaner
-from delete_me_discord.models import ActionKind, PlannedAction
+from delete_me_discord.models import ActionKind, DeleteOutcome, PlannedAction
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
@@ -26,7 +26,7 @@ class DummyType:
 
 class DummyAPI:
     def delete_message(self, channel_id, message_id):
-        return True
+        return DeleteOutcome.DELETED
 
     def delete_own_reaction(
         self,
@@ -35,7 +35,7 @@ class DummyAPI:
         emoji,
         reaction_type=ReactionType.NORMAL,
     ):
-        return True
+        return DeleteOutcome.DELETED
 
 
 def make_message(mid, author_id, dt, deletable=True, reactions=None):
@@ -121,6 +121,79 @@ def test_delete_messages_reaction_removal_counts():
     assert stats["reactions_removed_count"] == 2
 
 
+def test_message_delete_outcomes_are_counted_separately():
+    class OutcomeAPI(DummyAPI):
+        def __init__(self):
+            self.outcomes = iter([
+                DeleteOutcome.DELETED,
+                DeleteOutcome.ABSENT,
+                DeleteOutcome.FAILED,
+            ])
+
+        def delete_message(self, channel_id, message_id):
+            return next(self.outcomes)
+
+    cleaner = MessageCleaner(api=OutcomeAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message(str(index), "me", now - timedelta(days=30 + index))
+        for index in range(3)
+    ]
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=messages,
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+    )
+
+    assert stats["deleted_count"] == 1
+    assert stats["absent_count"] == 1
+    assert stats["failed_count"] == 1
+
+
+def test_reaction_delete_outcomes_are_counted_separately():
+    class OutcomeAPI(DummyAPI):
+        def __init__(self):
+            self.outcomes = iter([
+                DeleteOutcome.DELETED,
+                DeleteOutcome.ABSENT,
+                DeleteOutcome.FAILED,
+            ])
+
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
+            return next(self.outcomes)
+
+    cleaner = MessageCleaner(api=OutcomeAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    message = make_message(
+        "1",
+        "other",
+        now - timedelta(days=30),
+        deletable=False,
+        reactions=[
+            {"me": True, "emoji": {"name": name}}
+            for name in ("one", "two", "three")
+        ],
+    )
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=[message],
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+        delete_reactions=True,
+    )
+
+    assert stats["reactions_removed_count"] == 1
+    assert stats["reactions_absent_count"] == 1
+    assert stats["reactions_failed_count"] == 1
+
+
 def test_delete_messages_preserve_last_window():
     cleaner = make_cleaner(preserve_n=0, preserve_n_mode="mine")
     now = datetime.now(timezone.utc)
@@ -147,7 +220,7 @@ def test_delete_messages_non_dry_run_deletes():
 
         def delete_message(self, channel_id, message_id):
             self.deleted.append((channel_id, message_id))
-            return True
+            return DeleteOutcome.DELETED
 
         def delete_own_reaction(
             self,
@@ -156,7 +229,7 @@ def test_delete_messages_non_dry_run_deletes():
             emoji,
             reaction_type=ReactionType.NORMAL,
         ):
-            return True
+            return DeleteOutcome.DELETED
 
     api = RecordingAPI()
     cleaner = MessageCleaner(
@@ -187,7 +260,7 @@ def test_delete_messages_streams_each_decision_before_fetching_the_next_message(
     class RecordingAPI:
         def delete_message(self, channel_id, message_id):
             events.append(f"delete:{message_id}")
-            return True
+            return DeleteOutcome.DELETED
 
     cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
     now = datetime.now(timezone.utc)
@@ -215,7 +288,7 @@ def test_delete_messages_reaction_removal_non_dry_run():
             self.reactions = []
 
         def delete_message(self, channel_id, message_id):
-            return True
+            return DeleteOutcome.DELETED
 
         def delete_own_reaction(
             self,
@@ -227,7 +300,7 @@ def test_delete_messages_reaction_removal_non_dry_run():
             self.reactions.append(
                 (channel_id, message_id, emoji.get("name"), reaction_type)
             )
-            return True
+            return DeleteOutcome.DELETED
 
     api = RecordingAPI()
     cleaner = MessageCleaner(
@@ -266,7 +339,7 @@ def test_delete_messages_removes_normal_and_super_reaction_variants():
             reaction_type=ReactionType.NORMAL,
         ):
             self.reactions.append((emoji["name"], reaction_type))
-            return True
+            return DeleteOutcome.DELETED
 
     api = RecordingAPI()
     cleaner = MessageCleaner(api=api, user_id="me")
@@ -575,7 +648,7 @@ def test_clean_messages_buffered_mode_fetches_all_messages_before_deleting(monke
     class RecordingAPI:
         def delete_message(self, channel_id, message_id):
             events.append(f"delete:{message_id}")
-            return True
+            return DeleteOutcome.DELETED
 
     cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
     now = datetime.now(timezone.utc)
@@ -605,7 +678,7 @@ def test_clean_messages_buffered_mode_fetches_all_messages_before_deleting(monke
 def test_delete_messages_handles_delete_failure():
     class FailingAPI:
         def delete_message(self, channel_id, message_id):
-            return False
+            return DeleteOutcome.FAILED
 
         def delete_own_reaction(
             self,
@@ -614,7 +687,7 @@ def test_delete_messages_handles_delete_failure():
             emoji,
             reaction_type=ReactionType.NORMAL,
         ):
-            return True
+            return DeleteOutcome.DELETED
 
     cleaner = MessageCleaner(
         api=FailingAPI(),
@@ -640,7 +713,7 @@ def test_delete_messages_handles_delete_failure():
 def test_delete_reactions_handles_failure():
     class FailingAPI:
         def delete_message(self, channel_id, message_id):
-            return True
+            return DeleteOutcome.DELETED
 
         def delete_own_reaction(
             self,
@@ -649,7 +722,7 @@ def test_delete_reactions_handles_failure():
             emoji,
             reaction_type=ReactionType.NORMAL,
         ):
-            return False
+            return DeleteOutcome.FAILED
 
     cleaner = MessageCleaner(
         api=FailingAPI(),
@@ -699,7 +772,7 @@ def test_delete_reaction_logs_redact_emoji_name_and_ids(caplog):
     finally:
         set_redaction_config(RedactionConfig())
 
-    assert executed is True
+    assert executed is None
     assert "Would delete reaction from message ***5679." in caplog.text
     assert "Reaction: ***" in caplog.text
     assert "sample_emoji" not in caplog.text
@@ -1038,7 +1111,7 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
     )
 
     assert total == 0
-    assert "Summary: messages 0 deleted / 0 kept" in caplog.text
+    assert "Summary: messages 0 deleted / 0 absent / 0 failed / 0 kept" in caplog.text
     assert "total time=00:00:04" in caplog.text
     assert "Total time=00:00:09." not in caplog.text
 
@@ -1113,7 +1186,7 @@ def test_delete_reactions_skips_non_owner():
             self.called = False
 
         def delete_message(self, channel_id, message_id):
-            return True
+            return DeleteOutcome.DELETED
 
         def delete_own_reaction(
             self,
@@ -1123,7 +1196,7 @@ def test_delete_reactions_skips_non_owner():
             reaction_type=ReactionType.NORMAL,
         ):
             self.called = True
-            return True
+            return DeleteOutcome.DELETED
 
     cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
     message = make_message("1", "other", datetime.now(timezone.utc), deletable=False, reactions=[{"me": False, "emoji": {"name": "x"}}])

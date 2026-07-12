@@ -401,10 +401,37 @@ This timing model has two practical effects:
 - a retry delay is remembered and enforced when the affected request is tried again
 - there is no unconditional sleep after the final API call in a sequence
 
-Network failures use exponential route backoff capped at 30 seconds. Server
-errors prefer response retry headers and otherwise use the same backoff. Every
-HTTP request now has a 10-second connect timeout and a 30-second read timeout.
-Detailed wait/retry messages use the diagnostic logging level.
+Network failures use exponential route backoff capped at 30 seconds with full
+jitter. For Discord responses, DMD uses the longest valid relative
+`retry_after`, numeric `Retry-After`, or `X-RateLimit-Reset-After` deadline and
+adds the configured safety jitter. Standard HTTP-date `Retry-After` and absolute
+`X-RateLimit-Reset` values are accepted only when no relative deadline exists,
+avoiding unnecessary sensitivity to local clock skew. Server errors and hintless
+`429` responses use full-jitter exponential backoff when no usable deadline
+exists. Every HTTP request has a 10-second connect timeout and a 30-second read
+timeout. Detailed wait/retry messages use the diagnostic logging level.
+
+HTTP `408 Request Timeout` responses enter the same bounded transient retry
+path as network failures and server errors. DMD only sends idempotent `GET` and
+`DELETE` requests, so repeating these requests preserves the intended final
+state.
+
+### Delete outcomes are explicit
+
+Message, reaction, and owned-thread delete operations return one of three
+outcomes instead of a boolean:
+
+- `deleted`: Discord confirmed that the request deleted the resource
+- `absent`: Discord returned `404`, confirming the desired absent state without
+  claiming which request or actor caused it
+- `failed`: Discord confirmed that the operation could not be completed, such
+  as a `403` permission response or invalid local reaction data
+
+An `absent` result is terminal and is not reported as a failure. This handles
+the ambiguous retry case where Discord applies a DELETE but its response is
+lost, then answers the retry with `404`. Execution summaries report deleted,
+absent, and failed counts separately. Retry exhaustion and unexpected protocol
+responses still raise and abort instead of being flattened into `failed`.
 
 ## State and configuration reliability
 

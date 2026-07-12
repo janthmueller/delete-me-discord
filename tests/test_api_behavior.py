@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from delete_me_discord.api import DiscordAPI
+from delete_me_discord.models import DeleteOutcome
 from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.type_enums import ReactionType
 from delete_me_discord.utils import (
@@ -53,7 +54,7 @@ def scheduler_for(clock):
         default_interval=(0, 0),
         clock=clock,
         sleeper=clock.sleep,
-        random_between=lambda minimum, _maximum: minimum,
+        random_between=lambda _minimum, maximum: maximum,
     )
 
 
@@ -132,6 +133,96 @@ def test_request_retries_server_error_using_retry_after_header(monkeypatch, capl
     assert all(record.levelno == DIAGNOSTIC_LEVEL for record in caplog.records)
 
 
+def test_request_retries_http_408_with_full_jitter(monkeypatch, caplog):
+    caplog.set_level(DIAGNOSTIC_LEVEL)
+    clock = FakeClock()
+    api = DiscordAPI(
+        token="token",
+        max_retries=1,
+        request_scheduler=scheduler_for(clock),
+    )
+    responses = iter([FakeResponse(408, {}), FakeResponse(200, [])])
+    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+
+    assert api._request("http://example.com", description="test") == []
+    assert clock.sleeps == [1.0]
+    assert "Retryable HTTP 408" in caplog.text
+
+
+def test_delete_reports_absent_when_retry_finds_prior_attempt_already_applied(
+    monkeypatch,
+):
+    clock = FakeClock()
+    api = DiscordAPI(
+        token="token",
+        max_retries=1,
+        request_scheduler=scheduler_for(clock),
+    )
+    responses = iter([
+        requests.ReadTimeout("response lost"),
+        FakeResponse(404, {"message": "Unknown Message"}),
+    ])
+
+    def fake_request(**_kwargs):
+        result = next(responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(api.session, "request", fake_request)
+
+    assert api.delete_message("c1", "m1") == DeleteOutcome.ABSENT
+    assert clock.sleeps == [2.0]
+
+
+def test_request_uses_exponential_full_jitter_for_hintless_server_errors(
+    monkeypatch,
+    caplog,
+):
+    caplog.set_level(DIAGNOSTIC_LEVEL)
+    clock = FakeClock()
+    api = DiscordAPI(
+        token="token",
+        max_retries=2,
+        request_scheduler=scheduler_for(clock),
+    )
+    responses = iter([
+        FakeResponse(500, {}),
+        FakeResponse(502, {}),
+        FakeResponse(200, []),
+    ])
+    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+
+    assert api._request("http://example.com", description="test") == []
+    assert clock.sleeps == [1.0, 2.0]
+    assert "Retryable HTTP 500" in caplog.text
+    assert "Retryable HTTP 502" in caplog.text
+
+
+def test_request_uses_exponential_full_jitter_for_hintless_rate_limits(
+    monkeypatch,
+    caplog,
+):
+    caplog.set_level(DIAGNOSTIC_LEVEL)
+    clock = FakeClock()
+    api = DiscordAPI(
+        token="token",
+        max_retries=2,
+        request_scheduler=scheduler_for(clock),
+    )
+    responses = iter([
+        FakeResponse(429, {}),
+        FakeResponse(429, {}),
+        FakeResponse(200, []),
+    ])
+    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+
+    assert api._request("http://example.com", description="test") == []
+    assert clock.sleeps == [1.0, 2.0]
+    assert caplog.text.count("without a usable Discord retry delay") == 2
+    assert caplog.text.count("Full-jitter fallback") == 2
+
+
 def test_request_retries_while_discord_builds_search_index(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
@@ -188,10 +279,10 @@ def test_delete_pacing_happens_before_the_next_delete(monkeypatch):
     api.configure_request_policy("delete", (1.25, 1.25))
     monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(204))
 
-    assert api.delete_message("c1", "m1") is True
+    assert api.delete_message("c1", "m1") == DeleteOutcome.DELETED
     assert clock.sleeps == []
 
-    assert api.delete_message("c2", "m2") is True
+    assert api.delete_message("c2", "m2") == DeleteOutcome.DELETED
     assert clock.sleeps == [1.25]
 
 
@@ -205,8 +296,8 @@ def test_explicit_policy_override_wins_over_cleaner_configuration(monkeypatch):
     api.configure_request_policy("delete", (1.0, 1.0))
     monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(204))
 
-    assert api.delete_message("c1", "m1") is True
-    assert api.delete_message("c2", "m2") is True
+    assert api.delete_message("c1", "m1") == DeleteOutcome.DELETED
+    assert api.delete_message("c2", "m2") == DeleteOutcome.DELETED
 
     assert clock.sleeps == [3.0]
 
@@ -249,7 +340,7 @@ def test_request_unexpected_status_for_delete(monkeypatch):
 def test_delete_own_reaction_requires_emoji_identifier(monkeypatch):
     api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
     monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")))
-    assert api.delete_own_reaction("c1", "m1", emoji={}) is False
+    assert api.delete_own_reaction("c1", "m1", emoji={}) == DeleteOutcome.FAILED
 
 
 def test_delete_own_reaction_encodes_identifier(monkeypatch):
@@ -263,7 +354,10 @@ def test_delete_own_reaction_encodes_identifier(monkeypatch):
         return []
 
     monkeypatch.setattr(api, "_request", fake_request)
-    assert api.delete_own_reaction("c1", "m1", emoji={"name": "smile", "id": "123"}) is True
+    assert (
+        api.delete_own_reaction("c1", "m1", emoji={"name": "smile", "id": "123"})
+        == DeleteOutcome.DELETED
+    )
     assert captured["method"] == "delete"
     assert captured["pacing_policy"] == "delete"
     assert "/reactions/smile%3A123/@me" in captured["url"]
@@ -277,7 +371,10 @@ def test_delete_own_reaction_rejects_unknown_type(monkeypatch):
         lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")),
     )
 
-    assert api.delete_own_reaction("c1", "m1", {"name": "x"}, reaction_type=9) is False
+    assert (
+        api.delete_own_reaction("c1", "m1", {"name": "x"}, reaction_type=9)
+        == DeleteOutcome.FAILED
+    )
     assert (
         api.delete_own_reaction(
             "c1",
@@ -285,7 +382,7 @@ def test_delete_own_reaction_rejects_unknown_type(monkeypatch):
             {"name": "x"},
             reaction_type=None,
         )
-        is False
+        == DeleteOutcome.FAILED
     )
 
 
@@ -300,7 +397,10 @@ def test_delete_own_reaction_accepts_integer_burst_type(monkeypatch):
 
     monkeypatch.setattr(api, "_request", fake_request)
 
-    assert api.delete_own_reaction("c1", "m1", {"name": "x"}, ReactionType.BURST)
+    assert (
+        api.delete_own_reaction("c1", "m1", {"name": "x"}, ReactionType.BURST)
+        == DeleteOutcome.DELETED
+    )
     assert captured["url"].endswith("/reactions/x/@me/1")
     assert captured["params"] == {"burst": True}
 
@@ -366,13 +466,16 @@ def test_get_guild_channels_multiple_skips_unavailable(monkeypatch):
 def test_delete_message_handles_unavailable(monkeypatch):
     api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
     monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
-    assert api.delete_message("c1", "m1") is False
+    assert api.delete_message("c1", "m1") == DeleteOutcome.FAILED
 
 
 def test_delete_own_reaction_handles_unavailable(monkeypatch):
     api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
     monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
-    assert api.delete_own_reaction("c1", "m1", emoji={"name": "x"}) is False
+    assert (
+        api.delete_own_reaction("c1", "m1", emoji={"name": "x"})
+        == DeleteOutcome.FAILED
+    )
 
 
 def test_format_emoji_identifier_name_only():

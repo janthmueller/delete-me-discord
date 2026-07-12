@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
+from email.utils import format_datetime
 from pathlib import Path
 
 import pytest
@@ -42,6 +44,7 @@ def make_scheduler(
     clock: FakeClock,
     *,
     retry_jitter: tuple[float, float] = (0.0, 0.0),
+    choose_maximum: bool = False,
 ) -> DiscordRequestScheduler:
     return DiscordRequestScheduler(
         retry_jitter=retry_jitter,
@@ -49,7 +52,11 @@ def make_scheduler(
         clock=clock,
         wall_clock=clock,
         sleeper=clock.sleep,
-        random_between=lambda minimum, _maximum: minimum,
+        random_between=(
+            (lambda _minimum, maximum: maximum)
+            if choose_maximum
+            else (lambda minimum, _maximum: minimum)
+        ),
     )
 
 
@@ -363,7 +370,7 @@ def test_longest_constraint_is_waited_once():
     assert clock.sleeps == [3.0]
 
 
-def test_retry_delay_prefers_response_value_and_adds_configured_jitter():
+def test_retry_delay_adds_safety_jitter_to_numeric_response_hint():
     clock = FakeClock()
     scheduler = make_scheduler(clock, retry_jitter=(0.25, 0.5))
 
@@ -371,14 +378,89 @@ def test_retry_delay_prefers_response_value_and_adds_configured_jitter():
         FakeResponse(503, {}, {"Retry-After": "2.5"}),
         fallback=1.0,
     ) == pytest.approx(2.75)
+
+
+def test_retry_delay_uses_longest_valid_discord_hint():
+    clock = FakeClock()
+    scheduler = make_scheduler(clock, retry_jitter=(0.25, 0.5))
+
     assert scheduler.retry_delay_for_response(
-        FakeResponse(503, {"retry_after": "invalid"}),
+        FakeResponse(
+            429,
+            {"retry_after": 2.5},
+            {
+                "Retry-After": "3",
+                "X-RateLimit-Reset-After": "3.5",
+                "X-RateLimit-Reset": "104",
+            },
+        ),
         fallback=1.0,
-    ) == pytest.approx(1.25)
+    ) == pytest.approx(3.75)
+
+
+def test_retry_delay_uses_absolute_reset_only_without_relative_hint():
+    clock = FakeClock()
+    scheduler = make_scheduler(clock, retry_jitter=(0.25, 0.5))
+
     assert scheduler.retry_delay_for_response(
-        FakeResponse(503, ValueError("not json"), {"Retry-After": "2"}),
+        FakeResponse(429, {}, {"X-RateLimit-Reset": "104"}),
         fallback=1.0,
-    ) == pytest.approx(2.25)
+    ) == pytest.approx(4.25)
+
+
+def test_retry_delay_supports_http_date_header():
+    clock = FakeClock()
+    scheduler = make_scheduler(clock, retry_jitter=(0, 0))
+    retry_at = format_datetime(
+        datetime.fromtimestamp(clock.now + 5, tz=timezone.utc),
+        usegmt=True,
+    )
+
+    assert scheduler.retry_delay_for_response(
+        FakeResponse(503, {}, {"Retry-After": retry_at}),
+        fallback=1.0,
+    ) == pytest.approx(5.0)
+
+
+def test_retry_delay_uses_full_jitter_when_response_has_no_valid_hint():
+    clock = FakeClock()
+    minimum_scheduler = make_scheduler(clock, retry_jitter=(0.25, 0.5))
+    maximum_scheduler = make_scheduler(
+        clock,
+        retry_jitter=(0.25, 0.5),
+        choose_maximum=True,
+    )
+    response = FakeResponse(
+        503,
+        ValueError("not json"),
+        {"Retry-After": "invalid"},
+    )
+
+    assert minimum_scheduler.retry_delay_for_response(response, fallback=4.0) == 0.0
+    assert maximum_scheduler.retry_delay_for_response(response, fallback=4.0) == 4.0
+
+
+def test_hintless_user_rate_limit_blocks_family_once_without_learning_interval():
+    clock = FakeClock()
+    scheduler = make_scheduler(clock, choose_maximum=True)
+    first_url = "https://discord.com/api/v10/channels/123456789012345678/messages"
+    second_url = "https://discord.com/api/v10/channels/223456789012345678/messages"
+    third_url = "https://discord.com/api/v10/channels/323456789012345678/messages"
+
+    first = scheduler.acquire("GET", first_url)
+    outcome = scheduler.observe(
+        first,
+        FakeResponse(429, {}, {"X-RateLimit-Scope": "user"}),
+        retry_fallback=2.0,
+    )
+    second = scheduler.acquire("GET", second_url)
+    scheduler.observe(second, FakeResponse(200, []))
+    third = scheduler.acquire("GET", third_url)
+
+    assert outcome.used_fallback is True
+    assert outcome.learned_family_interval == 0.0
+    assert second.waited_seconds == 2.0
+    assert third.waited_seconds == 0.0
 
 
 @pytest.mark.parametrize(

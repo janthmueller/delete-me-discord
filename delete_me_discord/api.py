@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, List, Mapping, Optional, Set, Tuple, Un
 import logging
 import requests
 import urllib.parse
-from .models import DiscordChannel, DiscordEmoji, DiscordMessage
+from .models import DeleteOutcome, DiscordChannel, DiscordEmoji, DiscordMessage
 from .rate_limits import (
     DELETE_POLICY,
     FETCH_POLICY,
@@ -378,7 +378,7 @@ class DiscordAPI:
         self,
         channel_id: str,
         message_id: str,
-    ) -> bool:
+    ) -> DeleteOutcome:
         """
         Deletes a specific message with retry logic for rate limiting.
 
@@ -387,7 +387,7 @@ class DiscordAPI:
             message_id (str): ID of the message to delete.
 
         Returns:
-            bool: True if deletion was successful, False otherwise.
+            DeleteOutcome: Whether the message was deleted, absent, or failed.
         """
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}"
         try:
@@ -398,16 +398,23 @@ class DiscordAPI:
                 pacing_policy=DELETE_POLICY,
             )
         except ResourceUnavailable as e:
+            if e.status_code == 404:
+                self.logger.diagnostic(
+                    "Message %s in channel %s is absent.",
+                    sensitive(message_id),
+                    sensitive(channel_id),
+                )
+                return DeleteOutcome.ABSENT
             self.logger.warning(
                 "Skipping deletion of message %s in channel %s (unavailable: %s).",
                 sensitive(message_id),
                 sensitive(channel_id),
                 e,
             )
-            return False
-        return True
+            return DeleteOutcome.FAILED
+        return DeleteOutcome.DELETED
 
-    def delete_thread(self, thread_id: str) -> bool:
+    def delete_thread(self, thread_id: str) -> DeleteOutcome:
         """Delete one thread channel when Discord grants the required permission."""
         delete_url = f"{self.BASE_URL}/channels/{thread_id}"
         try:
@@ -419,13 +426,19 @@ class DiscordAPI:
                 expected_statuses={200, 204},
             )
         except ResourceUnavailable as e:
+            if e.status_code == 404:
+                self.logger.diagnostic(
+                    "Thread %s is absent.",
+                    sensitive(thread_id),
+                )
+                return DeleteOutcome.ABSENT
             self.logger.warning(
                 "Skipping deletion of thread %s (unavailable or missing MANAGE_THREADS: %s).",
                 sensitive(thread_id),
                 e,
             )
-            return False
-        return True
+            return DeleteOutcome.FAILED
+        return DeleteOutcome.DELETED
 
     def delete_own_reaction(
         self,
@@ -433,7 +446,7 @@ class DiscordAPI:
         message_id: str,
         emoji: DiscordEmoji,
         reaction_type: ReactionType = ReactionType.NORMAL,
-    ) -> bool:
+    ) -> DeleteOutcome:
         """
         Deletes the authenticated user's reaction from a message.
 
@@ -444,7 +457,7 @@ class DiscordAPI:
             reaction_type (ReactionType): Normal or burst (Super Reaction).
 
         Returns:
-            bool: True if deletion was successful, False otherwise.
+            DeleteOutcome: Whether the reaction was deleted, absent, or failed.
         """
         emoji_identifier = self._format_emoji_identifier(emoji)
         if not emoji_identifier:
@@ -452,14 +465,14 @@ class DiscordAPI:
                 "Skipping delete reaction: missing emoji identifier in payload %s.",
                 sensitive(emoji, full=True),
             )
-            return False
+            return DeleteOutcome.FAILED
 
         encoded_identifier = urllib.parse.quote(emoji_identifier)
         try:
             normalized_reaction_type = ReactionType(reaction_type)
         except (TypeError, ValueError):
             self.logger.warning("Skipping delete reaction: unsupported reaction type %r.", reaction_type)
-            return False
+            return DeleteOutcome.FAILED
 
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_identifier}/@me"
         params = None
@@ -478,6 +491,14 @@ class DiscordAPI:
                 pacing_policy=DELETE_POLICY,
             )
         except ResourceUnavailable as e:
+            if e.status_code == 404:
+                self.logger.diagnostic(
+                    "Reaction %s on message %s in channel %s is absent.",
+                    sensitive(emoji_identifier, full=True),
+                    sensitive(message_id),
+                    sensitive(channel_id),
+                )
+                return DeleteOutcome.ABSENT
             self.logger.warning(
                 "Skipping deletion of reaction %s from message %s in channel %s (unavailable: %s).",
                 sensitive(emoji_identifier, full=True),
@@ -485,8 +506,8 @@ class DiscordAPI:
                 sensitive(channel_id),
                 e,
             )
-            return False
-        return True
+            return DeleteOutcome.FAILED
+        return DeleteOutcome.DELETED
 
 
     def _format_emoji_identifier(self, emoji: DiscordEmoji) -> Optional[str]:
@@ -578,7 +599,7 @@ class DiscordAPI:
                 )
             except requests.RequestException as exc:
                 attempts += 1
-                retry_after = self.request_scheduler.retry_delay(
+                retry_after = self.request_scheduler.fallback_retry_delay(
                     self._retry_backoff(attempts)
                 )
                 self.request_scheduler.defer_route(
@@ -596,7 +617,11 @@ class DiscordAPI:
                 )
                 continue
 
-            rate_limit = self.request_scheduler.observe(request_context, response)
+            rate_limit = self.request_scheduler.observe(
+                request_context,
+                response,
+                retry_fallback=self._retry_backoff(attempts + 1),
+            )
             if response.status_code in {200, 204}:  # success
                 if response.status_code not in success_codes:
                     raise UnexpectedStatus(
@@ -613,18 +638,31 @@ class DiscordAPI:
                 attempts += 1
                 if attempts > self.max_retries:
                     break
-                self.logger.diagnostic(
-                    "Rate limited while attempting to %s. Discord retry %.2f seconds + "
-                    "%.2f seconds safety; retry scheduled in %.2f seconds "
-                    "(scope=%s, policy=%s).",
-                    description,
-                    rate_limit.server_retry_after,
-                    rate_limit.safety_jitter,
-                    rate_limit.retry_after,
-                    rate_limit.scope
-                    or ("bucket" if rate_limit.bucket_id is not None else "route"),
-                    request_context.policy,
+                rate_limit_scope = rate_limit.scope or (
+                    "bucket" if rate_limit.bucket_id is not None else "route"
                 )
+                if rate_limit.used_fallback:
+                    self.logger.diagnostic(
+                        "Rate limited while attempting to %s without a usable Discord retry delay. "
+                        "Full-jitter fallback scheduled in %.2f seconds "
+                        "(scope=%s, policy=%s).",
+                        description,
+                        rate_limit.retry_after,
+                        rate_limit_scope,
+                        request_context.policy,
+                    )
+                else:
+                    self.logger.diagnostic(
+                        "Rate limited while attempting to %s. Discord retry %.2f seconds + "
+                        "%.2f seconds safety; retry scheduled in %.2f seconds "
+                        "(scope=%s, policy=%s).",
+                        description,
+                        rate_limit.server_retry_after,
+                        rate_limit.safety_jitter,
+                        rate_limit.retry_after,
+                        rate_limit_scope,
+                        request_context.policy,
+                    )
                 if rate_limit.learned_family_interval > 0:
                     self.logger.diagnostic(
                         "Learned %.2f-second minimum interval for %s %s across major resources.",
@@ -654,7 +692,7 @@ class DiscordAPI:
                         retry_after,
                     )
                     continue
-            if 500 <= response.status_code < 600:
+            if response.status_code == 408 or 500 <= response.status_code < 600:
                 attempts += 1
                 retry_after = self.request_scheduler.retry_delay_for_response(
                     response,
@@ -673,7 +711,11 @@ class DiscordAPI:
             if response.status_code == 401:  # unauthorized
                 raise AuthenticationError(f"Unauthorized while attempting to {description}. Status Code: 401")
             if response.status_code in {403, 404}:  # unavailable
-                raise ResourceUnavailable(f"Resource unavailable while attempting to {description}. Status Code: {response.status_code}")
+                raise ResourceUnavailable(
+                    f"Resource unavailable while attempting to {description}. "
+                    f"Status Code: {response.status_code}",
+                    status_code=response.status_code,
+                )
             raise UnexpectedStatus(
                 f"Unhandled status code {response.status_code} while attempting to {description}."
             )

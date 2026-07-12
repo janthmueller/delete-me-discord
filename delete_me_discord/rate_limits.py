@@ -5,6 +5,8 @@ import random
 import re
 import time
 from dataclasses import dataclass
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
@@ -79,6 +81,7 @@ class RateLimitOutcome:
     scope: str | None = None
     bucket_id: str | None = None
     learned_family_interval: float = 0.0
+    used_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -140,18 +143,26 @@ class DiscordRequestScheduler:
         )
 
     def retry_delay(self, base_delay: float) -> float:
+        """Add configured safety jitter to a server-provided minimum delay."""
         parsed_delay = self._optional_non_negative_float(base_delay)
         if parsed_delay is None:
             raise ValueError("Retry delays must be finite and non-negative.")
         return parsed_delay + self._sample(self._retry_jitter)
 
+    def fallback_retry_delay(self, maximum_delay: float) -> float:
+        """Sample full jitter between zero and an exponential backoff cap."""
+        parsed_delay = self._optional_non_negative_float(maximum_delay)
+        if parsed_delay is None:
+            raise ValueError("Retry delays must be finite and non-negative.")
+        return self._random_between(0.0, parsed_delay)
+
     def retry_delay_for_response(self, response: Any, *, fallback: float) -> float:
         headers = getattr(response, "headers", {}) or {}
         payload = self._json_object(response)
-        retry_after = self._retry_after_value(headers, payload)
+        retry_after = self._retry_hint(headers, payload)
         if retry_after is None:
-            retry_after = self._reset_after(headers)
-        return self.retry_delay(fallback if retry_after is None else retry_after)
+            return self.fallback_retry_delay(fallback)
+        return self.retry_delay(retry_after)
 
     def acquire(
         self, method: str, url: str, *, policy: str = READ_POLICY
@@ -206,7 +217,13 @@ class DiscordRequestScheduler:
             wait_reasons=wait_reasons,
         )
 
-    def observe(self, context: RequestContext, response: Any) -> RateLimitOutcome:
+    def observe(
+        self,
+        context: RequestContext,
+        response: Any,
+        *,
+        retry_fallback: float = 1.0,
+    ) -> RateLimitOutcome:
         now = self._clock()
         self._record_application_pacing(context)
         previous_family_request_at = self._record_family_pacing(context)
@@ -235,9 +252,16 @@ class DiscordRequestScheduler:
 
         if getattr(response, "status_code", None) == 429:
             payload = self._json_object(response)
-            server_retry_after = self._retry_after(headers, payload)
-            retry_after = self.retry_delay(server_retry_after)
-            safety_jitter = retry_after - server_retry_after
+            retry_hint = self._retry_hint(headers, payload)
+            used_fallback = retry_hint is None
+            if used_fallback:
+                server_retry_after = 0.0
+                retry_after = self.fallback_retry_delay(retry_fallback)
+                safety_jitter = 0.0
+            else:
+                server_retry_after = retry_hint
+                retry_after = self.retry_delay(server_retry_after)
+                safety_jitter = retry_after - server_retry_after
             scope = self._rate_limit_scope(headers, payload)
             blocked_until = now + retry_after
             if scope == "global":
@@ -254,11 +278,12 @@ class DiscordRequestScheduler:
                     context.family,
                     RouteFamilyWindow(),
                 )
-                learned_family_interval = self._learn_family_interval(
-                    context=context,
-                    previous_request_at=previous_family_request_at,
-                    server_retry_after=server_retry_after,
-                )
+                if not used_fallback:
+                    learned_family_interval = self._learn_family_interval(
+                        context=context,
+                        previous_request_at=previous_family_request_at,
+                        server_retry_after=server_retry_after,
+                    )
                 family_window.next_allowed_at = max(
                     family_window.next_allowed_at,
                     blocked_until,
@@ -271,6 +296,7 @@ class DiscordRequestScheduler:
                 scope=scope,
                 bucket_id=bucket_key.bucket_id if bucket_key else None,
                 learned_family_interval=learned_family_interval,
+                used_fallback=used_fallback,
             )
 
         reset_after = self._reset_after(headers)
@@ -408,42 +434,62 @@ class DiscordRequestScheduler:
                 return item
         return None
 
-    def _retry_after(
-        self, headers: Mapping[str, Any], payload: Mapping[str, Any]
-    ) -> float:
-        retry_after = self._retry_after_value(headers, payload)
-        if retry_after is None:
-            retry_after = self._reset_after(headers)
-        return 1.0 if retry_after is None else retry_after
-
     def _reset_after(self, headers: Mapping[str, Any]) -> float | None:
         reset_after = self._optional_non_negative_float(
             self._header(headers, "X-RateLimit-Reset-After")
         )
         if reset_after is not None:
             return reset_after
+        return self._absolute_reset_delay(headers)
+
+    def _retry_hint(
+        self,
+        headers: Mapping[str, Any],
+        payload: Mapping[str, Any],
+    ) -> float | None:
+        retry_after_header = self._header(headers, "Retry-After")
+        relative_candidates = [
+            self._optional_non_negative_float(payload.get("retry_after")),
+            self._optional_non_negative_float(retry_after_header),
+            self._optional_non_negative_float(
+                self._header(headers, "X-RateLimit-Reset-After")
+            ),
+        ]
+        valid_relative = [
+            candidate for candidate in relative_candidates if candidate is not None
+        ]
+        if valid_relative:
+            return max(valid_relative)
+
+        absolute_candidates = [
+            self._http_date_delay(retry_after_header),
+            self._absolute_reset_delay(headers),
+        ]
+        valid_absolute = [
+            candidate for candidate in absolute_candidates if candidate is not None
+        ]
+        return max(valid_absolute) if valid_absolute else None
+
+    def _http_date_delay(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            retry_at = parsedate_to_datetime(str(value))
+            if retry_at is None:
+                return None
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=timezone.utc)
+            return max(0.0, retry_at.timestamp() - self._wall_clock())
+        except (OverflowError, TypeError, ValueError):
+            return None
+
+    def _absolute_reset_delay(self, headers: Mapping[str, Any]) -> float | None:
         reset_at = self._optional_non_negative_float(
             self._header(headers, "X-RateLimit-Reset")
         )
         if reset_at is None:
             return None
         return max(0.0, reset_at - self._wall_clock())
-
-    @classmethod
-    def _retry_after_value(
-        cls,
-        headers: Mapping[str, Any],
-        payload: Mapping[str, Any],
-    ) -> float | None:
-        for value in (
-            payload.get("retry_after"),
-            cls._header(headers, "Retry-After"),
-            cls._header(headers, "X-RateLimit-Reset-After"),
-        ):
-            parsed = cls._optional_non_negative_float(value)
-            if parsed is not None:
-                return parsed
-        return None
 
     @classmethod
     def _rate_limit_scope(

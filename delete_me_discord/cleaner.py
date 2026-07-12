@@ -14,6 +14,7 @@ from .channel_types import (
 from .models import (
     ActionKind,
     ChannelPlan,
+    DeleteOutcome,
     DiscordChannel,
     DiscordEmoji,
     DiscordMessage,
@@ -41,6 +42,8 @@ class _OwnedThreadDeletionOutcome:
     terminal: bool = False
     planned: bool = False
     deleted: bool = False
+    absent: bool = False
+    failed: bool = False
     cleanup_messages: Optional[List[DiscordMessage]] = None
     scan_elapsed: Optional[float] = None
     impact: Optional["_ThreadDeletionImpact"] = None
@@ -54,6 +57,23 @@ class _ThreadDeletionImpact:
     foreign_messages: int
     foreign_reactions: ForeignReactionImpact
     scan_complete: bool
+
+
+@dataclass(slots=True)
+class _DeleteActionCounts:
+    """Counts for a group of concrete delete outcomes."""
+
+    deleted: int = 0
+    absent: int = 0
+    failed: int = 0
+
+    def record(self, outcome: DeleteOutcome) -> None:
+        if outcome == DeleteOutcome.DELETED:
+            self.deleted += 1
+        elif outcome == DeleteOutcome.ABSENT:
+            self.absent += 1
+        else:
+            self.failed += 1
 
 
 class MessageCleaner:
@@ -229,8 +249,12 @@ class MessageCleaner:
         stats = {
             "message_count": 0,
             "deleted_count": 0,
+            "absent_count": 0,
+            "failed_count": 0,
             "preserved_deletable_count": 0,
             "reactions_removed_count": 0,
+            "reactions_absent_count": 0,
+            "reactions_failed_count": 0,
             "preserved_reactions_count": 0,
             "foreign_reactions_normal_count": 0,
             "foreign_reactions_burst_count": 0,
@@ -279,17 +303,24 @@ class MessageCleaner:
                     facts=facts,
                 )
                 if action.kind == ActionKind.DELETE_MESSAGE:
-                    if executed:
+                    if dry_run or executed == DeleteOutcome.DELETED:
                         stats["deleted_count"] += 1
                         self._accumulate_foreign_reaction_impact(
                             stats,
                             facts.foreign_reaction_impact,
                         )
+                    elif executed == DeleteOutcome.ABSENT:
+                        stats["absent_count"] += 1
+                    else:
+                        stats["failed_count"] += 1
             if reaction_actions:
-                stats["reactions_removed_count"] += self._execute_reaction_actions(
+                reaction_outcomes = self._execute_reaction_actions(
                     actions=reaction_actions,
                     dry_run=dry_run,
                 )
+                stats["reactions_removed_count"] += reaction_outcomes.deleted
+                stats["reactions_absent_count"] += reaction_outcomes.absent
+                stats["reactions_failed_count"] += reaction_outcomes.failed
         action_elapsed = time.monotonic() - action_start
 
         return preserved_msg_ids, stats, action_elapsed
@@ -328,10 +359,16 @@ class MessageCleaner:
         run_started_at = time.monotonic()
         total_stats = {
             "deleted_count": 0,
+            "absent_count": 0,
+            "failed_count": 0,
             "preserved_deletable_count": 0,
             "reactions_removed_count": 0,
+            "reactions_absent_count": 0,
+            "reactions_failed_count": 0,
             "preserved_reactions_count": 0,
             "threads_deleted_count": 0,
+            "threads_absent_count": 0,
+            "threads_failed_count": 0,
             "threads_planned_count": 0,
             "foreign_messages_affected_count": 0,
             "foreign_messages_unknown_count": 0,
@@ -377,10 +414,14 @@ class MessageCleaner:
                 fetch_since=fetch_since,
                 max_messages=max_messages,
             )
+            total_stats["threads_planned_count"] += int(thread_outcome.planned)
+            total_stats["threads_deleted_count"] += int(thread_outcome.deleted)
+            total_stats["threads_absent_count"] += int(thread_outcome.absent)
+            total_stats["threads_failed_count"] += int(thread_outcome.failed)
             if thread_outcome.terminal:
-                total_stats["threads_planned_count"] += int(thread_outcome.planned)
-                total_stats["threads_deleted_count"] += int(thread_outcome.deleted)
-                if thread_outcome.impact is not None:
+                if thread_outcome.impact is not None and (
+                    thread_outcome.planned or thread_outcome.deleted
+                ):
                     if thread_outcome.impact.scan_complete:
                         total_stats["foreign_messages_affected_count"] += (
                             thread_outcome.impact.foreign_messages
@@ -441,8 +482,18 @@ class MessageCleaner:
                 self.preserve_cache.save()
 
             total_stats["deleted_count"] += stats["deleted_count"]
+            total_stats["absent_count"] += stats.get("absent_count", 0)
+            total_stats["failed_count"] += stats.get("failed_count", 0)
             total_stats["preserved_deletable_count"] += stats["preserved_deletable_count"]
             total_stats["reactions_removed_count"] += stats["reactions_removed_count"]
+            total_stats["reactions_absent_count"] += stats.get(
+                "reactions_absent_count",
+                0,
+            )
+            total_stats["reactions_failed_count"] += stats.get(
+                "reactions_failed_count",
+                0,
+            )
             total_stats["preserved_reactions_count"] += stats["preserved_reactions_count"]
             total_stats["foreign_reactions_normal_count"] += stats.get(
                 "foreign_reactions_normal_count",
@@ -535,15 +586,23 @@ class MessageCleaner:
         else:
             total_summary = (
                 f"Summary: messages {total_stats['deleted_count']} deleted / "
+                f"{total_stats['absent_count']} absent / "
+                f"{total_stats['failed_count']} failed / "
                 f"{total_stats['preserved_deletable_count']} kept"
             )
             if delete_reactions:
                 total_summary += (
                     f", reactions {total_stats['reactions_removed_count']} deleted / "
+                    f"{total_stats['reactions_absent_count']} absent / "
+                    f"{total_stats['reactions_failed_count']} failed / "
                     f"{total_stats['preserved_reactions_count']} kept"
                 )
             if delete_owned_threads != "none":
-                total_summary += f", owned threads {total_stats['threads_deleted_count']} deleted"
+                total_summary += (
+                    f", owned threads {total_stats['threads_deleted_count']} deleted / "
+                    f"{total_stats['threads_absent_count']} absent / "
+                    f"{total_stats['threads_failed_count']} failed"
+                )
             self.logger.info(total_summary)
 
         return total_stats["deleted_count"]
@@ -666,6 +725,7 @@ class MessageCleaner:
         if outcome.terminal:
             return outcome
         return _OwnedThreadDeletionOutcome(
+            failed=outcome.failed,
             cleanup_messages=cleanup_messages,
             scan_elapsed=scan_elapsed,
         )
@@ -703,18 +763,24 @@ class MessageCleaner:
             indent=1,
             prefix="-",
         )
-        if self.api.delete_thread(channel["id"]):
+        delete_outcome = self.api.delete_thread(channel["id"])
+        if delete_outcome == DeleteOutcome.DELETED:
             return _OwnedThreadDeletionOutcome(
                 terminal=True,
                 deleted=True,
                 impact=impact,
+            )
+        if delete_outcome == DeleteOutcome.ABSENT:
+            return _OwnedThreadDeletionOutcome(
+                terminal=True,
+                absent=True,
             )
 
         self.logger.warning(
             "Owned thread deletion failed for %s; falling back to ordinary message and reaction cleanup.",
             channel_str(channel),
         )
-        return _OwnedThreadDeletionOutcome()
+        return _OwnedThreadDeletionOutcome(failed=True)
 
     def _build_thread_deletion_impact(
         self,
@@ -1098,10 +1164,14 @@ class MessageCleaner:
         else:
             summary = (
                 f"Summary: messages {stats['deleted_count']} deleted / "
+                f"{stats.get('absent_count', 0)} absent / "
+                f"{stats.get('failed_count', 0)} failed / "
                 f"{stats['preserved_deletable_count']} kept"
             )
             reaction_summary = (
                 f", reactions {stats['reactions_removed_count']} deleted / "
+                f"{stats.get('reactions_absent_count', 0)} absent / "
+                f"{stats.get('reactions_failed_count', 0)} failed / "
                 f"{stats['preserved_reactions_count']} kept"
             )
 
@@ -1110,7 +1180,7 @@ class MessageCleaner:
         elif dry_run:
             summary += ", reactions 0 delete / 0 keep"
         else:
-            summary += ", reactions 0 deleted / 0 kept"
+            summary += ", reactions 0 deleted / 0 absent / 0 failed / 0 kept"
 
         if dry_run and channel_plan is not None:
             summary += f", buffered messages={channel_plan.buffered_message_count}"
@@ -1187,7 +1257,7 @@ class MessageCleaner:
         action: PlannedAction,
         dry_run: bool,
         facts: Optional[MessageFacts] = None,
-    ) -> bool:
+    ) -> Optional[DeleteOutcome]:
         """Execute a single planned action or simulate it in dry-run mode."""
         if action.kind == ActionKind.DELETE_MESSAGE:
             if dry_run:
@@ -1198,7 +1268,7 @@ class MessageCleaner:
                     prefix="-",
                 )
                 self._log_message_detail(facts)
-                return True
+                return None
 
             self.logger.event(
                 "Deleting message %s.",
@@ -1207,17 +1277,17 @@ class MessageCleaner:
                 prefix="-",
             )
             self._log_message_detail(facts)
-            success = self.api.delete_message(
+            outcome = self.api.delete_message(
                 channel_id=action.channel_id,
                 message_id=action.message_id,
             )
-            if not success:
+            if outcome == DeleteOutcome.FAILED:
                 self.logger.warning(
                     "Failed to delete message %s in channel %s.",
                     sensitive(action.message_id),
                     sensitive(action.channel_id),
                 )
-            return success
+            return outcome
 
         emoji: DiscordEmoji = action.emoji or {}
         emoji_name = emoji.get("name") or "unknown"
@@ -1231,7 +1301,7 @@ class MessageCleaner:
                 prefix="-",
             )
             self._log_reaction_detail(emoji_name)
-            return True
+            return None
 
         self.logger.event(
             "Deleting %s from message %s.",
@@ -1241,29 +1311,29 @@ class MessageCleaner:
             prefix="-",
         )
         self._log_reaction_detail(emoji_name)
-        success = self.api.delete_own_reaction(
+        outcome = self.api.delete_own_reaction(
             channel_id=action.channel_id,
             message_id=action.message_id,
             emoji=emoji,
             reaction_type=action.reaction_type,
         )
-        if not success:
+        if outcome == DeleteOutcome.FAILED:
             self.logger.warning(
                 "Failed to delete reaction %s on message %s in channel %s.",
                 sensitive(emoji_name, full=True),
                 sensitive(action.message_id),
                 sensitive(action.channel_id),
-        )
-        return success
+            )
+        return outcome
 
     def _execute_reaction_actions(
         self,
         actions: List[PlannedAction],
         dry_run: bool,
-    ) -> int:
+    ) -> _DeleteActionCounts:
         """Execute one or more reaction deletions for the same message as one visible event block."""
         if not actions:
-            return 0
+            return _DeleteActionCounts()
 
         message_id = actions[0].message_id
         emoji_names = [self._reaction_detail(action) for action in actions]
@@ -1283,7 +1353,7 @@ class MessageCleaner:
                 prefix="-",
             )
             self._log_reaction_detail(emoji_names)
-            return reaction_count
+            return _DeleteActionCounts(deleted=reaction_count)
 
         self.logger.event(
             "Deleting %s from message %s.",
@@ -1294,19 +1364,18 @@ class MessageCleaner:
         )
         self._log_reaction_detail(emoji_names)
 
-        deleted_count = 0
+        outcomes = _DeleteActionCounts()
         for action in actions:
             emoji: DiscordEmoji = action.emoji or {}
             emoji_name = emoji.get("name") or "unknown"
-            success = self.api.delete_own_reaction(
+            outcome = self.api.delete_own_reaction(
                 channel_id=action.channel_id,
                 message_id=action.message_id,
                 emoji=emoji,
                 reaction_type=action.reaction_type,
             )
-            if success:
-                deleted_count += 1
-            else:
+            outcomes.record(outcome)
+            if outcome == DeleteOutcome.FAILED:
                 self.logger.warning(
                     "Failed to delete reaction %s on message %s in channel %s.",
                     sensitive(emoji_name, full=True),
@@ -1314,7 +1383,7 @@ class MessageCleaner:
                     sensitive(action.channel_id),
                 )
 
-        return deleted_count
+        return outcomes
 
     @staticmethod
     def _reaction_action_label(action: PlannedAction) -> str:

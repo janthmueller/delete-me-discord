@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from delete_me_discord.cleaner import MessageCleaner
 from delete_me_discord.discovery import collect_channels_from_inventory
+from delete_me_discord.models import DeleteOutcome
 from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
 from delete_me_discord.type_enums import MessageType, ReactionType
@@ -84,7 +85,7 @@ class ThreadCleanupAPI:
         messages,
         *,
         complete: bool = True,
-        delete_thread_result: bool = True,
+        delete_thread_result: DeleteOutcome = DeleteOutcome.DELETED,
     ):
         self.messages = list(messages)
         self.complete = complete
@@ -113,7 +114,7 @@ class ThreadCleanupAPI:
 
     def delete_message(self, channel_id, message_id):
         self.deleted_messages.append((channel_id, message_id))
-        return True
+        return DeleteOutcome.DELETED
 
     def delete_own_reaction(
         self,
@@ -125,7 +126,7 @@ class ThreadCleanupAPI:
         self.deleted_reactions.append(
             (channel_id, message_id, emoji, reaction_type)
         )
-        return True
+        return DeleteOutcome.DELETED
 
 
 def test_discovery_renders_threads_in_their_category_with_parent_context():
@@ -243,7 +244,7 @@ def test_archived_thread_deletes_own_messages_but_skips_reactions(caplog):
 
         def delete_message(self, channel_id, message_id):
             self.deleted_messages.append((channel_id, message_id))
-            return True
+            return DeleteOutcome.DELETED
 
         def delete_own_reaction(
             self,
@@ -253,7 +254,7 @@ def test_archived_thread_deletes_own_messages_but_skips_reactions(caplog):
             reaction_type=ReactionType.NORMAL,
         ):
             self.deleted_reactions.append((channel_id, message_id, emoji))
-            return True
+            return DeleteOutcome.DELETED
 
         def get_last_fetch_summary(self, channel_id):
             return None
@@ -423,7 +424,7 @@ def test_owned_thread_all_mode_dry_run_only_plans_deletion(caplog):
 def test_owned_thread_all_mode_falls_back_when_discord_rejects_deletion():
     api = ThreadCleanupAPI(
         [make_thread_message("mine", "me")],
-        delete_thread_result=False,
+        delete_thread_result=DeleteOutcome.FAILED,
     )
     cleaner = MessageCleaner(
         api=api,
@@ -442,6 +443,31 @@ def test_owned_thread_all_mode_falls_back_when_discord_rejects_deletion():
     assert api.deleted_threads == ["active-thread"]
     assert len(api.fetch_calls) == 1
     assert api.deleted_messages == [("active-thread", "mine")]
+
+
+def test_owned_thread_absent_is_terminal_without_claiming_deletion(caplog):
+    api = ThreadCleanupAPI(
+        [make_thread_message("mine", "me")],
+        delete_thread_result=DeleteOutcome.ABSENT,
+    )
+    cleaner = MessageCleaner(
+        api=api,
+        user_id="me",
+        include_ids=["active-thread"],
+        scope_inventory=make_owned_thread_inventory(),
+    )
+
+    with caplog.at_level("INFO"):
+        deleted = cleaner.clean_messages(
+            delete_owned_threads="all",
+            fetch_sleep_time_range=(0, 0),
+            delete_sleep_time_range=(0, 0),
+        )
+
+    assert deleted == 0
+    assert api.deleted_threads == ["active-thread"]
+    assert api.deleted_messages == []
+    assert "owned threads 0 deleted / 1 absent / 0 failed" in caplog.text
 
 
 def test_owned_thread_self_only_deletes_after_complete_all_own_scan():

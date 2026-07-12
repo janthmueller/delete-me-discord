@@ -65,6 +65,10 @@ class ReachedMaxRetries(Exception):
 class ResourceUnavailable(Exception):
     """Custom exception for unavailable resources."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 class UnexpectedStatus(Exception):
     """Custom exception for unexpected/unhandled status codes."""
 

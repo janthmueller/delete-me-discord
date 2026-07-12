@@ -85,6 +85,17 @@ In a real deletion run, each channel ends with:
   - `total time`
   - and `execute time` when buffered mode is enabled
 
+Message and reaction summaries separate concrete delete outcomes:
+
+- `deleted`: Discord confirmed deletion
+- `absent`: Discord returned `404`; the desired state is already reached, but DMD does not claim which request or actor removed it
+- `failed`: Discord confirmed that deletion could not be completed
+
+Owned-thread summaries use the same outcomes. An absent thread is terminal, so
+DMD does not attempt message cleanup inside a container Discord says no longer
+exists. Transient retry exhaustion and unexpected responses abort the run
+instead of being counted as ordinary failed actions.
+
 ## Buffered mode
 
 With `--buffer-per-channel`, the CLI fetches one channel up front before evaluating it.
