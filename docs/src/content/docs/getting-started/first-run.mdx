@@ -42,8 +42,10 @@ Use `dmd list channel-types` and `dmd list thread-states` to inspect all accepte
 dmd clean --include-ids <id> --dry-run
 ```
 
-`--dry-run` makes `dmd` fetch and evaluate messages without deleting messages or reactions.
+`--dry-run` makes `dmd` fetch and evaluate content without deleting messages, reactions, or thread containers.
 Use it to check the selected targets and retention rules before running the same command for real.
+
+Thread containers are not deleted in the default mode. Do not add `--delete-owned-threads` during a first broad run. That option removes an entire shared thread and belongs in a narrow thread-ID dry-run after you have read [Delete Owned Threads](../../guides/delete-owned-threads/).
 
 `--include-ids` accepts one or more IDs.
 Omit it to use the default scope: all eligible channels and accessible threads the tool can see.

@@ -64,7 +64,21 @@ Then rerun without `--dry-run` when the plan looks right.
 `--include-ids` accepts one or more guild, category, supported channel, thread-parent, or thread IDs.
 Omit `--include-ids` to use the default scope: all eligible channels the tool can see.
 
+Discord's documented Reaction object includes total, normal, and Super Reaction counts plus separate ownership flags for the authenticated user. Dry-run validates those fields and reports the exact foreign normal and Super Reactions that would disappear with your deleted messages. It reports `unknown` instead of estimating when a required field is missing or inconsistent, or when an enclosing thread scan is incomplete.
+
 Starting with v3, the default scope includes guild text and announcement channels, text chat in voice and stage channels, DMs, Group DMs, and all accessible announcement, public, and private threads. Use `--exclude-threads` when thread discovery is not needed. Use `--exclude-channel-types` for exact channel-type exclusions and `--exclude-thread-states` to omit active or archived threads. Thread discovery can make additional paginated Discord API requests for every thread-capable parent, so `dmd list channels` may take noticeably longer than before v3. In archived threads, the tool can delete your messages but skips reaction removal because Discord restricts archived-thread mutations.
+
+Thread containers are never deleted by default. Creator-owned thread deletion is an explicit destructive option:
+
+```bash
+# Delete only after a complete scan finds no messages from other authors.
+dmd clean --include-ids <thread-id> --delete-owned-threads self-only --dry-run
+
+# Delete your thread even when it contains other users' messages.
+dmd clean --include-ids <thread-id> --delete-owned-threads all --dry-run
+```
+
+Both modes require Discord's `MANAGE_THREADS` permission. Deleting a thread removes the entire shared conversation and overrides retention settings for that thread. `self-only` checks message authors at scan time, but can still remove other users' reactions and cannot eliminate the small race in which a new message arrives before deletion. Run a narrow dry-run first.
 
 Alternative auth for one shell:
 

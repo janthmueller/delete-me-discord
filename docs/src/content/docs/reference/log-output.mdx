@@ -65,6 +65,17 @@ Each channel ends with:
 
 The final run summary uses the same two-line structure.
 
+When a planned parent deletion would also remove reactions from other users,
+the dry-run summary adds `foreign reactions affected` with separate normal and
+Super Reaction counts. These are exact reaction instances at scan time, not
+unique users. Missing, malformed, or inconsistent required reaction fields are
+shown as `unknown`.
+
+Owned-thread deletion dry-runs also show an impact line with your message count,
+the other-or-unknown author count, and the foreign reaction split. The `all`
+mode performs this reporting scan even though real execution does not use
+authorship as an eligibility condition.
+
 ## Deletion mode output
 
 In a real deletion run, each channel ends with:

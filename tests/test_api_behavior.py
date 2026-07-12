@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from delete_me_discord.api import DiscordAPI
 from delete_me_discord.rate_limits import DiscordRequestScheduler
+from delete_me_discord.type_enums import ReactionType
 from delete_me_discord.utils import (
     DIAGNOSTIC_LEVEL,
     AuthenticationError,
@@ -266,6 +267,42 @@ def test_delete_own_reaction_encodes_identifier(monkeypatch):
     assert captured["method"] == "delete"
     assert captured["pacing_policy"] == "delete"
     assert "/reactions/smile%3A123/@me" in captured["url"]
+
+
+def test_delete_own_reaction_rejects_unknown_type(monkeypatch):
+    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(
+        api,
+        "_request",
+        lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")),
+    )
+
+    assert api.delete_own_reaction("c1", "m1", {"name": "x"}, reaction_type=9) is False
+    assert (
+        api.delete_own_reaction(
+            "c1",
+            "m1",
+            {"name": "x"},
+            reaction_type=None,
+        )
+        is False
+    )
+
+
+def test_delete_own_reaction_accepts_integer_burst_type(monkeypatch):
+    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    captured = {}
+
+    def fake_request(url, **kwargs):
+        captured["url"] = url
+        captured["params"] = kwargs["params"]
+        return []
+
+    monkeypatch.setattr(api, "_request", fake_request)
+
+    assert api.delete_own_reaction("c1", "m1", {"name": "x"}, ReactionType.BURST)
+    assert captured["url"].endswith("/reactions/x/@me/1")
+    assert captured["params"] == {"burst": True}
 
 
 def test_request_reaches_max_retries_on_network_error(monkeypatch):

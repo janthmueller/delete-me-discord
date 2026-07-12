@@ -1,0 +1,118 @@
+---
+title: Delete Owned Threads
+description: Explicitly remove thread containers created by your Discord account.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Ordinary cleanup deletes your messages and reactions inside discovered threads. It does **not** delete the thread channel itself.
+
+Use `--delete-owned-threads` only when you also want to remove creator-owned thread containers such as public threads, private threads, announcement threads, forum posts, or media posts.
+
+<Aside type="caution" title="This removes a shared conversation">
+Deleting a thread removes the whole container. Depending on the selected mode, that can include messages and reactions created by other users. Discord requires `MANAGE_THREADS` even when `owner_id` identifies you as the creator.
+</Aside>
+
+## Modes
+
+The default is:
+
+```bash
+dmd clean --delete-owned-threads none
+```
+
+This never deletes thread containers. The two opt-in modes are:
+
+| Mode | Author scan | What can be removed |
+| --- | --- | --- |
+| `self-only` | Requires an unbounded, complete history scan and no message from another or unknown author | The thread, your messages, and any reactions attached to those messages, including reactions from other users |
+| `all` | Real execution does not use authorship as an eligibility condition; dry-run still scans to report impact | The complete thread, including messages and reactions from other users |
+
+Both modes require the thread's `owner_id` to match the authenticated account. DMD does not use this option to delete someone else's thread, even when the account is a moderator.
+
+## Recommended workflow
+
+Select one exact thread and preview it first:
+
+```bash
+dmd clean \
+  --include-ids <thread-id> \
+  --delete-owned-threads self-only \
+  --dry-run
+```
+
+If the thread intentionally contains a shared conversation that you still want to remove, make that choice explicit:
+
+```bash
+dmd clean \
+  --include-ids <thread-id> \
+  --delete-owned-threads all \
+  --dry-run
+```
+
+Run the same command without `--dry-run` only after the selected thread and impact are correct.
+
+## Dry-run impact report
+
+For an owned-thread deletion, dry-run scans complete thread history and reports both independently authored messages and dependent reactions:
+
+```text
+Impact at scan time: messages 4 yours / 2 other-or-unknown;
+foreign reactions 7 normal / 3 super.
+```
+
+Discord's documented Reaction object supplies integer `count`, `count_details.normal`, and `count_details.burst` fields plus boolean `me` and `me_burst` ownership flags. DMD verifies the total against the normal and Super Reaction breakdown, subtracts the authenticated user's instances, and reports the remaining exact count at scan time. It counts reaction instances, not unique users.
+
+If the thread scan is incomplete or any required reaction field is missing, malformed, or inconsistent, the affected value is reported as `unknown`. DMD does not substitute an estimate.
+
+Ordinary message dry-runs use the same reaction-impact calculation. Deleting your own message removes every attached reaction, including reactions and Super Reactions from other users.
+
+## Why reactions do not block `self-only`
+
+`self-only` means there are no messages from other or unknown authors. It does not mean no other account interacted with your messages.
+
+Reactions depend on their parent message and cannot survive its deletion. Messages inside a thread are different: they are independently authored content that can contain attachments, polls, and replies. This is why foreign reactions are reported but do not block `self-only`, while one foreign message does block it.
+
+## `self-only` proof
+
+For `self-only`, DMD ignores normal `--fetch-within` and `--max-messages` boundaries while proving whether thread deletion is eligible. It:
+
+1. fetches pages until Discord reports no more messages
+2. requires the fetch to finish without an unavailable-resource skip or configured boundary
+3. cross-checks the returned total against the thread's `message_count` metadata
+4. rejects deletion if any returned message has another or unknown author
+
+The already-fetched messages are reused if the proof fails, so DMD can fall back to ordinary cleanup without repeating the full scan. Normal fetch boundaries are reapplied to that fallback cleanup.
+
+<Aside type="note" title="Best-effort, not transactional">
+Discord does not expose an atomic "delete only if unchanged" operation. Another user can add a message after the completed scan and before the delete request. The window is small, but `self-only` cannot eliminate it. Foreign reactions are counted and reported, but intentionally do not block `self-only`.
+</Aside>
+
+## Permissions and fallback
+
+Discord's thread API requires `MANAGE_THREADS` for deletion. A matching `owner_id` proves creator attribution, not permission.
+
+Dry-run cannot prove that Discord will authorize the later delete request. During a real run, DMD attempts deletion and, if Discord returns an unavailable or missing-permission response, continues with ordinary cleanup of your own messages and reactions inside the thread.
+
+## Retention interaction
+
+A successful thread deletion supersedes all message-level retention decisions for that thread, including:
+
+- `--keep-last`
+- `--keep-within`
+- `--keep-reactions`
+- `--fetch-within`
+- `--max-messages`
+- preserve-cache entries
+
+Those settings still apply when thread deletion is skipped or rejected and DMD falls back to ordinary cleanup.
+
+## Profiles
+
+The setting can be stored as `delete_owned_threads`, but broad recurring use is risky:
+
+```bash
+dmd profile update <name> --set delete_owned_threads=self-only
+```
+
+Prefer a manual, thread-specific command unless deleting newly created owned threads is an intentional recurring policy.

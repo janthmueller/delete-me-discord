@@ -26,7 +26,8 @@ marker, for example `feat!: include threads in default cleanup discovery`, or a
 
 The release also introduces explicit channel/thread filters, centralized
 request scheduling, safer state-file writes, more reliable package and binary
-builds, and a gated CI/CD chain.
+builds, Super Reaction cleanup, opt-in creator-owned thread deletion, and a
+gated CI/CD chain.
 
 ## User migration summary
 
@@ -117,6 +118,27 @@ ambiguous.
 Profiles that never defined thread behavior inherit the v3 default and include
 all accessible threads. Add `exclude_threads=true` to profiles that must retain
 the old scope.
+
+### Thread containers remain protected by default
+
+Default cleanup removes the authenticated user's messages and reactions inside
+threads but never deletes the thread object. Container deletion is available
+only through an explicit mode:
+
+```bash
+# Require a complete scan with no messages from other or unknown authors.
+dmd clean --include-ids <thread-id> --delete-owned-threads self-only --dry-run
+
+# Permit deletion even when the thread contains other users' messages.
+dmd clean --include-ids <thread-id> --delete-owned-threads all --dry-run
+```
+
+Both modes require the thread's `owner_id` to match the authenticated account,
+and Discord still requires `MANAGE_THREADS`. A rejected deletion falls back to
+ordinary own-message and own-reaction cleanup. Successful deletion removes the
+whole shared thread and overrides retention for that thread. Even `self-only`
+can remove reactions from other users and has an unavoidable scan/delete race,
+so `none` remains the default and narrow dry-runs are required operationally.
 
 ### Retry timing terminology changed
 
@@ -279,6 +301,24 @@ Archived threads are handled specially: Discord permits deleting the user's
 messages there but restricts other mutations. DMD therefore skips reaction
 removal in archived threads instead of failing the channel.
 
+Reaction ownership now distinguishes Discord's `me` and `me_burst` fields.
+Normal and Super Reactions are planned and deleted independently, including
+when both variants use the same emoji. Deleted custom emoji with a null name use
+the current Discord client identifier form `null:{id}`.
+
+Optional thread-container deletion retains `owner_id` and `message_count` from
+discovery. `self-only` performs an unbounded full-history author scan and uses
+that buffered history for ordinary cleanup if deletion is ineligible. A real
+`all` execution skips author eligibility checks by design. Both modes use the
+existing request scheduler, dry-run reporting, and permission-failure fallback.
+
+Dry-run impact reporting now retains Discord reaction `count_details` and
+derives the exact foreign normal/Super Reaction instances removed as a cascade
+of deleting an own message or owned thread. Missing, inconsistent, or incomplete
+count data is reported as `unknown`, never estimated. `all` execution still
+deletes directly, while `all --dry-run` performs a complete scan so the shared
+message and reaction impact is visible first.
+
 An unknown future Discord message type no longer aborts message collection. It
 is retained in the scan, logged once, and treated as non-deletable unless DMD
 knows that type is safe to delete.
@@ -399,7 +439,13 @@ was regenerated for the resulting workspace configuration.
 
 User documentation has been updated for the expanded channel support, default
 thread discovery, exclusion filters, profile fields, request policies, logging,
-and archived-thread limitations.
+archived-thread limitations, Super Reactions, and destructive owned-thread
+deletion modes.
+
+`DISCORD_USER_ARTIFACT_AUDIT.md` records the audited channel surface, adjacent
+Discord user artifacts, ownership and permission boundaries, known cleanup
+gaps, and the recommended boundary between core communication cleanup and
+future opt-in resource management.
 
 ## CI/CD migration
 
@@ -467,6 +513,11 @@ concurrency group so a stale deployment cannot race the latest build.
   permission failures are skipped and do not imply that no thread exists.
 - The thread search endpoint follows Discord client behavior and is less stable
   than a documented public bot endpoint.
+- Super Reaction removal also follows a typed route observed in Discord's
+  current web client and may need maintenance if that client API changes.
+- Thread-container deletion is never enabled by default. Creator attribution
+  does not imply `MANAGE_THREADS`, and even `self-only` cannot make its
+  scan/delete sequence atomic or preserve other users' reactions.
 - Rate-limit state is process-local. A new DMD process starts without learned
   route-family intervals and learns again from Discord responses.
 - Release ruleset bypass, PyPI credentials, Pages configuration, and GitHub
@@ -488,7 +539,7 @@ concurrency group so a stale deployment cannot race the latest build.
 | Version and packaging | `delete_me_discord/_version.py`, `pyproject.toml`, `MANIFEST.in`, `delete_me_discord.spec`, `tools/verify_distribution.py` |
 | CI/CD | `.github/workflows/test.yml`, `.github/workflows/release.yml`, `.github/workflows/docs.yml`, `.github/workflows/pyinstaller.yml` |
 | Development environment | `flake.nix`, `flake.lock` |
-| Documentation | `README.md`, `docs/src/content/docs/`, `docs/package.json`, `docs/pnpm-workspace.yaml` |
+| Documentation | `README.md`, `MIGRATION_V3.md`, `DISCORD_USER_ARTIFACT_AUDIT.md`, `docs/src/content/docs/`, `docs/package.json`, `docs/pnpm-workspace.yaml` |
 | Tests | `tests/` |
 
 ## Keeping this document current

@@ -141,6 +141,7 @@ def test_load_profile_rejects_unknown_field(tmp_path):
         ("buffer_per_channel=false", {"buffer_per_channel": False}),
         ("keep_reactions=true", {"keep_reactions": True}),
         ("keep_reactions=false", {"keep_reactions": False}),
+        ("delete_owned_threads=self-only", {"delete_owned_threads": "self-only"}),
         ("preserve_cache=true", {"preserve_cache": True}),
         ("preserve_cache=false", {"preserve_cache": False}),
         ("preserve_cache_path=/tmp/cache.json", {"preserve_cache_path": "/tmp/cache.json"}),
@@ -210,6 +211,9 @@ def test_parse_profile_set_assignments_accepts_all_supported_shapes(assignment, 
         ("buffer_per_channel", "false", False),
         ("keep_reactions", True, True),
         ("keep_reactions", "true", True),
+        ("delete_owned_threads", "none", "none"),
+        ("delete_owned_threads", "self-only", "self-only"),
+        ("delete_owned_threads", "all", "all"),
         ("preserve_cache", True, True),
         ("preserve_cache", "true", True),
         ("preserve_cache_path", "/tmp/cache.json", "/tmp/cache.json"),
@@ -278,6 +282,7 @@ def test_load_profile_accepts_all_supported_config_shapes(tmp_path, field, raw_v
         ("max_messages", "5", 5),
         ("buffer_per_channel", "true", True),
         ("keep_reactions", "true", True),
+        ("delete_owned_threads", "self-only", "self-only"),
         ("preserve_cache", "true", True),
         ("preserve_cache_path", "/tmp/cache.json", "/tmp/cache.json"),
         ("max_retries", "7", 7),
@@ -316,6 +321,7 @@ def test_update_profile_normalizes_all_supported_stored_shapes(tmp_path, field, 
         ("keep_last_scope", "weird", "must be 'mine' or 'all'"),
         ("keep_within", [], "field 'keep_within' must be a string or zero-like number"),
         ("buffer_per_channel", "yes", "must be true or false"),
+        ("delete_owned_threads", "mine", "must be 'none' or 'self-only' or 'all'"),
         ("preserve_cache_path", "", "non-empty string"),
         ("max_retries", True, "non-negative integer"),
         ("retry_time_buffer", "bad", "invalid"),
@@ -711,13 +717,14 @@ def test_build_clean_defaults_uses_global_default_when_profile_missing():
     assert defaults["exclude_channel_types"] == []
     assert defaults["exclude_thread_states"] == []
     assert defaults["exclude_threads"] is False
+    assert defaults["delete_owned_threads"] == "none"
     assert defaults["preserve_cache_path"].endswith("preserve_cache.json")
 
 
 def test_parse_args_profile_applies_defaults(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        '{"profiles":{"nightly-dms":{"keep_last":25,"dry_run":true,"verbose":2}}}',
+        '{"profiles":{"nightly-dms":{"keep_last":25,"dry_run":true,"verbose":2,"delete_owned_threads":"self-only"}}}',
         encoding="utf-8",
     )
 
@@ -730,6 +737,7 @@ def test_parse_args_profile_applies_defaults(tmp_path):
     assert args.keep_last == 25
     assert args.dry_run is True
     assert args.verbose == 2
+    assert args.delete_owned_threads == "self-only"
 
 
 def test_parse_args_profile_applies_redact_names_to_redaction_config(tmp_path):
@@ -914,6 +922,17 @@ def test_effective_settings_preserve_scope_exclusions():
     assert settings.exclude_channel_types == ["GuildVoice", "PrivateThread"]
     assert settings.exclude_thread_states == ["archived"]
     assert settings.exclude_threads is True
+
+
+def test_effective_settings_include_owned_thread_deletion_mode():
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--delete-owned-threads", "self-only"],
+    )
+
+    settings = resolve_effective_clean_settings(args)
+
+    assert settings.delete_owned_threads == "self-only"
 
 
 def test_effective_settings_include_request_interval_overrides():

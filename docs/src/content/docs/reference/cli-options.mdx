@@ -40,12 +40,13 @@ Other top-level commands are:
 
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
-| `-d` | `--dry-run` | off | Simulate deletions without making changes. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
+| `-d` | `--dry-run` | off | Simulate deletions without making changes. Reports foreign reactions affected by parent-message deletion and, when owned-thread deletion is enabled, scans those threads to report container impact. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
 | `-i` | `--include-ids` | all eligible | Restrict processing to matching full IDs or unique ID suffixes. |
 | `-x` | `--exclude-ids` | none | Exclude matching full IDs or unique ID suffixes from processing. |
 | `-` | `--exclude-channel-types TYPE...` | none | Exclude exact message-bearing Discord channel types such as `GuildVoice` or `PrivateThread`. |
 | `-` | `--exclude-thread-states STATE...` | none | Exclude `active` or `archived` threads. |
 | `-` | `--exclude-threads` | off | Exclude all announcement, public, and private threads. |
+| `-` | `--delete-owned-threads MODE` | `none` | Optionally delete creator-owned thread containers. `self-only` requires a complete scan with no messages from other authors; `all` permits deleting their messages too. Both are destructive and require `MANAGE_THREADS`. |
 | `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
 | `-t` | `--token` | unset | Override stored credentials and `DISCORD_TOKEN` for this command only. |
 
@@ -329,6 +330,22 @@ Forum and media channels are containers rather than message channels. Thread dis
 The Rich terminal tree nests each thread below its visible parent channel. If the parent is unavailable or filtered out, the thread remains at category level with parent context. JSON output keeps its existing flat channel entries and `parent_id` fields for compatibility.
 
 Thread discovery can issue one or more paginated API requests for every relevant thread-capable channel in each visible guild. Exclusions avoid searches when none of the remaining thread types can exist under a parent. Discord permits message deletion in archived threads but restricts other mutations, so `dmd` skips reaction removal there.
+
+### Owned Thread Deletion
+
+`--delete-owned-threads` controls deletion of the thread channel itself. It never targets a thread whose `owner_id` differs from the authenticated user.
+
+- `none`: never delete a thread container. This is the default.
+- `self-only`: fetch the complete thread history without `--fetch-within` or `--max-messages` boundaries, then delete only when every returned message belongs to the authenticated user and the scan can be proven complete.
+- `all`: permit deletion despite messages from other users. Real execution does not use authorship as an eligibility condition; dry-run still scans complete history to report impact.
+
+Discord still requires `MANAGE_THREADS`. If Discord rejects a deletion, DMD falls back to ordinary own-message and own-reaction cleanup inside that thread.
+
+<Aside type="caution" title="Thread deletion removes a shared container">
+Successful thread deletion overrides `--keep-last`, `--keep-within`, `--keep-reactions`, fetch boundaries, and preserve-cache decisions for that thread. `all` can remove other users' messages and reactions. `self-only` excludes known foreign messages at scan time, but can still remove reactions placed by other users and cannot make the scan/delete sequence atomic. Always use a narrow thread-ID dry-run first.
+</Aside>
+
+See [Delete Owned Threads](../../guides/delete-owned-threads/) for the full safety model.
 
 ### Boolean Overrides
 

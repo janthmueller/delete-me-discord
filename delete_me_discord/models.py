@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Tuple, TypedDict
 
+from .type_enums import ReactionType
+
 
 class DiscordEmoji(TypedDict, total=False):
     """Subset of Discord's emoji payload used for reaction deletion."""
@@ -11,11 +13,21 @@ class DiscordEmoji(TypedDict, total=False):
     name: Optional[str]
 
 
+class DiscordReactionCountDetails(TypedDict, total=False):
+    """Discord's normal and burst count breakdown for one emoji."""
+
+    normal: int
+    burst: int
+
+
 class DiscordReaction(TypedDict, total=False):
     """Subset of Discord's reaction payload used by the cleaner."""
 
     emoji: DiscordEmoji
+    count: int
+    count_details: DiscordReactionCountDetails
     me: bool
+    me_burst: bool
 
 
 class DiscordRecipient(TypedDict, total=False):
@@ -33,6 +45,8 @@ class DiscordChannel(TypedDict, total=False):
     guild_id: str
     parent_id: str
     category_id: str
+    owner_id: str
+    message_count: int
     recipients: list[DiscordRecipient]
     thread_metadata: dict[str, Any]
 
@@ -58,6 +72,34 @@ class ActionKind(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class OwnedReaction:
+    """One reaction variant owned by the authenticated user."""
+
+    emoji: DiscordEmoji
+    reaction_type: ReactionType
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignReactionImpact:
+    """Foreign reaction instances affected by deleting a parent artifact."""
+
+    normal: int = 0
+    burst: int = 0
+    complete: bool = True
+
+    @property
+    def total(self) -> int:
+        return self.normal + self.burst
+
+    def combined_with(self, other: "ForeignReactionImpact") -> "ForeignReactionImpact":
+        return ForeignReactionImpact(
+            normal=self.normal + other.normal,
+            burst=self.burst + other.burst,
+            complete=self.complete and other.complete,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MessageFacts:
     """Facts derived from one message before preserve/delete policy is applied."""
 
@@ -65,7 +107,10 @@ class MessageFacts:
     message_time: datetime
     is_author: bool
     is_deletable: bool
-    my_reactions: Tuple[DiscordReaction, ...] = field(default_factory=tuple)
+    my_reactions: Tuple[OwnedReaction, ...] = field(default_factory=tuple)
+    foreign_reaction_impact: ForeignReactionImpact = field(
+        default_factory=ForeignReactionImpact
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +122,7 @@ class PlannedAction:
     message_id: str
     message_time: datetime
     emoji: Optional[DiscordEmoji] = None
+    reaction_type: ReactionType = ReactionType.NORMAL
 
 
 @dataclass(frozen=True, slots=True)

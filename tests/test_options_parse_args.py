@@ -39,6 +39,7 @@ def test_parse_args_clean_defaults():
     assert args.max_messages is None
     assert args.buffer_per_channel is False
     assert args.keep_reactions is False
+    assert args.delete_owned_threads == "none"
     assert args.preserve_cache is False
     assert args.json is False
     assert args.redact_sensitive is None
@@ -59,6 +60,24 @@ def test_parse_args_accepts_retry_safety_jitter_name():
     )
 
     assert args.retry_time_buffer == ["0.05", "0.2"]
+
+
+@pytest.mark.parametrize("mode", ["none", "self-only", "all"])
+def test_parse_args_accepts_owned_thread_deletion_modes(mode):
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--delete-owned-threads", mode],
+    )
+
+    assert args.delete_owned_threads == mode
+
+
+def test_parse_args_rejects_unknown_owned_thread_deletion_mode():
+    with pytest.raises(SystemExit):
+        parse_args(
+            "1.0.0",
+            argv=["clean", "--delete-owned-threads", "mine"],
+        )
 
 
 def test_parse_args_list_channels_json_flag():

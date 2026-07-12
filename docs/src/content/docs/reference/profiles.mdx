@@ -162,6 +162,7 @@ Examples:
 --set exclude_channel_types=GuildVoice,PrivateThread
 --set exclude_thread_states=archived
 --set exclude_threads=true
+--set delete_owned_threads=self-only
 --set retry_time_buffer=0.1,0.3
 --set redact_sensitive=4
 --set redact_names=false
@@ -197,6 +198,7 @@ Profiles can define cleanup behavior and run-style settings for `dmd clean`, inc
 - `max_messages`
 - `buffer_per_channel`
 - `keep_reactions`
+- `delete_owned_threads`
 - `preserve_cache`
 - `preserve_cache_path`
 - `max_retries`

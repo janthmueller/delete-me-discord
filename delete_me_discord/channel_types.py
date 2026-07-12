@@ -2,6 +2,9 @@ from enum import IntEnum
 from typing import Any, Mapping
 
 
+OWNED_THREAD_DELETE_MODES = ("none", "self-only", "all")
+
+
 class ChannelType(IntEnum):
     GUILD_TEXT = 0
     DM = 1

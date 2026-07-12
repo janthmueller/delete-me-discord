@@ -39,6 +39,7 @@ export default defineConfig({
           label: 'Behavior Guides',
           items: [
             { label: 'Delete Reactions', link: '/guides/delete-reactions/' },
+            { label: 'Delete Owned Threads', link: '/guides/delete-owned-threads/' },
             { label: 'Buffered Mode', link: '/guides/buffered-mode/' },
             { label: 'Preserve Cache', link: '/guides/preserve-cache/' },
           ],

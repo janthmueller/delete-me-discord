@@ -1,5 +1,11 @@
 from enum import IntEnum
 
+
+class ReactionType(IntEnum):
+    NORMAL = 0
+    BURST = 1
+
+
 # Added from https://docs.discord.food/resources/message
 # https://discordhttp.alexflipnote.dev/api/enums.html#discord_http.enums.MessageType.custom_gift
 class MessageType(IntEnum):

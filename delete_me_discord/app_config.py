@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any, Literal, Optional
 
 from .auth import DEFAULT_CONFIG_PATH
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
 from .scope_filter import THREAD_STATES
@@ -32,6 +32,7 @@ class EffectiveCleanSettings:
     max_messages: Optional[int]
     buffer_per_channel: bool
     keep_reactions: bool
+    delete_owned_threads: str
     preserve_cache: bool
     preserve_cache_path: str
     max_retries: int
@@ -63,6 +64,7 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "max_messages": None,
     "buffer_per_channel": False,
     "keep_reactions": False,
+    "delete_owned_threads": "none",
     "preserve_cache": False,
     "preserve_cache_path": DEFAULT_PRESERVE_CACHE_PATH,
     "max_retries": 5,
@@ -95,6 +97,7 @@ PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
     {"name": "max_messages", "type": "non-negative integer", "parser": "int", "nullable": True, "description": "Maximum messages to fetch per channel."},
     {"name": "buffer_per_channel", "type": "true|false", "parser": "bool", "nullable": False, "description": "Buffer one channel at a time before evaluation."},
     {"name": "keep_reactions", "type": "true|false", "parser": "bool", "nullable": False, "description": "Keep your reactions instead of removing them."},
+    {"name": "delete_owned_threads", "type": "none|self-only|all", "parser": "enum", "choices": OWNED_THREAD_DELETE_MODES, "nullable": False, "description": "Optionally delete creator-owned thread channels; deletion can remove other users' content."},
     {"name": "preserve_cache", "type": "true|false", "parser": "bool", "nullable": False, "description": "Enable preserve cache between runs."},
     {"name": "preserve_cache_path", "type": "string path", "parser": "non_empty_string", "nullable": False, "description": "Override the preserve cache path."},
     {"name": "max_retries", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Maximum retry attempts for retryable API requests."},
@@ -279,6 +282,7 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         max_messages=args.max_messages,
         buffer_per_channel=args.buffer_per_channel,
         keep_reactions=args.keep_reactions,
+        delete_owned_threads=args.delete_owned_threads,
         preserve_cache=args.preserve_cache,
         preserve_cache_path=_apply_dry_run_suffix(args.preserve_cache_path, bool(args.dry_run)),
         max_retries=args.max_retries,

@@ -1,19 +1,60 @@
 # delete_me_discord/cleaner.py
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Iterable, List, Generator, Tuple, Optional, Union, Set
 import logging
 
 from .api import DiscordAPI
-from .channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CHANNEL_TYPES, is_archived_thread
-from .models import ActionKind, ChannelPlan, DiscordChannel, DiscordEmoji, DiscordMessage, MessageDecision, MessageFacts, PlannedAction
+from .channel_types import (
+    GUILD_CLEANUP_CHANNEL_TYPES,
+    ROOT_MESSAGE_CHANNEL_TYPES,
+    is_archived_thread,
+    is_thread_channel,
+)
+from .models import (
+    ActionKind,
+    ChannelPlan,
+    DiscordChannel,
+    DiscordEmoji,
+    DiscordMessage,
+    DiscordReaction,
+    ForeignReactionImpact,
+    MessageDecision,
+    MessageFacts,
+    OwnedReaction,
+    PlannedAction,
+)
 from .utils import channel_str, should_include_channel, format_timestamp
 from .privacy import sensitive
 from .preserve_cache import PreserveCache
 from .rate_limits import DELETE_POLICY, FETCH_POLICY
 from .scope_filter import ScopeFilter
 from .scope_inventory import ScopeInventory
+from .type_enums import ReactionType
+
+
+@dataclass(frozen=True, slots=True)
+class _OwnedThreadDeletionOutcome:
+    """Result of optionally replacing message cleanup with one thread deletion."""
+
+    terminal: bool = False
+    planned: bool = False
+    deleted: bool = False
+    cleanup_messages: Optional[List[DiscordMessage]] = None
+    scan_elapsed: Optional[float] = None
+    impact: Optional["_ThreadDeletionImpact"] = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ThreadDeletionImpact:
+    """First-class and dependent artifacts affected by one thread deletion."""
+
+    own_messages: int
+    foreign_messages: int
+    foreign_reactions: ForeignReactionImpact
+    scan_complete: bool
 
 
 class MessageCleaner:
@@ -216,6 +257,9 @@ class MessageCleaner:
             "preserved_deletable_count": 0,
             "reactions_removed_count": 0,
             "preserved_reactions_count": 0,
+            "foreign_reactions_normal_count": 0,
+            "foreign_reactions_burst_count": 0,
+            "foreign_reactions_unknown_count": 0,
         }
         plan = channel_plan or ChannelPlan(
             decisions=tuple(
@@ -262,6 +306,10 @@ class MessageCleaner:
                 if action.kind == ActionKind.DELETE_MESSAGE:
                     if executed:
                         stats["deleted_count"] += 1
+                        self._accumulate_foreign_reaction_impact(
+                            stats,
+                            facts.foreign_reaction_impact,
+                        )
             if reaction_actions:
                 stats["reactions_removed_count"] += self._execute_reaction_actions(
                     actions=reaction_actions,
@@ -279,31 +327,42 @@ class MessageCleaner:
         fetch_since: Optional[datetime] = None,
         max_messages: Union[int, float] = float("inf"),
         buffer_channel_messages: bool = False,
-        delete_reactions: bool = False
+        delete_reactions: bool = False,
+        delete_owned_threads: str = "none",
     ) -> int:
         """
         Run the cleaner across all eligible channels.
 
         Args:
-            dry_run (bool): If True, messages will not be deleted.
+            dry_run (bool): If True, no messages, reactions, or threads will be deleted.
             fetch_sleep_time_range (Tuple[float, float]): Minimum interval between fetch requests.
             delete_sleep_time_range (Tuple[float, float]): Minimum interval between delete requests.
             fetch_since (Optional[datetime]): Only fetch messages newer than this timestamp.
             max_messages (Union[int, float]): Maximum number of messages to fetch per channel.
             buffer_channel_messages (bool): If True, fully buffer one channel before evaluation.
             delete_reactions (bool): If True, remove the user's reactions on messages encountered.
+            delete_owned_threads (str): Thread deletion mode: none, self-only, or all.
 
         Returns:
             int: Total number of messages deleted.
         """
         self._configure_request_policy(FETCH_POLICY, fetch_sleep_time_range)
         self._configure_request_policy(DELETE_POLICY, delete_sleep_time_range)
+        if delete_owned_threads not in {"none", "self-only", "all"}:
+            raise ValueError("delete_owned_threads must be 'none', 'self-only', or 'all'.")
         run_started_at = time.monotonic()
         total_stats = {
             "deleted_count": 0,
             "preserved_deletable_count": 0,
             "reactions_removed_count": 0,
             "preserved_reactions_count": 0,
+            "threads_deleted_count": 0,
+            "threads_planned_count": 0,
+            "foreign_messages_affected_count": 0,
+            "foreign_messages_unknown_count": 0,
+            "foreign_reactions_normal_count": 0,
+            "foreign_reactions_burst_count": 0,
+            "foreign_reactions_unknown_count": 0,
         }
 
         cutoff_time = datetime.now(timezone.utc) - self.preserve_last
@@ -311,23 +370,70 @@ class MessageCleaner:
             self.logger.info("Deleting messages older than %s UTC.", format_timestamp(cutoff_time))
         if fetch_since:
             self.logger.info("Fetching messages not older than %s UTC.", format_timestamp(fetch_since))
+        if delete_owned_threads != "none":
+            thread_impact = (
+                "self-only performs a complete author scan first, but can still remove other users' "
+                "reactions"
+                if delete_owned_threads == "self-only"
+                else "all can remove messages and reactions from other users"
+            )
+            self.logger.warning(
+                "Owned thread deletion enabled (%s): %s. Successful deletion removes the entire "
+                "thread and overrides message/reaction retention settings for that thread.",
+                delete_owned_threads,
+                thread_impact,
+            )
 
         channels = self.get_all_channels()
 
         if dry_run:
-            self.logger.info("Dry run enabled. Messages will be fetched and evaluated but not deleted.")
+            self.logger.info(
+                "Dry run enabled. Content will be fetched and evaluated but not deleted."
+            )
 
         for channel in channels:
             channel_started_at = time.monotonic()
             self.logger.progress("Processing channel: %s.", channel_str(channel))
-            messages, buffer_elapsed = self._prepare_channel_messages(
+            thread_outcome = self._prepare_owned_thread_deletion(
                 channel=channel,
+                mode=delete_owned_threads,
+                dry_run=dry_run,
                 fetch_sleep_time_range=fetch_sleep_time_range,
                 fetch_since=fetch_since,
                 max_messages=max_messages,
-                buffer_channel_messages=buffer_channel_messages,
-                dry_run=dry_run,
             )
+            if thread_outcome.terminal:
+                total_stats["threads_planned_count"] += int(thread_outcome.planned)
+                total_stats["threads_deleted_count"] += int(thread_outcome.deleted)
+                if thread_outcome.impact is not None:
+                    if thread_outcome.impact.scan_complete:
+                        total_stats["foreign_messages_affected_count"] += (
+                            thread_outcome.impact.foreign_messages
+                        )
+                    else:
+                        total_stats["foreign_messages_unknown_count"] += 1
+                    self._accumulate_foreign_reaction_impact(
+                        total_stats,
+                        thread_outcome.impact.foreign_reactions,
+                    )
+                if self.preserve_cache:
+                    self.preserve_cache.set_ids(channel_id=channel["id"], message_ids=[])
+                    self.preserve_cache.save()
+                continue
+
+            force_buffer = thread_outcome.cleanup_messages is not None
+            if force_buffer:
+                messages: Iterable[DiscordMessage] = thread_outcome.cleanup_messages or []
+                buffer_elapsed = thread_outcome.scan_elapsed
+            else:
+                messages, buffer_elapsed = self._prepare_channel_messages(
+                    channel=channel,
+                    fetch_sleep_time_range=fetch_sleep_time_range,
+                    fetch_since=fetch_since,
+                    max_messages=max_messages,
+                    buffer_channel_messages=buffer_channel_messages,
+                    dry_run=dry_run,
+                )
             channel_delete_reactions = delete_reactions and not is_archived_thread(channel)
             if delete_reactions and not channel_delete_reactions:
                 self.logger.info(
@@ -335,7 +441,7 @@ class MessageCleaner:
                     channel_str(channel),
                 )
             channel_plan = None
-            if buffer_channel_messages:
+            if buffer_channel_messages or force_buffer:
                 channel_plan = self._build_channel_plan(
                     messages=messages,
                     cutoff_time=cutoff_time,
@@ -363,6 +469,18 @@ class MessageCleaner:
             total_stats["preserved_deletable_count"] += stats["preserved_deletable_count"]
             total_stats["reactions_removed_count"] += stats["reactions_removed_count"]
             total_stats["preserved_reactions_count"] += stats["preserved_reactions_count"]
+            total_stats["foreign_reactions_normal_count"] += stats.get(
+                "foreign_reactions_normal_count",
+                0,
+            )
+            total_stats["foreign_reactions_burst_count"] += stats.get(
+                "foreign_reactions_burst_count",
+                0,
+            )
+            total_stats["foreign_reactions_unknown_count"] += stats.get(
+                "foreign_reactions_unknown_count",
+                0,
+            )
             channel_elapsed = time.monotonic() - channel_started_at
             get_last_fetch_summary = getattr(self.api, "get_last_fetch_summary", None)
             fetch_summary = get_last_fetch_summary(channel["id"]) if callable(get_last_fetch_summary) else None
@@ -402,7 +520,9 @@ class MessageCleaner:
         run_elapsed = time.monotonic() - run_started_at
         if dry_run:
             execute_estimate_seconds = self._estimate_action_count_duration(
-                total_stats["deleted_count"] + total_stats["reactions_removed_count"],
+                total_stats["deleted_count"]
+                + total_stats["reactions_removed_count"]
+                + total_stats["threads_planned_count"],
                 delete_sleep_time_range,
             )
             total_summary = (
@@ -413,6 +533,21 @@ class MessageCleaner:
                 total_summary += (
                     f", reactions {total_stats['reactions_removed_count']} delete / "
                     f"{total_stats['preserved_reactions_count']} keep"
+                )
+            if delete_owned_threads != "none":
+                total_summary += f", owned threads {total_stats['threads_planned_count']} delete"
+            if total_stats["threads_planned_count"]:
+                if total_stats["foreign_messages_unknown_count"]:
+                    total_summary += ", foreign messages affected unknown"
+                else:
+                    total_summary += (
+                        ", foreign messages affected "
+                        f"{total_stats['foreign_messages_affected_count']}"
+                    )
+            if total_stats["deleted_count"] or total_stats["threads_planned_count"]:
+                total_summary += (
+                    ", foreign reactions affected "
+                    f"{self._format_foreign_reaction_stats(total_stats)}"
                 )
             self.logger.info(total_summary)
             self.logger.info(
@@ -431,9 +566,255 @@ class MessageCleaner:
                     f", reactions {total_stats['reactions_removed_count']} deleted / "
                     f"{total_stats['preserved_reactions_count']} kept"
                 )
+            if delete_owned_threads != "none":
+                total_summary += f", owned threads {total_stats['threads_deleted_count']} deleted"
             self.logger.info(total_summary)
 
         return total_stats["deleted_count"]
+
+    def _prepare_owned_thread_deletion(
+        self,
+        channel: DiscordChannel,
+        mode: str,
+        dry_run: bool,
+        fetch_sleep_time_range: Tuple[float, float],
+        fetch_since: Optional[datetime],
+        max_messages: Union[int, float],
+    ) -> _OwnedThreadDeletionOutcome:
+        """Plan or execute deletion of one creator-owned thread, with a safe fallback."""
+        if mode == "none" or not is_thread_channel(channel.get("type")):
+            return _OwnedThreadDeletionOutcome()
+
+        owner_id = channel.get("owner_id")
+        if owner_id is None:
+            self.logger.diagnostic(
+                "Skipping owned thread deletion for %s because Discord omitted owner_id.",
+                channel_str(channel),
+            )
+            return _OwnedThreadDeletionOutcome()
+        if str(owner_id) != self.user_id:
+            self.logger.diagnostic(
+                "Skipping owned thread deletion for %s because it was created by another user.",
+                channel_str(channel),
+            )
+            return _OwnedThreadDeletionOutcome()
+
+        if mode == "all" and not dry_run:
+            return self._attempt_owned_thread_deletion(
+                channel=channel,
+                mode=mode,
+                dry_run=dry_run,
+            )
+
+        scan_started_at = time.monotonic()
+        if mode == "self-only":
+            self.logger.info(
+                "Scanning complete history before self-only deletion of %s.",
+                channel_str(channel),
+            )
+        else:
+            self.logger.info(
+                "Scanning complete history to report deletion impact for %s.",
+                channel_str(channel),
+            )
+        scanned_messages = list(
+            self.fetch_all_messages(
+                channel=channel,
+                fetch_sleep_time_range=fetch_sleep_time_range,
+                fetch_since=None,
+                max_messages=float("inf"),
+            )
+        )
+        scan_elapsed = time.monotonic() - scan_started_at
+
+        get_last_fetch_summary = getattr(self.api, "get_last_fetch_summary", None)
+        fetch_summary = get_last_fetch_summary(channel["id"]) if callable(get_last_fetch_summary) else None
+        message_count = channel.get("message_count")
+        scan_complete = (
+            isinstance(fetch_summary, dict)
+            and fetch_summary.get("complete") is True
+            and isinstance(message_count, int)
+            and not isinstance(message_count, bool)
+            and message_count >= 0
+            and len(scanned_messages) >= message_count
+        )
+        impact = self._build_thread_deletion_impact(
+            messages=scanned_messages,
+            scan_complete=scan_complete,
+        )
+        self._log_thread_deletion_impact(channel=channel, impact=impact)
+
+        if mode == "all":
+            return self._attempt_owned_thread_deletion(
+                channel=channel,
+                mode=mode,
+                dry_run=dry_run,
+                impact=impact,
+            )
+
+        cleanup_messages = self._messages_from_complete_thread_scan(
+            channel=channel,
+            messages=scanned_messages,
+            fetch_since=fetch_since,
+            max_messages=max_messages,
+        )
+        if not scan_complete:
+            self.logger.warning(
+                "Skipping self-only thread deletion for %s because a complete history scan could not be proven.",
+                channel_str(channel),
+            )
+            return _OwnedThreadDeletionOutcome(
+                cleanup_messages=cleanup_messages,
+                scan_elapsed=scan_elapsed,
+            )
+
+        foreign_message_count = impact.foreign_messages
+        if foreign_message_count:
+            self.logger.info(
+                "Skipping self-only thread deletion for %s because it contains %s message(s) "
+                "from other or unknown authors.",
+                channel_str(channel),
+                foreign_message_count,
+            )
+            return _OwnedThreadDeletionOutcome(
+                cleanup_messages=cleanup_messages,
+                scan_elapsed=scan_elapsed,
+            )
+
+        outcome = self._attempt_owned_thread_deletion(
+            channel=channel,
+            mode=mode,
+            dry_run=dry_run,
+            impact=impact,
+        )
+        if outcome.terminal:
+            return outcome
+        return _OwnedThreadDeletionOutcome(
+            cleanup_messages=cleanup_messages,
+            scan_elapsed=scan_elapsed,
+        )
+
+    def _attempt_owned_thread_deletion(
+        self,
+        channel: DiscordChannel,
+        mode: str,
+        dry_run: bool,
+        impact: Optional[_ThreadDeletionImpact] = None,
+    ) -> _OwnedThreadDeletionOutcome:
+        impact_description = (
+            "including messages and reactions from other users"
+            if mode == "all"
+            else "after finding no messages from other authors in the completed scan"
+        )
+        if dry_run:
+            self.logger.event(
+                "Would delete owned thread %s, %s.",
+                channel_str(channel),
+                impact_description,
+                indent=1,
+                prefix="-",
+            )
+            return _OwnedThreadDeletionOutcome(
+                terminal=True,
+                planned=True,
+                impact=impact,
+            )
+
+        self.logger.event(
+            "Deleting owned thread %s, %s.",
+            channel_str(channel),
+            impact_description,
+            indent=1,
+            prefix="-",
+        )
+        if self.api.delete_thread(channel["id"]):
+            return _OwnedThreadDeletionOutcome(
+                terminal=True,
+                deleted=True,
+                impact=impact,
+            )
+
+        self.logger.warning(
+            "Owned thread deletion failed for %s; falling back to ordinary message and reaction cleanup.",
+            channel_str(channel),
+        )
+        return _OwnedThreadDeletionOutcome()
+
+    def _build_thread_deletion_impact(
+        self,
+        messages: List[DiscordMessage],
+        scan_complete: bool,
+    ) -> _ThreadDeletionImpact:
+        """Summarize first-class messages and dependent foreign reactions."""
+        own_messages = sum(
+            message.get("author_id") == self.user_id for message in messages
+        )
+        foreign_reactions = ForeignReactionImpact()
+        for message in messages:
+            foreign_reactions = foreign_reactions.combined_with(
+                self._foreign_reaction_impact(message.get("reactions") or [])
+            )
+        if not scan_complete:
+            foreign_reactions = ForeignReactionImpact(
+                normal=foreign_reactions.normal,
+                burst=foreign_reactions.burst,
+                complete=False,
+            )
+        return _ThreadDeletionImpact(
+            own_messages=own_messages,
+            foreign_messages=len(messages) - own_messages,
+            foreign_reactions=foreign_reactions,
+            scan_complete=scan_complete,
+        )
+
+    def _log_thread_deletion_impact(
+        self,
+        channel: DiscordChannel,
+        impact: _ThreadDeletionImpact,
+    ) -> None:
+        """Report the exact deletion cascade when the completed scan permits it."""
+        if impact.scan_complete:
+            message_impact = (
+                f"{impact.own_messages} yours / "
+                f"{impact.foreign_messages} other-or-unknown"
+            )
+        else:
+            message_impact = "unknown (incomplete thread scan)"
+        self.logger.progress(
+            "Impact at scan time for %s: messages %s; foreign reactions %s.",
+            channel_str(channel),
+            message_impact,
+            self._format_foreign_reaction_impact(impact.foreign_reactions),
+            indent=1,
+            prefix="-",
+        )
+
+    def _messages_from_complete_thread_scan(
+        self,
+        channel: DiscordChannel,
+        messages: List[DiscordMessage],
+        fetch_since: Optional[datetime],
+        max_messages: Union[int, float],
+    ) -> List[DiscordMessage]:
+        """Apply normal cleanup fetch boundaries to an already complete thread scan."""
+        selected: List[DiscordMessage] = []
+        for message in messages:
+            message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
+            if fetch_since and message_time < fetch_since:
+                break
+            if len(selected) >= max_messages:
+                break
+            selected.append(message)
+
+        message_stream: Iterable[DiscordMessage] = iter(selected)
+        if self.preserve_cache:
+            cached_ids = self.preserve_cache.get_ids(channel_id=channel["id"])
+            message_stream = self._merge_cached_messages(
+                channel=channel,
+                main_messages=message_stream,
+                cached_ids=cached_ids,
+            )
+        return list(message_stream)
 
     def _prepare_channel_messages(
         self,
@@ -523,16 +904,75 @@ class MessageCleaner:
         message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
         is_author = message["author_id"] == self.user_id
         is_deletable = is_author and bool(getattr(message["type"], "deletable", False))
-        my_reactions = tuple(
-            reaction for reaction in (message.get("reactions") or []) if delete_reactions and reaction.get("me")
-        )
+        reactions = message.get("reactions") or []
+        my_reactions: list[OwnedReaction] = []
+        if delete_reactions:
+            for reaction in reactions:
+                emoji = reaction.get("emoji") or {}
+                if reaction.get("me"):
+                    my_reactions.append(
+                        OwnedReaction(emoji=emoji, reaction_type=ReactionType.NORMAL)
+                    )
+                if reaction.get("me_burst"):
+                    my_reactions.append(
+                        OwnedReaction(emoji=emoji, reaction_type=ReactionType.BURST)
+                    )
         return MessageFacts(
             message=message,
             message_time=message_time,
             is_author=is_author,
             is_deletable=is_deletable,
-            my_reactions=my_reactions,
+            my_reactions=tuple(my_reactions),
+            foreign_reaction_impact=self._foreign_reaction_impact(reactions),
         )
+
+    @staticmethod
+    def _foreign_reaction_impact(
+        reactions: Iterable[DiscordReaction],
+    ) -> ForeignReactionImpact:
+        """Derive exact foreign reaction instances from Discord count details."""
+        impact = ForeignReactionImpact()
+        for reaction in reactions:
+            details = reaction.get("count_details")
+            me = reaction.get("me")
+            me_burst = reaction.get("me_burst")
+            if (
+                not isinstance(details, dict)
+                or not isinstance(me, bool)
+                or not isinstance(me_burst, bool)
+            ):
+                impact = impact.combined_with(ForeignReactionImpact(complete=False))
+                continue
+
+            normal = details.get("normal")
+            burst = details.get("burst")
+            if (
+                not isinstance(normal, int)
+                or isinstance(normal, bool)
+                or normal < int(me)
+                or not isinstance(burst, int)
+                or isinstance(burst, bool)
+                or burst < int(me_burst)
+            ):
+                impact = impact.combined_with(ForeignReactionImpact(complete=False))
+                continue
+
+            total = reaction.get("count")
+            if (
+                not isinstance(total, int)
+                or isinstance(total, bool)
+                or total != normal + burst
+            ):
+                impact = impact.combined_with(ForeignReactionImpact(complete=False))
+                continue
+
+            impact = impact.combined_with(
+                ForeignReactionImpact(
+                    normal=normal - int(me),
+                    burst=burst - int(me_burst),
+                )
+            )
+        return impact
 
     def _build_message_decision(
         self,
@@ -562,7 +1002,8 @@ class MessageCleaner:
                             channel_id=facts.message["channel_id"],
                             message_id=facts.message["message_id"],
                             message_time=facts.message_time,
-                            emoji=reaction.get("emoji"),
+                            emoji=reaction.emoji,
+                            reaction_type=reaction.reaction_type,
                         )
                     )
 
@@ -612,6 +1053,33 @@ class MessageCleaner:
         hours, remainder = divmod(whole_seconds, 3600)
         minutes, secs = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    @staticmethod
+    def _accumulate_foreign_reaction_impact(
+        stats: dict[str, int],
+        impact: ForeignReactionImpact,
+    ) -> None:
+        """Add one exact-or-unknown impact result to a statistics mapping."""
+        stats["foreign_reactions_normal_count"] += impact.normal
+        stats["foreign_reactions_burst_count"] += impact.burst
+        stats["foreign_reactions_unknown_count"] += int(not impact.complete)
+
+    @staticmethod
+    def _format_foreign_reaction_impact(impact: ForeignReactionImpact) -> str:
+        """Render an exact normal/Super split or an explicit unknown result."""
+        if not impact.complete:
+            return "unknown"
+        return f"{impact.normal} normal / {impact.burst} super"
+
+    def _format_foreign_reaction_stats(self, stats: dict[str, int]) -> str:
+        """Render aggregate impact statistics using the same exactness contract."""
+        return self._format_foreign_reaction_impact(
+            ForeignReactionImpact(
+                normal=stats["foreign_reactions_normal_count"],
+                burst=stats["foreign_reactions_burst_count"],
+                complete=stats["foreign_reactions_unknown_count"] == 0,
+            )
+        )
 
     def _log_fetch_summary(self, fetch_summary: Optional[dict]) -> None:
         """Log per-channel fetch diagnostics in a compact, consistent block."""
@@ -670,6 +1138,11 @@ class MessageCleaner:
 
         if dry_run and channel_plan is not None:
             summary += f", buffered messages={channel_plan.buffered_message_count}"
+        if dry_run and stats["deleted_count"]:
+            summary += (
+                ", foreign reactions affected "
+                f"{self._format_foreign_reaction_stats(stats)}"
+            )
         return summary
 
     def _log_dry_run_channel_summary(
@@ -771,10 +1244,12 @@ class MessageCleaner:
             return success
 
         emoji: DiscordEmoji = action.emoji or {}
-        emoji_name = emoji.get("name", "unknown")
+        emoji_name = emoji.get("name") or "unknown"
+        reaction_label = self._reaction_action_label(action)
         if dry_run:
             self.logger.event(
-                "Would delete reaction from message %s.",
+                "Would delete %s from message %s.",
+                reaction_label,
                 sensitive(action.message_id),
                 indent=1,
                 prefix="-",
@@ -783,7 +1258,8 @@ class MessageCleaner:
             return True
 
         self.logger.event(
-            "Deleting reaction from message %s.",
+            "Deleting %s from message %s.",
+            reaction_label,
             sensitive(action.message_id),
             indent=1,
             prefix="-",
@@ -793,6 +1269,7 @@ class MessageCleaner:
             channel_id=action.channel_id,
             message_id=action.message_id,
             emoji=emoji,
+            reaction_type=action.reaction_type,
         )
         if not success:
             self.logger.warning(
@@ -813,9 +1290,13 @@ class MessageCleaner:
             return 0
 
         message_id = actions[0].message_id
-        emoji_names = [(action.emoji or {}).get("name", "unknown") for action in actions]
+        emoji_names = [self._reaction_detail(action) for action in actions]
         reaction_count = len(actions)
-        reaction_label = "reaction" if reaction_count == 1 else f"{reaction_count} reactions"
+        reaction_label = (
+            self._reaction_action_label(actions[0])
+            if reaction_count == 1
+            else f"{reaction_count} reactions"
+        )
 
         if dry_run:
             self.logger.event(
@@ -840,11 +1321,12 @@ class MessageCleaner:
         deleted_count = 0
         for action in actions:
             emoji: DiscordEmoji = action.emoji or {}
-            emoji_name = emoji.get("name", "unknown")
+            emoji_name = emoji.get("name") or "unknown"
             success = self.api.delete_own_reaction(
                 channel_id=action.channel_id,
                 message_id=action.message_id,
                 emoji=emoji,
+                reaction_type=action.reaction_type,
             )
             if success:
                 deleted_count += 1
@@ -857,6 +1339,15 @@ class MessageCleaner:
                 )
 
         return deleted_count
+
+    @staticmethod
+    def _reaction_action_label(action: PlannedAction) -> str:
+        return "Super Reaction" if action.reaction_type == ReactionType.BURST else "reaction"
+
+    @staticmethod
+    def _reaction_detail(action: PlannedAction) -> str:
+        name = (action.emoji or {}).get("name") or "unknown"
+        return f"{name} (super)" if action.reaction_type == ReactionType.BURST else name
 
     def _log_message_detail(self, facts: Optional[MessageFacts]) -> None:
         if not facts:
@@ -880,7 +1371,7 @@ class MessageCleaner:
     def _merge_cached_messages(
         self,
         channel: DiscordChannel,
-        main_messages: Generator[DiscordMessage, None, None],
+        main_messages: Iterable[DiscordMessage],
         cached_ids: List[str],
     ) -> Generator[DiscordMessage, None, None]:
         """

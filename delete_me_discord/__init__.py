@@ -131,6 +131,11 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         settings.exclude_thread_states,
         settings.exclude_threads,
     )
+    if settings.delete_owned_threads != "none" and scope_filter.thread_discovery_mode == "none":
+        logging.error(
+            "--delete-owned-threads requires at least one included thread type and state."
+        )
+        raise SystemExit(1)
     if include_ids or exclude_ids:
         target_label = (
             "channels and threads"
@@ -173,6 +178,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         max_messages=settings.max_messages if settings.max_messages is not None else float("inf"),
         buffer_channel_messages=settings.buffer_per_channel,
         delete_reactions=not settings.keep_reactions,
+        delete_owned_threads=settings.delete_owned_threads,
     )
     if preserve_cache:
         preserve_cache.save()

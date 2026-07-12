@@ -36,6 +36,8 @@ class ThreadAPI:
                 "type": 11,
                 "name": "Active",
                 "parent_id": "text",
+                "owner_id": "me",
+                "message_count": 3,
                 "thread_metadata": {"archived": False},
             })
         if include_archived:
@@ -108,6 +110,8 @@ def test_inventory_can_exclude_archived_threads_and_adds_hierarchy():
     assert set(threads) == {"active"}
     assert all(thread["guild_id"] == "g1" for thread in threads.values())
     assert all(thread["category_id"] == "cat" for thread in threads.values())
+    assert threads["active"]["owner_id"] == "me"
+    assert threads["active"]["message_count"] == 3
     assert inventory.thread_mode == "active"
     assert inventory.includes_threads is True
     assert inventory.includes_archived_threads is False

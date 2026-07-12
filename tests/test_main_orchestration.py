@@ -42,6 +42,7 @@ def _base_clean_args(tmp_path, **overrides):
         max_messages=None,
         buffer_per_channel=False,
         keep_reactions=False,
+        delete_owned_threads="none",
         preserve_cache=False,
         preserve_cache_path=str(tmp_path / "cache.json"),
         quiet=False,
@@ -700,7 +701,11 @@ def test_main_cli_explicit_value_overrides_profile(tmp_path, monkeypatch):
 
 
 def test_main_passes_buffer_per_channel(tmp_path, monkeypatch):
-    args = _base_clean_args(tmp_path, buffer_per_channel=True)
+    args = _base_clean_args(
+        tmp_path,
+        buffer_per_channel=True,
+        delete_owned_threads="self-only",
+    )
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
     monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
@@ -727,6 +732,44 @@ def test_main_passes_buffer_per_channel(tmp_path, monkeypatch):
 
     delete_me_discord.main()
     assert cleaner_kwargs["run"]["buffer_channel_messages"] is True
+    assert cleaner_kwargs["run"]["delete_owned_threads"] == "self-only"
+
+
+def test_main_rejects_owned_thread_deletion_when_threads_are_excluded(
+    tmp_path,
+    monkeypatch,
+):
+    args = _base_clean_args(
+        tmp_path,
+        delete_owned_threads="all",
+        exclude_threads=True,
+    )
+    monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
+    monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
+    monkeypatch.setattr(
+        delete_me_discord,
+        "parse_random_range",
+        lambda *_, **__: (0, 0),
+    )
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    class BoomCleaner:
+        def __init__(self, **kwargs):
+            raise AssertionError("cleaner should not be created")
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", BoomCleaner)
+
+    with pytest.raises(SystemExit) as exc:
+        delete_me_discord.main()
+
+    assert exc.value.code == 1
 
 
 def test_main_exits_on_negative_keep_last(tmp_path, monkeypatch):

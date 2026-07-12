@@ -9,7 +9,7 @@ from .app_config import (
     profile_requests_json_output,
 )
 from .auth import DEFAULT_CONFIG_PATH
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
 from .rate_limits import REQUEST_POLICY_DEFAULTS
@@ -272,7 +272,10 @@ def build_parser(
         "-d", "--dry-run",
         action=argparse.BooleanOptionalAction,
         default=_clean_default("dry_run", clean_defaults),
-        help="Perform a dry run without deleting any messages."
+        help=(
+            "Plan cleanup and deletion-cascade impact without deleting messages, "
+            "reactions, or thread containers."
+        )
     )
     clean_parser.add_argument(
         "--profile",
@@ -323,6 +326,17 @@ def build_parser(
         action=argparse.BooleanOptionalAction,
         default=_clean_default("keep_reactions", clean_defaults),
         help="Keep your reactions instead of removing them during cleanup."
+    )
+    clean_parser.add_argument(
+        "--delete-owned-threads",
+        choices=OWNED_THREAD_DELETE_MODES,
+        default=_clean_default("delete_owned_threads", clean_defaults),
+        metavar="MODE",
+        help=(
+            "Delete thread channels created by you: 'self-only' requires a complete scan with no "
+            "messages from other authors at scan time, but may still remove their reactions; 'all' "
+            "deletes the thread including other users' messages. Default is 'none'."
+        ),
     )
     clean_parser.add_argument(
         "--preserve-cache",

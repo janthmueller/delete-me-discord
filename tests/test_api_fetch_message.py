@@ -204,6 +204,7 @@ def test_fetch_summary_reports_wait_before_next_page_only(monkeypatch):
         "stop_reason": "exhausted channel history",
         "wait_count": 1,
         "waited_seconds": 1.5,
+        "complete": True,
     }
 
 
@@ -222,6 +223,7 @@ def test_fetch_messages_stops_at_max_messages(monkeypatch):
     monkeypatch.setattr(api, "_request", fake_request)
     messages = list(api.fetch_messages(channel_id="c1", max_messages=1, fetch_sleep_time_range=(0, 0)))
     assert [m["message_id"] for m in messages] == ["200"]
+    assert api.get_last_fetch_summary("c1")["complete"] is False
 
 
 def test_fetch_messages_stops_at_cutoff(monkeypatch):

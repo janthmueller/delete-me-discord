@@ -9,14 +9,17 @@ Use [`--keep-reactions`](../../reference/cli-options/#keep-reactions) only when 
 
 ## What it does
 
-When the tool encounters a message in scope, it can remove reactions that belong to you if the message itself is not being deleted.
+When the tool encounters a message in scope, it can remove normal reactions and Super Reactions that belong to you if the message itself is not being deleted.
 
 ## Important behavior
 
 - If a message will be deleted, its reactions are not treated as separate work items.
+- Deleting your message also deletes normal and Super Reactions that other users attached to it. Dry-run reports that foreign-reaction impact separately.
 - If a message is kept and reaction cleanup is active, your reactions on that message can still be removed.
+- Discord reports normal ownership as `me` and Super Reaction ownership as `me_burst`; DMD plans the two variants independently, including when both use the same emoji.
 - Use `--keep-reactions` if you want kept messages to keep your reactions as well.
 - Reaction removal is always about your own reactions, not other users' reactions.
+- Reaction removal is skipped in archived threads because Discord restricts mutations there.
 
 ## Example
 
@@ -24,10 +27,12 @@ When the tool encounters a message in scope, it can remove reactions that belong
 dmd clean --include-ids <id> --dry-run
 ```
 
-In dry-run mode, the summary shows both:
+In dry-run mode, the summary shows:
 
-- `delete reactions=...`
-- `keep reactions=...`
+- your separately planned reaction deletions and preserved reactions
+- foreign normal and Super Reactions affected by deleting your parent messages
+
+Discord's documented Reaction object supplies integer `count`, `count_details.normal`, and `count_details.burst` fields plus boolean `me` and `me_burst` ownership flags. DMD verifies that the total equals the normal and Super Reaction breakdown, subtracts the authenticated user's instances, and reports the remaining exact count at scan time. A missing, malformed, or inconsistent required field produces `unknown`, not an estimate.
 
 ## When to use it
 

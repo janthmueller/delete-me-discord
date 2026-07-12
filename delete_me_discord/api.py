@@ -2,7 +2,7 @@
 
 import os
 from datetime import datetime
-from typing import Any, Dict, Generator, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Mapping, Optional, Set, Tuple, Union
 import logging
 import requests
 import urllib.parse
@@ -15,7 +15,7 @@ from .rate_limits import (
     DiscordRequestScheduler,
     WaitSnapshot,
 )
-from .type_enums import MessageType
+from .type_enums import MessageType, ReactionType
 from .utils import AuthenticationError, format_timestamp, ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
 from .privacy import sensitive
 
@@ -253,6 +253,7 @@ class DiscordAPI:
         fetched_count = 0
         last_message_id = None
         fetch_stop_reason = "exhausted channel history"
+        fetch_complete = fetch_since is None and max_messages == float("inf")
         self.configure_request_policy(FETCH_POLICY, fetch_sleep_time_range)
         wait_before = self.request_wait_snapshot(FETCH_POLICY)
 
@@ -270,6 +271,7 @@ class DiscordAPI:
                 )
             except ResourceUnavailable as e:
                 self.logger.warning("Skipping channel %s (unavailable: %s).", sensitive(channel_id), e)
+                fetch_complete = False
                 break
             
             if not response:
@@ -307,6 +309,7 @@ class DiscordAPI:
             "stop_reason": fetch_stop_reason,
             "wait_count": wait_after.count - wait_before.count,
             "waited_seconds": wait_after.seconds - wait_before.seconds,
+            "complete": fetch_complete,
         }
 
     def get_last_fetch_summary(self, channel_id: str) -> Optional[Dict[str, Any]]:
@@ -390,13 +393,33 @@ class DiscordAPI:
             )
             return False
         return True
-        
+
+    def delete_thread(self, thread_id: str) -> bool:
+        """Delete one thread channel when Discord grants the required permission."""
+        delete_url = f"{self.BASE_URL}/channels/{thread_id}"
+        try:
+            self._request(
+                delete_url,
+                description=f"delete thread {sensitive(thread_id)}",
+                method="delete",
+                pacing_policy=DELETE_POLICY,
+                expected_statuses={200, 204},
+            )
+        except ResourceUnavailable as e:
+            self.logger.warning(
+                "Skipping deletion of thread %s (unavailable or missing MANAGE_THREADS: %s).",
+                sensitive(thread_id),
+                e,
+            )
+            return False
+        return True
 
     def delete_own_reaction(
         self,
         channel_id: str,
         message_id: str,
-        emoji: DiscordEmoji
+        emoji: DiscordEmoji,
+        reaction_type: ReactionType = ReactionType.NORMAL,
     ) -> bool:
         """
         Deletes the authenticated user's reaction from a message.
@@ -404,8 +427,8 @@ class DiscordAPI:
         Args:
             channel_id (str): ID of the channel containing the message.
             message_id (str): ID of the message.
-            emoji (Dict[str, Any]): Emoji dict from the message reaction object.
             emoji (DiscordEmoji): Emoji dict from the message reaction object.
+            reaction_type (ReactionType): Normal or burst (Super Reaction).
 
         Returns:
             bool: True if deletion was successful, False otherwise.
@@ -419,7 +442,17 @@ class DiscordAPI:
             return False
 
         encoded_identifier = urllib.parse.quote(emoji_identifier)
+        try:
+            normalized_reaction_type = ReactionType(reaction_type)
+        except (TypeError, ValueError):
+            self.logger.warning("Skipping delete reaction: unsupported reaction type %r.", reaction_type)
+            return False
+
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}/reactions/{encoded_identifier}/@me"
+        params = None
+        if normalized_reaction_type == ReactionType.BURST:
+            delete_url = f"{delete_url}/{int(normalized_reaction_type)}"
+            params = {"burst": True}
         try:
             self._request(
                 delete_url,
@@ -428,6 +461,7 @@ class DiscordAPI:
                     f"in channel {sensitive(channel_id)}"
                 ),
                 method="delete",
+                params=params,
                 pacing_policy=DELETE_POLICY,
             )
         except ResourceUnavailable as e:
@@ -457,7 +491,7 @@ class DiscordAPI:
         name = emoji.get("name")
         emoji_id = emoji.get("id")
         if emoji_id:
-            return f"{name}:{emoji_id}"
+            return f"{'null' if name is None else name}:{emoji_id}"
         return name
 
     def _message_type(self, value: Any) -> MessageType | Any:
@@ -484,6 +518,7 @@ class DiscordAPI:
         method: str = "get",
         params: Optional[Dict[str, Any]] = None,
         pacing_policy: str = READ_POLICY,
+        expected_statuses: Optional[Set[int]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Internal method to handle GET/DELETE requests with retry logic.
@@ -494,6 +529,7 @@ class DiscordAPI:
             method (str): HTTP method to use ("get" or "delete").
             params (Optional[Dict[str, Any]]): Query parameters for the request.
             pacing_policy (str): Application pacing policy for the request.
+            expected_statuses (Optional[Set[int]]): Successful statuses for this request.
 
         Returns:
             List[Dict[str, Any]]: The JSON response data (empty list for successful DELETE).
@@ -505,7 +541,7 @@ class DiscordAPI:
             ReachedMaxRetries: When the request exceeds max retries.
         """
         assert method in {"get", "delete"}
-        success_code = {"get": 200, "delete": 204}[method]
+        success_codes = expected_statuses or {"get": {200}, "delete": {204}}[method]
         attempts = 0
         while attempts <= self.max_retries:
             request_context = self.request_scheduler.acquire(
@@ -549,7 +585,7 @@ class DiscordAPI:
 
             rate_limit = self.request_scheduler.observe(request_context, response)
             if response.status_code in {200, 204}:  # success
-                if response.status_code != success_code:
+                if response.status_code not in success_codes:
                     raise UnexpectedStatus(
                         f"Unexpected status {response.status_code} for {method.upper()} while attempting to {description}."
                     )

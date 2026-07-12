@@ -15,6 +15,7 @@ from delete_me_discord.models import ActionKind, PlannedAction
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
+from delete_me_discord.type_enums import ReactionType
 from delete_me_discord.utils import DETAIL_LEVEL, PROGRESS_LEVEL
 
 
@@ -27,7 +28,13 @@ class DummyAPI:
     def delete_message(self, channel_id, message_id):
         return True
 
-    def delete_own_reaction(self, channel_id, message_id, emoji):
+    def delete_own_reaction(
+        self,
+        channel_id,
+        message_id,
+        emoji,
+        reaction_type=ReactionType.NORMAL,
+    ):
         return True
 
 
@@ -142,7 +149,13 @@ def test_delete_messages_non_dry_run_deletes():
             self.deleted.append((channel_id, message_id))
             return True
 
-        def delete_own_reaction(self, channel_id, message_id, emoji):
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
             return True
 
     api = RecordingAPI()
@@ -176,8 +189,16 @@ def test_delete_messages_reaction_removal_non_dry_run():
         def delete_message(self, channel_id, message_id):
             return True
 
-        def delete_own_reaction(self, channel_id, message_id, emoji):
-            self.reactions.append((channel_id, message_id, emoji.get("name")))
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
+            self.reactions.append(
+                (channel_id, message_id, emoji.get("name"), reaction_type)
+            )
             return True
 
     api = RecordingAPI()
@@ -201,7 +222,208 @@ def test_delete_messages_reaction_removal_non_dry_run():
         delete_reactions=True,
     )
     assert stats["reactions_removed_count"] == 1
-    assert api.reactions == [("c1", "1", "x")]
+    assert api.reactions == [("c1", "1", "x", ReactionType.NORMAL)]
+
+
+def test_delete_messages_removes_normal_and_super_reaction_variants():
+    class RecordingAPI:
+        def __init__(self):
+            self.reactions = []
+
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
+            self.reactions.append((emoji["name"], reaction_type))
+            return True
+
+    api = RecordingAPI()
+    cleaner = MessageCleaner(api=api, user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message(
+            "1",
+            "other",
+            now - timedelta(days=10),
+            deletable=False,
+            reactions=[
+                {
+                    "me": True,
+                    "me_burst": True,
+                    "emoji": {"name": "sparkles"},
+                }
+            ],
+        )
+    ]
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=iter(messages),
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+        dry_run=False,
+        delete_reactions=True,
+    )
+
+    assert stats["reactions_removed_count"] == 2
+    assert api.reactions == [
+        ("sparkles", ReactionType.NORMAL),
+        ("sparkles", ReactionType.BURST),
+    ]
+
+
+def test_super_reaction_is_discovered_without_normal_reaction_ownership():
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    message = make_message(
+        "1",
+        "other",
+        datetime.now(timezone.utc),
+        deletable=False,
+        reactions=[
+            {
+                "me": False,
+                "me_burst": True,
+                "emoji": {"name": "sparkles"},
+            }
+        ],
+    )
+
+    facts = cleaner._build_message_facts(message, delete_reactions=True)
+
+    assert len(facts.my_reactions) == 1
+    assert facts.my_reactions[0].reaction_type == ReactionType.BURST
+
+
+def test_foreign_reaction_impact_is_exactly_derived_by_type():
+    impact = MessageCleaner._foreign_reaction_impact(
+        [
+            {
+                "count": 4,
+                "count_details": {"normal": 3, "burst": 1},
+                "me": True,
+                "me_burst": False,
+                "emoji": {"name": "one"},
+            },
+            {
+                "count": 3,
+                "count_details": {"normal": 0, "burst": 3},
+                "me": False,
+                "me_burst": True,
+                "emoji": {"name": "two"},
+            },
+        ]
+    )
+
+    assert impact.normal == 2
+    assert impact.burst == 3
+    assert impact.total == 5
+    assert impact.complete is True
+
+
+@pytest.mark.parametrize(
+    "reaction",
+    [
+        {"count": 1, "me": False, "emoji": {"name": "missing-details"}},
+        {
+            "count": 1,
+            "count_details": {"normal": 1, "burst": 0},
+            "me": False,
+            "emoji": {"name": "missing-burst-ownership"},
+        },
+        {
+            "count_details": {"normal": 1, "burst": 0},
+            "me": False,
+            "me_burst": False,
+            "emoji": {"name": "missing-total"},
+        },
+        {
+            "count": 3,
+            "count_details": {"normal": 1, "burst": 1},
+            "me": False,
+            "me_burst": False,
+            "emoji": {"name": "inconsistent-total"},
+        },
+        {
+            "count": 0,
+            "count_details": {"normal": 0, "burst": 0},
+            "me": True,
+            "me_burst": False,
+            "emoji": {"name": "impossible-owner"},
+        },
+    ],
+)
+def test_foreign_reaction_impact_is_unknown_for_incomplete_payload(reaction):
+    impact = MessageCleaner._foreign_reaction_impact([reaction])
+
+    assert impact.complete is False
+
+
+def test_message_dry_run_reports_foreign_reactions_removed_by_parent_delete():
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message(
+            "1",
+            "me",
+            now - timedelta(days=10),
+            reactions=[
+                {
+                    "count": 5,
+                    "count_details": {"normal": 3, "burst": 2},
+                    "me": True,
+                    "me_burst": True,
+                    "emoji": {"name": "wave"},
+                }
+            ],
+        )
+    ]
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=messages,
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+        dry_run=True,
+    )
+
+    assert stats["foreign_reactions_normal_count"] == 2
+    assert stats["foreign_reactions_burst_count"] == 1
+    assert stats["foreign_reactions_unknown_count"] == 0
+    assert "foreign reactions affected 2 normal / 1 super" in (
+        cleaner._format_channel_summary(
+            stats=stats,
+            delete_reactions=False,
+            dry_run=True,
+        )
+    )
+
+
+def test_message_dry_run_reports_unknown_foreign_reactions_without_counts():
+    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message(
+            "1",
+            "me",
+            now - timedelta(days=10),
+            reactions=[{"me": False, "emoji": {"name": "wave"}}],
+        )
+    ]
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=messages,
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+        dry_run=True,
+    )
+
+    assert stats["foreign_reactions_unknown_count"] == 1
+    assert "foreign reactions affected unknown" in cleaner._format_channel_summary(
+        stats=stats,
+        delete_reactions=False,
+        dry_run=True,
+    )
 
 
 def test_clean_messages_merges_cached_ids(monkeypatch):
@@ -324,7 +546,13 @@ def test_delete_messages_handles_delete_failure():
         def delete_message(self, channel_id, message_id):
             return False
 
-        def delete_own_reaction(self, channel_id, message_id, emoji):
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
             return True
 
     cleaner = MessageCleaner(
@@ -353,7 +581,13 @@ def test_delete_reactions_handles_failure():
         def delete_message(self, channel_id, message_id):
             return True
 
-        def delete_own_reaction(self, channel_id, message_id, emoji):
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
             return False
 
     cleaner = MessageCleaner(
@@ -750,7 +984,13 @@ def test_delete_reactions_skips_non_owner():
         def delete_message(self, channel_id, message_id):
             return True
 
-        def delete_own_reaction(self, channel_id, message_id, emoji):
+        def delete_own_reaction(
+            self,
+            channel_id,
+            message_id,
+            emoji,
+            reaction_type=ReactionType.NORMAL,
+        ):
             self.called = True
             return True
 
