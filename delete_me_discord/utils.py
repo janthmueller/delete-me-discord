@@ -18,6 +18,7 @@ from rich.text import Text
 
 from .privacy import RedactionConfig, sensitive, sensitive_name, set_redaction_config
 from .scope_filter import ScopeFilter
+from .scope_rules import ScopeRules
 
 
 PROGRESS_LEVEL = 15
@@ -235,25 +236,7 @@ def should_include_channel(
     if scope_filter is not None and not scope_filter.includes_channel(channel):
         return False
 
-    channel_id = channel.get("id")
-    guild_id = channel.get("guild_id")
-    scope_chain = (
-        channel_id,
-        channel.get("parent_id"),
-        channel.get("category_id"),
-        guild_id,
-    )
-
-    # The nearest explicit scope wins: channel, parent channel, category, then guild.
-    for scope_id in scope_chain:
-        if scope_id is None:
-            continue
-        if scope_id in exclude_ids:
-            return False
-        if scope_id in include_ids:
-            return True
-
-    return not include_ids
+    return ScopeRules.from_values(include_ids, exclude_ids).includes(channel)
 
 
 def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, float]:

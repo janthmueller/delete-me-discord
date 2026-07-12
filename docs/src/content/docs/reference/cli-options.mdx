@@ -41,8 +41,8 @@ Other top-level commands are:
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Reports foreign reactions affected by parent-message deletion and, when owned-thread deletion is enabled, scans those threads to report container impact. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
-| `-i` | `--include-ids` | all eligible | Restrict processing to matching full IDs or unique ID suffixes. |
-| `-x` | `--exclude-ids` | none | Exclude matching full IDs or unique ID suffixes from processing. |
+| `-i` | `--include-ids` | all eligible | Restrict processing to matching complete Discord IDs. |
+| `-x` | `--exclude-ids` | none | Exclude matching complete Discord IDs from processing. |
 | `-` | `--exclude-channel-types TYPE...` | none | Exclude exact message-bearing Discord channel types such as `GuildVoice` or `PrivateThread`. |
 | `-` | `--exclude-thread-states STATE...` | none | Exclude `active` or `archived` threads. |
 | `-` | `--exclude-threads` | off | Exclude all announcement, public, and private threads. |
@@ -159,7 +159,7 @@ Both commands are local and do not require a Discord token. Add `--json` for a J
 
 `dmd list channels` also supports `--exclude-channel-types`, `--exclude-thread-states`, and `--exclude-threads`.
 
-`--include-ids` and `--exclude-ids` accept full Discord IDs or unique ID suffixes. Suffixes are resolved against discovered guilds, categories, supported message channels, thread parents, and threads.
+`--include-ids` and `--exclude-ids` accept complete decimal Discord IDs. Guild and DM IDs are validated from the current top-level lists; category, channel, thread-parent, and thread IDs use an exact channel lookup. Old suffix shorthand is treated as an exact ID and fails when Discord cannot resolve it.
 
 `dmd list profiles` supports:
 
@@ -222,10 +222,9 @@ Profile commands are useful once you want saved cleanup presets.
 Examples:
 
 - `dmd profile add nightly-dms --set include_ids=123456789012345678 --set keep_within=2w`
-- `dmd profile add nightly-dms --set include_ids=490059 --set keep_within=2w`
 - `dmd profile add nightly-dms --set preserve_cache=true`
 
-When `include_ids` or `exclude_ids` are set, profile commands resolve full IDs or unique suffixes through Discord before writing `config.json`. Stored profiles contain full IDs.
+When `include_ids` or `exclude_ids` are set, profile commands validate the complete IDs through Discord before writing `config.json`.
 Because that validation calls Discord, `profile add` and `profile update` also accept `--token`, `--config-path`, and retry flags.
 
 ### Update
@@ -330,6 +329,8 @@ Forum and media channels are containers rather than message channels. Thread dis
 The Rich terminal tree nests each thread below its visible parent channel. If the parent is unavailable or filtered out, the thread remains at category level with parent context. JSON output keeps its existing flat channel entries and `parent_id` fields for compatibility.
 
 Thread discovery can issue one or more paginated API requests for every relevant thread-capable channel in each visible guild. Exclusions avoid searches when none of the remaining thread types can exist under a parent. Discord permits message deletion in archived threads but restricts other mutations, so `dmd` skips reaction removal there.
+
+`dmd list channels` completes this discovery before rendering its tree. Cleanup instead advances one guild and one parent at a time: it completes a parent's paginated thread snapshot, processes that parent and its child threads, and then continues. Explicit include/exclude IDs receive exact preflight validation before deletion but reuse that preflight data and remain incremental.
 
 ### Owned Thread Deletion
 

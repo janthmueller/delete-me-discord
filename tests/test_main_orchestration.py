@@ -15,6 +15,7 @@ import delete_me_discord
 from delete_me_discord.privacy import RedactionConfig
 from delete_me_discord.privacy import set_redaction_config
 from delete_me_discord.scope_filter import ScopeFilter
+from delete_me_discord.utils import ResourceUnavailable
 
 
 def _base_clean_args(tmp_path, **overrides):
@@ -130,7 +131,12 @@ def test_main_cache_clear_exits_early(tmp_path, monkeypatch):
 
 
 def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
-    args = _base_list_args(tmp_path, list_command="guilds", include_ids=["0001"], exclude_ids=["0002"])
+    args = _base_list_args(
+        tmp_path,
+        list_command="guilds",
+        include_ids=["1111111111110001"],
+        exclude_ids=["2222222222220002"],
+    )
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
@@ -301,11 +307,14 @@ def test_main_profile_add_updates_config(tmp_path, monkeypatch):
     assert data["profiles"]["nightly-dms"]["dry_run"] is True
 
 
-def test_main_profile_add_resolves_scope_ids_before_writing(tmp_path, monkeypatch):
+def test_main_profile_add_validates_scope_ids_before_writing(tmp_path, monkeypatch):
     args = _base_profile_args(
         tmp_path,
         profile_command="add",
-        profile_set=["include_ids=0001", "exclude_ids=0002"],
+        profile_set=[
+            "include_ids=1111111111110001",
+            "exclude_ids=2222222222220002",
+        ],
     )
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
@@ -333,36 +342,48 @@ def test_main_profile_add_resolves_scope_ids_before_writing(tmp_path, monkeypatc
     assert data["profiles"]["nightly-dms"]["exclude_ids"] == ["2222222222220002"]
 
 
-def test_main_profile_add_discovers_threads_before_resolving_thread_scope(tmp_path, monkeypatch):
+def test_main_profile_add_validates_thread_id_without_global_discovery(tmp_path, monkeypatch):
     args = _base_profile_args(
         tmp_path,
         profile_command="add",
-        profile_set=["exclude_thread_states=archived", "include_ids=0003"],
+        profile_set=[
+            "exclude_thread_states=archived",
+            "include_ids=3333333333330003",
+        ],
     )
-    scope_filter = ScopeFilter.from_names(excluded_thread_states=["archived"])
-    inventory = delete_me_discord.ScopeInventory(
-        guilds=[{"id": "g1", "name": "Guild"}],
-        root_channels=[],
-        guild_channels_by_guild={"g1": [{"id": "c1", "type": 0, "name": "Text"}]},
-        threads_by_guild={
-            "g1": [{"id": "3333333333330003", "type": 11, "name": "Thread", "parent_id": "c1"}],
-        },
-        scope_filter=scope_filter,
-    )
-    captured = {}
+    guild_id = "1111111111110001"
+    channel_calls = []
 
     class FakeAPI:
         def __init__(self, *args, **kwargs):
             pass
 
-    def fake_fetch(api, **kwargs):
-        captured.update(kwargs)
-        return inventory
+        def get_guilds(self):
+            return [{"id": guild_id, "name": "Guild"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_channel(self, channel_id):
+            channel_calls.append(channel_id)
+            return {
+                "id": channel_id,
+                "type": 11,
+                "name": "Thread",
+                "guild_id": guild_id,
+                "parent_id": "2222222222220002",
+                "thread_metadata": {"archived": True},
+            }
+
+        def get_guild_channels(self, guild_id):
+            raise AssertionError("Profile validation must not discover guild channels.")
+
+        def search_channel_threads(self, channel_id, *, include_archived=False):
+            raise AssertionError("Profile validation must not search threads.")
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
     monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
-    monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
 
     delete_me_discord.main()
 
@@ -370,7 +391,7 @@ def test_main_profile_add_discovers_threads_before_resolving_thread_scope(tmp_pa
     profile = data["profiles"]["nightly-dms"]
     assert profile["include_ids"] == ["3333333333330003"]
     assert profile["exclude_thread_states"] == ["archived"]
-    assert captured == {"scope_filter": scope_filter}
+    assert channel_calls == ["3333333333330003"]
 
 
 def test_main_profile_add_requires_set(tmp_path, monkeypatch, capsys):
@@ -405,11 +426,11 @@ def test_main_profile_update_set_none_unsets_field(tmp_path, monkeypatch):
     assert data["profiles"]["nightly-dms"] == {"keep_last": 5}
 
 
-def test_main_profile_update_resolves_scope_ids_before_writing(tmp_path, monkeypatch):
+def test_main_profile_update_validates_scope_ids_before_writing(tmp_path, monkeypatch):
     args = _base_profile_args(
         tmp_path,
         profile_command="update",
-        profile_set=["include_ids=0001"],
+        profile_set=["include_ids=1111111111110001"],
     )
     Path(args.config_path).write_text(
         '{"profiles":{"nightly-dms":{"keep_last":5}}}',
@@ -444,7 +465,7 @@ def test_main_profile_update_checks_existing_scope_ids_before_writing(tmp_path, 
     args = _base_profile_args(
         tmp_path,
         profile_command="update",
-        profile_set=["include_ids=0001"],
+        profile_set=["include_ids=1111111111110001"],
     )
     Path(args.config_path).write_text(
         '{"profiles":{"nightly-dms":{"exclude_ids":["1111111111110001"]}}}',
@@ -881,8 +902,12 @@ def test_run_clean_logs_redacted_authenticated_user(tmp_path, monkeypatch, caplo
     assert "123456789012345678" not in caplog.text
 
 
-def test_run_clean_resolves_scope_selectors_before_cleaner_creation(tmp_path, monkeypatch):
-    args = _base_clean_args(tmp_path, include_ids=["0001"], exclude_ids=["0002"])
+def test_run_clean_validates_scope_ids_before_cleaner_creation(tmp_path, monkeypatch):
+    args = _base_clean_args(
+        tmp_path,
+        include_ids=["1111111111110001"],
+        exclude_ids=["2222222222220002"],
+    )
     monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
 
     class FakeAPI:
@@ -917,6 +942,46 @@ def test_run_clean_resolves_scope_selectors_before_cleaner_creation(tmp_path, mo
 
     assert captured["include_ids"] == ["1111111111110001"]
     assert captured["exclude_ids"] == ["2222222222220002"]
+    assert captured["scope_inventory"] is None
+    assert captured["scope_seed"].guild_ids == frozenset({"1111111111110001"})
+
+
+def test_run_clean_rejects_unknown_exact_exclusion_before_cleaner_creation(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    args = _base_clean_args(tmp_path, exclude_ids=["0001"])
+    monkeypatch.setattr(delete_me_discord, "parse_random_range", lambda *_, **__: (0, 0))
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+        def get_guilds(self):
+            return [{"id": "1111111111110001", "name": "Alpha"}]
+
+        def get_root_channels(self):
+            return []
+
+        def get_channel(self, channel_id):
+            raise ResourceUnavailable("not found")
+
+    class BoomCleaner:
+        def __init__(self, **kwargs):
+            raise AssertionError("Cleanup must not start for an unknown exact ID.")
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", BoomCleaner)
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc:
+        delete_me_discord._run_clean(args)
+
+    assert exc.value.code == 1
+    assert "Exact Discord IDs are required" in caplog.text
 
 
 def test_run_clean_passes_scope_filter_to_cleaner(tmp_path, monkeypatch):

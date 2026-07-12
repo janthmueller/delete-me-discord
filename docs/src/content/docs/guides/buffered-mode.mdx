@@ -55,6 +55,8 @@ Buffered mode does not change the deletion decision in `--dry-run`. It mainly ch
 
 Buffered mode uses more memory per channel than the default lazy mode.
 
+It does not make channel discovery global. Cleanup still advances one guild and one thread parent at a time; only the current channel's messages are buffered. Explicit IDs receive exact preflight validation before cleanup, but they do not force a complete channel/thread inventory.
+
 If you want the exact flag definition, see [CLI Options](../../reference/cli-options/).
 
 ## See also

@@ -120,6 +120,19 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/guilds/{guild_id}/channels"
         return self._request(url, description=f"fetch channels for guild {sensitive(guild_id)}")
 
+    def get_channel(self, channel_id: str) -> DiscordChannel:
+        """Fetch one guild channel, category, thread, or private channel by exact ID."""
+        url = f"{self.BASE_URL}/channels/{channel_id}"
+        payload = self._request(
+            url,
+            description=f"fetch channel {sensitive(channel_id)}",
+        )
+        if len(payload) != 1 or not isinstance(payload[0], dict):
+            raise UnexpectedStatus(
+                f"Malformed channel response while attempting to fetch channel {sensitive(channel_id)}."
+            )
+        return payload[0]
+
     def get_guild_channels_multiple(self, guild_ids: List[str]) -> List[DiscordChannel]:
         """
         Fetches channels for multiple guilds.

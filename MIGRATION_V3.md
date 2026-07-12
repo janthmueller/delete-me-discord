@@ -92,6 +92,27 @@ dmd list thread-states
 
 Both value-list commands support `--json`.
 
+### Replace partial ID suffixes with complete IDs
+
+v3 removes the implicit unique-suffix fallback from `--include-ids` and
+`--exclude-ids`. Every scope value must now be a complete decimal Discord ID
+that identifies an accessible supported guild, category, channel, thread
+parent, or thread.
+
+```bash
+# v2 shorthand; no longer accepted
+dmd clean --include-ids 490059 --dry-run
+
+# v3 exact scope
+dmd clean --include-ids 123456789012490059 --dry-run
+```
+
+Use `dmd list guilds` or `dmd list channels` to obtain complete IDs. Profiles
+created through the v2 profile commands already contain resolved complete IDs
+and require no change. Replace suffixes only in hand-written configuration or
+scripts. Old shorthand is treated as an exact ID and fails preflight when
+Discord cannot resolve it.
+
 ### Existing profiles are migrated in memory
 
 The current profile fields are:
@@ -196,7 +217,7 @@ Discord channel type numbers and display names now live in
 - thread containers: `GuildForum`, `GuildMedia`
 - structural/non-message types such as categories and directories
 
-Discovery, selector resolution, display, and cleanup use the same definitions.
+Discovery, exact-ID preflight, display, and cleanup use the same definitions.
 This removes the previous duplicated `{0, 1, 3}` channel-type checks and makes
 support for announcement, voice/stage chat, forum/media posts, and threads
 consistent throughout the application.
@@ -204,8 +225,10 @@ consistent throughout the application.
 ### ScopeFilter is the shared policy
 
 `delete_me_discord/scope_filter.py` converts CLI/profile names into typed
-channel and thread-state exclusions. The same filter is passed through
-inventory collection, selector resolution, listing, and cleanup.
+channel and thread-state exclusions. The same filter is passed through eager
+inventory collection, listing, and incremental cleanup. Exact-ID preflight
+validates identity independently, so an accepted ID can still be omitted when
+a type or thread-state exclusion wins.
 
 Type and thread-state exclusions always take precedence over ID includes. This
 prevents an explicitly included channel ID from accidentally overriding a
@@ -221,6 +244,10 @@ ID filtering follows nearest-target precedence:
 For example, an included thread can override an excluded guild, while an
 explicit exclusion on that thread still wins.
 
+`delete_me_discord/scope_rules.py` owns this policy independently from API
+discovery. If any include ID exists, unmatched channels default to excluded.
+With excludes only, unmatched channels retain the default included state.
+
 The filter also determines the cheapest required discovery mode:
 
 - `none`: make no thread-search requests
@@ -233,10 +260,23 @@ channels without disabling public/private thread searches elsewhere.
 
 ## Thread discovery pipeline
 
-### Inventory collection
+### Inventory and incremental cleanup
 
-`ScopeInventory` first loads guilds, root channels, and each guild's channels.
-For every eligible thread-capable parent it then calls:
+`dmd list channels` builds a complete `ScopeInventory` because rendering the
+tree requires all selected channels and threads. Cleanup does not build a
+global inventory, with or without explicit ID filters.
+
+Explicit IDs first pass through `delete_me_discord/scope_ids.py`. Preflight
+loads the current guild and DM lists once, recognizes those IDs directly, and
+uses `GET /channels/{id}` only for remaining category, channel, thread-parent,
+or thread IDs. Every ID is validated before mutation. The guild and DM results
+are then reused as a discovery seed rather than fetched again.
+
+Cleanup advances one guild and one thread parent at a time. When include IDs
+exist, the validated nodes form a safe guild allowlist; unrelated guilds cannot
+match because unmatched nodes already default to excluded. Exclude-only scopes
+still traverse every guild because a more-specific include is not available to
+change their default. For every eligible thread-capable parent cleanup calls:
 
 ```text
 GET /channels/{channel_id}/threads/search
@@ -255,6 +295,13 @@ The endpoint is part of Discord's user-facing API behavior rather than the
 documented bot API used by conventional bot integrations. That matches DMD's
 existing user-token model, but it remains an integration surface that may need
 maintenance if Discord changes its client API.
+
+One parent's complete paginated thread result is normalized before cleanup
+mutates that parent. Cleanup then processes the parent followed by its child
+threads before discovering the next parent. This preserves hierarchy and
+avoids a discovery/delete race without retaining every guild's thread result
+in memory. The same nearest-target rules are applied only after each channel's
+guild, category, and immediate parent IDs have been normalized.
 
 ### Pagination and response handling
 
@@ -277,8 +324,8 @@ built. DMD schedules a retry instead of treating that response as success.
 retry scheduler.
 
 A `403` or `404` for one parent skips that parent's threads without discarding
-the rest of the guild inventory. These skips are diagnostic output, visible at
-the established high-verbosity level rather than in normal output.
+the remaining guild work. These skips are diagnostic output, visible at the
+established high-verbosity level rather than in normal output.
 
 ### Thread hierarchy and display
 
@@ -296,6 +343,12 @@ metadata.
 Threads are ordinary message channels once discovered, so existing message
 fetching, retention rules, dry-run planning, preserve-cache behavior, and
 message deletion apply to them.
+
+Without `--buffer-per-channel`, each fetched message is evaluated and acted on
+before the next message is requested from the iterator. Buffered mode still
+materializes exactly one channel and builds its complete plan before actions
+begin. Owned-thread `self-only` scans and `all --dry-run` impact reporting also
+force complete thread-history scans where their safety contract requires it.
 
 Archived threads are handled specially: Discord permits deleting the user's
 messages there but restricts other mutations. DMD therefore skips reaction
@@ -508,7 +561,14 @@ concurrency group so a stale deployment cannot race the latest build.
 - The default v3 scope is intentionally broader. Upgrade notes and the release
   commit must call out thread inclusion as a breaking change.
 - Thread discovery cost scales with the number of visible thread-capable parent
-  channels and result pages. `--exclude-threads` is the explicit fast path.
+  channels and result pages. Cleanup starts processing before every parent has
+  been searched, including with explicit ID filters. Exact-ID preflight still
+  completes before mutation, while only channel-tree listings complete thread
+  discovery first. `--exclude-threads` is the explicit fast path.
+- Incremental cleanup is not transactional. If a fatal API or discovery error
+  occurs under a later parent, channels processed earlier in the run remain
+  changed. Use a dry-run first; per-parent permission failures continue to be
+  skipped rather than aborting the run.
 - DMD can only discover threads visible to the authenticated user. Per-parent
   permission failures are skipped and do not imply that no thread exists.
 - The thread search endpoint follows Discord client behavior and is less stable
@@ -531,7 +591,7 @@ concurrency group so a stale deployment cannot race the latest build.
 | CLI and orchestration | `delete_me_discord/__init__.py`, `delete_me_discord/options.py` |
 | Profiles and effective settings | `delete_me_discord/app_config.py` |
 | Channel model and filters | `delete_me_discord/channel_types.py`, `delete_me_discord/scope_filter.py` |
-| Inventory and selectors | `delete_me_discord/scope_inventory.py`, `delete_me_discord/scope_selectors.py` |
+| Scope IDs, rules, and inventory | `delete_me_discord/scope_ids.py`, `delete_me_discord/scope_rules.py`, `delete_me_discord/scope_inventory.py` |
 | Thread API and rate scheduling | `delete_me_discord/api.py`, `delete_me_discord/rate_limits.py` |
 | Listing and rendering | `delete_me_discord/discovery.py`, `delete_me_discord/discovery_renderers.py` |
 | Cleanup semantics | `delete_me_discord/cleaner.py`, `delete_me_discord/models.py` |

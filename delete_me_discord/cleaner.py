@@ -8,8 +8,6 @@ import logging
 
 from .api import DiscordAPI
 from .channel_types import (
-    GUILD_CLEANUP_CHANNEL_TYPES,
-    ROOT_MESSAGE_CHANNEL_TYPES,
     is_archived_thread,
     is_thread_channel,
 )
@@ -26,12 +24,13 @@ from .models import (
     OwnedReaction,
     PlannedAction,
 )
-from .utils import channel_str, should_include_channel, format_timestamp
+from .utils import channel_str, format_timestamp
 from .privacy import sensitive
 from .preserve_cache import PreserveCache
 from .rate_limits import DELETE_POLICY, FETCH_POLICY
 from .scope_filter import ScopeFilter
-from .scope_inventory import ScopeInventory
+from .scope_inventory import ScopeDiscoverySeed, ScopeInventory, iter_cleanup_channels
+from .scope_rules import ScopeRules
 from .type_enums import ReactionType
 
 
@@ -69,6 +68,7 @@ class MessageCleaner:
         preserve_n_mode: str = "all",
         preserve_cache: Optional[PreserveCache] = None,
         scope_inventory: Optional[ScopeInventory] = None,
+        scope_seed: Optional[ScopeDiscoverySeed] = None,
         scope_filter: Optional[ScopeFilter] = None,
     ):
         """
@@ -99,8 +99,7 @@ class MessageCleaner:
         if not self.user_id:
             raise ValueError("User ID not provided. Set DISCORD_USER_ID or ensure the token can fetch /users/@me.")
 
-        self.include_ids = set(include_ids) if include_ids else set()
-        self.exclude_ids = set(exclude_ids) if exclude_ids else set()
+        self.scope_rules = ScopeRules.from_values(include_ids, exclude_ids)
         self.preserve_last = preserve_last
         self.preserve_n = preserve_n
         if preserve_n_mode not in {"mine", "all"}:
@@ -109,12 +108,10 @@ class MessageCleaner:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.preserve_cache = preserve_cache
         self.scope_inventory = scope_inventory
+        self.scope_seed = scope_seed
         self.scope_filter = scope_filter or (
             scope_inventory.scope_filter if scope_inventory else ScopeFilter()
         )
-
-        if self.include_ids.intersection(self.exclude_ids):
-            raise ValueError("Include and exclude IDs must be disjoint.")
 
     def _configure_request_policy(
         self,
@@ -127,51 +124,34 @@ class MessageCleaner:
 
     def get_all_channels(self) -> List[DiscordChannel]:
         """
-        Retrieves all relevant channels based on include and exclude IDs.
+        Collect all relevant channels based on include and exclude IDs.
 
         Returns:
             List[DiscordChannel]: Channels eligible for processing.
         """
-        all_channels = []
-        if self.scope_inventory:
-            root_channels = self.scope_inventory.root_channels
-            guild_channels = self.scope_inventory.all_guild_channels()
-        else:
+        all_channels = list(self.iter_channels())
+        self.logger.progress("Channels to process: %s", len(all_channels))
+        return all_channels
+
+    def iter_channels(self) -> Generator[DiscordChannel, None, None]:
+        """Yield eligible channels without building a global cleanup inventory."""
+        if self.scope_inventory is None:
             target_label = (
                 "channels and threads"
                 if self.scope_filter.thread_discovery_mode != "none"
                 else "channels"
             )
-            self.logger.progress("Discovering %s.", target_label)
-            inventory = ScopeInventory.fetch(
-                self.api,
-                scope_filter=self.scope_filter,
-            )
-            root_channels = inventory.root_channels
-            guild_channels = inventory.all_guild_channels()
-
-        # Process root channels
-        for channel in root_channels:
-            if channel.get("type") not in ROOT_MESSAGE_CHANNEL_TYPES:
-                self.logger.debug("Skipping unknown channel type: %s", channel.get("type"))
-                continue
+            self.logger.progress("Discovering %s as cleanup advances.", target_label)
+        for channel in iter_cleanup_channels(
+            self.api,
+            scope_filter=self.scope_filter,
+            inventory=self.scope_inventory,
+            seed=self.scope_seed,
+        ):
             if not self._should_include_channel(channel):
                 continue
-            all_channels.append(channel)
             self.logger.debug("Included channel: %s.", channel_str(channel))
-
-        # Process guild channels
-        for channel in guild_channels:
-            if channel.get("type") not in GUILD_CLEANUP_CHANNEL_TYPES:
-                self.logger.debug("Skipping unknown channel type: %s", channel.get("type"))
-                continue
-            if not self._should_include_channel(channel):
-                continue
-            all_channels.append(channel)
-            self.logger.debug("Included channel: %s.", channel_str(channel))
-
-        self.logger.progress("Channels to process: %s", len(all_channels))
-        return all_channels
+            yield channel
 
     def _should_include_channel(self, channel: DiscordChannel) -> bool:
         """
@@ -183,12 +163,7 @@ class MessageCleaner:
         Returns:
             bool: True if the channel should be included, False otherwise.
         """
-        allowed = should_include_channel(
-            channel=channel,
-            include_ids=self.include_ids,
-            exclude_ids=self.exclude_ids,
-            scope_filter=self.scope_filter,
-        )
+        allowed = self.scope_filter.includes_channel(channel) and self.scope_rules.includes(channel)
         if not allowed:
             self.logger.debug("Excluding channel based on include/exclude filters: %s.", channel_str(channel))
         return allowed
@@ -261,17 +236,17 @@ class MessageCleaner:
             "foreign_reactions_burst_count": 0,
             "foreign_reactions_unknown_count": 0,
         }
-        plan = channel_plan or ChannelPlan(
-            decisions=tuple(
-                self._iter_message_decisions(
-                    messages=messages,
-                    cutoff_time=cutoff_time,
-                    delete_reactions=delete_reactions,
-                )
+        decisions: Iterable[MessageDecision]
+        if channel_plan is not None:
+            decisions = channel_plan.decisions
+        else:
+            decisions = self._iter_message_decisions(
+                messages=messages,
+                cutoff_time=cutoff_time,
+                delete_reactions=delete_reactions,
             )
-        )
         action_start = time.monotonic()
-        for decision in plan.decisions:
+        for decision in decisions:
             stats["message_count"] += 1
             facts = decision.facts
             message = facts.message
@@ -384,14 +359,14 @@ class MessageCleaner:
                 thread_impact,
             )
 
-        channels = self.get_all_channels()
-
         if dry_run:
             self.logger.info(
                 "Dry run enabled. Content will be fetched and evaluated but not deleted."
             )
 
-        for channel in channels:
+        processed_channel_count = 0
+        for channel in self.iter_channels():
+            processed_channel_count += 1
             channel_started_at = time.monotonic()
             self.logger.progress("Processing channel: %s.", channel_str(channel))
             thread_outcome = self._prepare_owned_thread_deletion(
@@ -517,6 +492,7 @@ class MessageCleaner:
                 channel_plan=channel_plan,
             )
 
+        self.logger.progress("Channels processed: %s.", processed_channel_count)
         run_elapsed = time.monotonic() - run_started_at
         if dry_run:
             execute_estimate_seconds = self._estimate_action_count_duration(

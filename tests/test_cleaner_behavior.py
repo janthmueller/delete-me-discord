@@ -181,6 +181,34 @@ def test_delete_messages_non_dry_run_deletes():
     assert api.deleted == [("c1", "1")]
 
 
+def test_delete_messages_streams_each_decision_before_fetching_the_next_message():
+    events = []
+
+    class RecordingAPI:
+        def delete_message(self, channel_id, message_id):
+            events.append(f"delete:{message_id}")
+            return True
+
+    cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+
+    def messages():
+        events.append("yield:1")
+        yield make_message("1", "me", now - timedelta(days=10))
+        assert events[-1] == "delete:1"
+        events.append("yield:2")
+        yield make_message("2", "me", now - timedelta(days=11))
+
+    _, stats, _ = cleaner.delete_messages_older_than(
+        messages=messages(),
+        cutoff_time=now,
+        delete_sleep_time_range=(0, 0),
+    )
+
+    assert stats["deleted_count"] == 2
+    assert events == ["yield:1", "delete:1", "yield:2", "delete:2"]
+
+
 def test_delete_messages_reaction_removal_non_dry_run():
     class RecordingAPI:
         def __init__(self):
@@ -464,7 +492,7 @@ def test_clean_messages_merges_cached_ids(monkeypatch):
     now = datetime.now(timezone.utc)
     main_messages = [make_message("100", "me", now)]
 
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(main_messages))
 
     deleted = cleaner.clean_messages(
@@ -525,7 +553,7 @@ def test_clean_messages_buffered_mode_keeps_delete_behavior(monkeypatch):
         make_message("2", "me", now - timedelta(days=21)),
     ]
 
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
 
     total = cleaner.clean_messages(
@@ -539,6 +567,39 @@ def test_clean_messages_buffered_mode_keeps_delete_behavior(monkeypatch):
     )
 
     assert total == 2
+
+
+def test_clean_messages_buffered_mode_fetches_all_messages_before_deleting(monkeypatch):
+    events = []
+
+    class RecordingAPI:
+        def delete_message(self, channel_id, message_id):
+            events.append(f"delete:{message_id}")
+            return True
+
+    cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
+    now = datetime.now(timezone.utc)
+
+    def messages():
+        events.append("yield:1")
+        yield make_message("1", "me", now - timedelta(days=10))
+        events.append("yield:2")
+        yield make_message("2", "me", now - timedelta(days=11))
+
+    monkeypatch.setattr(
+        cleaner,
+        "iter_channels",
+        lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]),
+    )
+    monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: messages())
+
+    cleaner.clean_messages(
+        fetch_sleep_time_range=(0, 0),
+        delete_sleep_time_range=(0, 0),
+        buffer_channel_messages=True,
+    )
+
+    assert events == ["yield:1", "yield:2", "delete:1", "delete:2"]
 
 
 def test_delete_messages_handles_delete_failure():
@@ -770,6 +831,76 @@ def test_get_all_channels_discovers_all_threads_by_default():
     assert api.search_calls == [("text", True)]
 
 
+def test_clean_messages_discovers_and_processes_one_thread_parent_at_a_time():
+    events = []
+
+    class Api:
+        def get_guilds(self):
+            events.append("get:guilds")
+            return [{"id": "g1"}, {"id": "g2"}]
+
+        def get_root_channels(self):
+            events.append("get:root-channels")
+            return [{"id": "dm", "type": 1, "name": "DM"}]
+
+        def get_guild_channels(self, guild_id):
+            events.append(f"get:guild-channels:{guild_id}")
+            if guild_id == "g1":
+                return [
+                    {"id": "category", "type": 4, "name": "Category"},
+                    {
+                        "id": "text",
+                        "type": 0,
+                        "name": "Text",
+                        "parent_id": "category",
+                    },
+                    {
+                        "id": "forum",
+                        "type": 15,
+                        "name": "Forum",
+                        "parent_id": "category",
+                    },
+                ]
+            return [{"id": "voice", "type": 2, "name": "Voice"}]
+
+        def search_channel_threads(self, channel_id, *, include_archived=False):
+            assert include_archived is True
+            events.append(f"search:{channel_id}")
+            thread_id = "thread" if channel_id == "text" else "post"
+            return [{
+                "id": thread_id,
+                "type": 11,
+                "name": thread_id,
+                "parent_id": channel_id,
+                "thread_metadata": {"archived": False},
+            }]
+
+        def fetch_messages(self, channel_id, **kwargs):
+            events.append(f"process:{channel_id}")
+            return iter(())
+
+    cleaner = MessageCleaner(api=Api(), user_id="me")
+
+    cleaner.clean_messages(
+        fetch_sleep_time_range=(0, 0),
+        delete_sleep_time_range=(0, 0),
+    )
+
+    assert events == [
+        "get:guilds",
+        "get:root-channels",
+        "process:dm",
+        "get:guild-channels:g1",
+        "search:text",
+        "process:text",
+        "process:thread",
+        "search:forum",
+        "process:post",
+        "get:guild-channels:g2",
+        "process:voice",
+    ]
+
+
 def test_get_all_channels_exclude_threads_shortcut_avoids_search():
     class Api:
         def get_guilds(self):
@@ -824,7 +955,7 @@ def test_get_all_channels_reuses_scope_inventory_without_fetching_api():
 
 def test_clean_messages_non_dry_run_summary(monkeypatch):
     cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter([]))
 
     def fake_delete_messages_older_than(**kwargs):
@@ -853,7 +984,7 @@ def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(mo
     now = datetime.now(timezone.utc)
     messages = [make_message("1", "me", now - timedelta(days=20))]
 
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
 
     with caplog.at_level(PROGRESS_LEVEL):
@@ -875,7 +1006,7 @@ def test_clean_messages_buffered_non_dry_run_logs_combined_pre_execution_line(mo
 
 def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
     cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "_prepare_channel_messages", lambda **kwargs: (iter(()), None))
     monkeypatch.setattr(
         cleaner,
@@ -926,7 +1057,7 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
         ),
     ]
 
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
     monotonic_values = iter([10.0, 11.0, 12.0, 13.0, 15.0, 16.0])
     monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
@@ -957,7 +1088,7 @@ def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monke
         make_message("2", "me", now - timedelta(days=21)),
     ]
 
-    monkeypatch.setattr(cleaner, "get_all_channels", lambda: [{"id": "c1", "type": 0, "name": "chan"}])
+    monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
 
     with caplog.at_level(PROGRESS_LEVEL):

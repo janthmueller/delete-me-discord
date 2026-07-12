@@ -4,7 +4,6 @@ from delete_me_discord.cleaner import MessageCleaner
 from delete_me_discord.discovery import collect_channels_from_inventory
 from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
-from delete_me_discord.scope_selectors import discover_scope_targets
 from delete_me_discord.type_enums import MessageType, ReactionType
 from delete_me_discord.utils import PROGRESS_LEVEL, should_include_channel
 
@@ -129,18 +128,6 @@ class ThreadCleanupAPI:
         return True
 
 
-def test_scope_targets_include_thread_containers_threads_and_direct_message_channels():
-    by_id = {target.id: target for target in discover_scope_targets(make_inventory())}
-
-    assert by_id["cat"].kind == "Category"
-    assert by_id["voice"].kind == "GuildVoice"
-    assert by_id["news"].kind == "GuildAnnouncement"
-    assert by_id["stage"].kind == "GuildStageVoice"
-    assert by_id["forum"].kind == "GuildForum"
-    assert by_id["active-thread"].kind == "PublicThread"
-    assert by_id["archived-post"].kind == "PublicThread"
-
-
 def test_discovery_renders_threads_in_their_category_with_parent_context():
     data = collect_channels_from_inventory(make_inventory(), include_set=set(), exclude_set=set())
 
@@ -200,10 +187,10 @@ def test_cleaner_processes_direct_and_thread_channels_but_not_containers():
     assert [channel["id"] for channel in cleaner.get_all_channels()] == [
         "dm",
         "text",
+        "active-thread",
         "voice",
         "news",
         "stage",
-        "active-thread",
         "archived-post",
     ]
 

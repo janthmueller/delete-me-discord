@@ -126,13 +126,13 @@ String lists are used by profile fields such as:
 Profile `--set` accepts:
 
 ```bash
---set include_ids=123,456
---set include_ids="123 456"
---set include_ids='["123","456"]'
+--set include_ids=123456789012345678,234567890123456789
+--set include_ids="123456789012345678 234567890123456789"
+--set include_ids='["123456789012345678","234567890123456789"]'
 ```
 
-For `include_ids` and `exclude_ids`, values may be full Discord IDs or unique ID suffixes when set through `dmd profile add` or `dmd profile update`.
-Profile commands resolve them through Discord before writing config, and store full IDs.
+For `include_ids` and `exclude_ids`, every value must be a complete decimal Discord ID.
+Profile commands validate them through Discord before writing config. Partial ID suffixes are not accepted in v3.
 
 `exclude_channel_types` accepts canonical values from `dmd list channel-types`. `exclude_thread_states` accepts values from `dmd list thread-states`.
 
@@ -140,7 +140,7 @@ Hand-written profile config accepts the same list shapes:
 
 ```json
 {
-  "include_ids": ["123", "456"]
+  "include_ids": ["123456789012345678", "234567890123456789"]
 }
 ```
 

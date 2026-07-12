@@ -85,8 +85,8 @@ ProfileValueMode = Literal["cli-set", "stored", "runtime"]
 
 
 PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
-    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching full IDs. Profile commands resolve unique suffixes before storing."},
-    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching full IDs. Profile commands resolve unique suffixes before storing."},
+    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching complete Discord IDs. Profile commands validate IDs before storing."},
+    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching complete Discord IDs. Profile commands validate IDs before storing."},
     {"name": "exclude_channel_types", "type": "channel type list", "parser": "enum_list", "choices": FILTERABLE_CHANNEL_TYPE_NAMES, "nullable": False, "description": "Exclude message-bearing Discord channel types from discovery and cleanup."},
     {"name": "exclude_thread_states", "type": "active|archived list", "parser": "enum_list", "choices": THREAD_STATES, "nullable": False, "description": "Exclude active or archived threads from discovery and cleanup."},
     {"name": "exclude_threads", "type": "true|false", "parser": "bool", "nullable": False, "description": "Exclude all announcement, public, and private threads."},

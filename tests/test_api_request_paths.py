@@ -74,6 +74,30 @@ def test_request_raises_resource_unavailable():
         api.get_guilds()
 
 
+def test_get_channel_uses_exact_channel_route():
+    channel_id = "123456789012345678"
+    session = FakeSession(
+        FakeResponse(
+            200,
+            {"id": channel_id, "type": 4, "guild_id": "223456789012345678"},
+        )
+    )
+    api = make_api(session)
+
+    channel = api.get_channel(channel_id)
+
+    assert channel["id"] == channel_id
+    assert session.last_method == "get"
+    assert session.last_url.endswith(f"/channels/{channel_id}")
+
+
+def test_get_channel_rejects_malformed_collection_response():
+    api = make_api(FakeSession(FakeResponse(200, [])))
+
+    with pytest.raises(UnexpectedStatus, match="Malformed channel response"):
+        api.get_channel("123456789012345678")
+
+
 def test_request_raises_unexpected_status():
     session = FakeSession(FakeResponse(418, {"error": "teapot"}))
     api = make_api(session)

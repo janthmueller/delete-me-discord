@@ -29,7 +29,7 @@ from .privacy import sensitive, sensitive_name
 from .scope_filter import ScopeFilter
 from .scope_filter import THREAD_STATES
 from .scope_inventory import ScopeInventory
-from .scope_selectors import resolve_scope_selectors
+from .scope_ids import preflight_scope_ids
 from .utils import AuthenticationError, parse_random_range, setup_logging
 from ._version import __version__
 
@@ -123,7 +123,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         sensitive_name(current_user.get("username", "unknown")),
         sensitive(user_id),
     )
-    inventory = None
+    scope_seed = None
     include_ids = settings.include_ids
     exclude_ids = settings.exclude_ids
     scope_filter = _build_scope_filter(
@@ -137,21 +137,15 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         )
         raise SystemExit(1)
     if include_ids or exclude_ids:
-        target_label = (
-            "channels and threads"
-            if scope_filter.thread_discovery_mode != "none"
-            else "channels"
-        )
-        logging.getLogger("discovery").progress("Discovering %s.", target_label)
-        inventory = ScopeInventory.fetch(
-            api,
-            scope_filter=scope_filter,
-        )
+        logging.getLogger("discovery").progress("Validating explicit scope IDs.")
         try:
-            include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
+            preflight = preflight_scope_ids(api, include_ids, exclude_ids)
         except ValueError as exc:
             logging.error("%s", exc)
             raise SystemExit(1)
+        include_ids = list(preflight.include_ids)
+        exclude_ids = list(preflight.exclude_ids)
+        scope_seed = preflight.seed
 
     preserve_cache = PreserveCache(
         path=settings.preserve_cache_path,
@@ -166,7 +160,8 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         preserve_n=settings.keep_last,
         preserve_n_mode=settings.keep_last_scope,
         preserve_cache=preserve_cache,
-        scope_inventory=inventory,
+        scope_inventory=None,
+        scope_seed=scope_seed,
         scope_filter=scope_filter,
     )
 
@@ -193,6 +188,12 @@ def _run_list(args) -> None:
     list_guilds = args.list_command == "guilds"
     list_channels = args.list_command == "channels"
     try:
+        seed = None
+        if include_ids or exclude_ids:
+            preflight = preflight_scope_ids(api, include_ids, exclude_ids)
+            include_ids = list(preflight.include_ids)
+            exclude_ids = list(preflight.exclude_ids)
+            seed = preflight.seed
         if list_channels:
             scope_filter = _build_scope_filter(
                 args.exclude_channel_types,
@@ -206,17 +207,17 @@ def _run_list(args) -> None:
                     else "channels"
                 )
                 logging.getLogger("discovery").progress("Discovering %s.", target_label)
-            inventory = ScopeInventory.fetch(
-                api,
-                scope_filter=scope_filter,
-            )
-        elif include_ids or exclude_ids:
-            inventory = ScopeInventory.fetch(
-                api,
+            fetch_kwargs = {"scope_filter": scope_filter}
+            if seed is not None:
+                fetch_kwargs["seed"] = seed
+            inventory = ScopeInventory.fetch(api, **fetch_kwargs)
+        elif list_guilds and seed is not None:
+            inventory = ScopeInventory(
+                guilds=list(seed.guilds),
+                root_channels=list(seed.root_channels),
+                guild_channels_by_guild={},
                 scope_filter=ScopeFilter.without_threads(),
             )
-        if inventory is not None and (include_ids or exclude_ids):
-            include_ids, exclude_ids = resolve_scope_selectors(inventory, include_ids, exclude_ids)
     except ValueError as exc:
         logging.error("%s", exc)
         raise SystemExit(1)
@@ -326,24 +327,15 @@ def _resolve_profile_scope_updates(args, profile_updates: dict, unset_fields: li
         if field in effective_profile
     }
     api = _build_api(args)
-    scope_filter = _build_scope_filter(
-        effective_profile.get("exclude_channel_types", []),
-        effective_profile.get("exclude_thread_states", []),
-        effective_profile.get("exclude_threads", False),
-    )
-    inventory = ScopeInventory.fetch(
+    preflight = preflight_scope_ids(
         api,
-        scope_filter=scope_filter,
-    )
-    include_ids, exclude_ids = resolve_scope_selectors(
-        inventory,
         scope_values.get("include_ids", []),
         scope_values.get("exclude_ids", []),
     )
     if "include_ids" in scope_values:
-        profile_updates["include_ids"] = include_ids
+        profile_updates["include_ids"] = list(preflight.include_ids)
     if "exclude_ids" in scope_values:
-        profile_updates["exclude_ids"] = exclude_ids
+        profile_updates["exclude_ids"] = list(preflight.exclude_ids)
 
 
 def _run_profile_remove(args) -> None:

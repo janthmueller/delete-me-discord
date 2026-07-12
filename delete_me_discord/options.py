@@ -167,14 +167,14 @@ def _scope_parent(
         type=str,
         nargs="*",
         default=_clean_default("include_ids", clean_defaults),
-        help="List of channel, guild, or parent/category full IDs or unique ID suffixes to include."
+        help="List of complete channel, guild, thread, or parent/category Discord IDs to include."
     )
     parser.add_argument(
         "-x", "--exclude-ids",
         type=str,
         nargs="*",
         default=_clean_default("exclude_ids", clean_defaults),
-        help="List of channel, guild, or parent/category full IDs or unique ID suffixes to exclude."
+        help="List of complete channel, guild, thread, or parent/category Discord IDs to exclude."
     )
     if channel_filter_options:
         parser.add_argument(

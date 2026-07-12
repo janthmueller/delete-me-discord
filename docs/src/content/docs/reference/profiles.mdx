@@ -61,8 +61,8 @@ dmd profile add nightly-dms \
   --set preserve_cache=true
 ```
 
-For `include_ids` and `exclude_ids`, profile commands accept full IDs or unique ID suffixes.
-They validate those values through Discord and store full IDs in `config.json`.
+For `include_ids` and `exclude_ids`, profile commands accept complete decimal Discord IDs.
+They validate those values through Discord before storing them in `config.json`. Partial ID suffixes are not accepted in v3.
 When scope fields are set, profile commands use your stored login, `DISCORD_TOKEN`, or `--token` for validation.
 
 Show what is stored:
@@ -158,7 +158,7 @@ Examples:
 --set keep_last=20
 --set keep_within=2w
 --set preserve_cache=true
---set include_ids=123,456
+--set include_ids=123456789012345678,234567890123456789
 --set exclude_channel_types=GuildVoice,PrivateThread
 --set exclude_thread_states=archived
 --set exclude_threads=true
