@@ -1,4 +1,8 @@
+import logging
 from enum import IntEnum
+
+
+logger = logging.getLogger("MessageType")
 
 # Added from https://docs.discord.food/resources/message
 # https://discordhttp.alexflipnote.dev/api/enums.html#discord_http.enums.MessageType.custom_gift
@@ -11,10 +15,10 @@ class MessageType(IntEnum):
     CHANNEL_ICON_CHANGE = 5, False
     CHANNEL_PINNED_MESSAGE = 6, True
     USER_JOIN = 7, True
-    GUILD_BOOST = 8, True
-    GUILD_BOOST_TIER_1 = 9, True
-    GUILD_BOOST_TIER_2 = 10, True
-    GUILD_BOOST_TIER_3 = 11, True
+    PREMIUM_GUILD_SUBSCRIPTION = 8, True
+    PREMIUM_GUILD_SUBSCRIPTION_TIER_1 = 9, True
+    PREMIUM_GUILD_SUBSCRIPTION_TIER_2 = 10, True
+    PREMIUM_GUILD_SUBSCRIPTION_TIER_3 = 11, True
     CHANNEL_FOLLOW_ADD = 12, True
     # GUILD_STREAM = 13, True  # Deprecated/unused per docs.discord.food.
     GUILD_DISCOVERY_DISQUALIFIED = 14, True
@@ -27,7 +31,7 @@ class MessageType(IntEnum):
     THREAD_STARTER_MESSAGE = 21, False
     GUILD_INVITE_REMINDER = 22, True
     CONTEXT_MENU_COMMAND = 23, True
-    AUTO_MODERATION_ACTION = 24, False  # Requires special permissions
+    AUTO_MODERATION_ACTION = 24, False  # Discord requires MANAGE_MESSAGES permission.
     ROLE_SUBSCRIPTION_PURCHASE = 25, True
     INTERACTION_PREMIUM_UPSELL = 26, True
     STAGE_START = 27, True
@@ -38,7 +42,7 @@ class MessageType(IntEnum):
     GUILD_APPLICATION_PREMIUM_SUBSCRIPTION = 32, True
     # PRIVATE_CHANNEL_INTEGRATION_ADDED = 33, False  # Deprecated/unused per docs.discord.food.
     # PRIVATE_CHANNEL_INTEGRATION_REMOVED = 34, False  # Deprecated/unused per docs.discord.food.
-    PREMIUM_REFERRAL = 35, True
+    PREMIUM_REFERRAL = 35, False
     GUILD_INCIDENT_ALERT_MODE_ENABLED = 36, True
     GUILD_INCIDENT_ALERT_MODE_DISABLED = 37, True
     GUILD_INCIDENT_REPORT_RAID = 38, True
@@ -66,13 +70,34 @@ class MessageType(IntEnum):
     REPORT_TO_MOD_KICK_USER = 60, True
     REPORT_TO_MOD_BAN_USER = 61, True
     REPORT_TO_MOD_CLOSED_REPORT = 62, True
-    EMOJI_ADDED = 63, True
+    EMOJI_ADDED = 63, True  # Deprecated; retained for historical messages.
+    PREMIUM_GROUP_INVITE = 64, False
+    VOICE_SESSION = 65, True
+    GUILD_BOOST_UPSELL = 66, True
+    FRIEND_REQUEST_ACCEPTED = 67, True
+    MEDIA_MENTION_MESSAGE = 68, True
 
     def __new__(cls, value: int, deletable: bool):
         obj = int.__new__(cls, value)
         obj._value_ = value
         obj._deletable = deletable
         return obj
+
+    @classmethod
+    def _missing_(cls, value):
+        """Represent unknown numeric types conservatively instead of aborting a clean."""
+        if not isinstance(value, int):
+            return None
+
+        logger.warning(
+            "Discord returned unrecognized message type %s; treating this message as non-deletable.",
+            value,
+        )
+        message_type = int.__new__(cls, value)
+        message_type._name_ = f"UNKNOWN_{value}"
+        message_type._value_ = value
+        message_type._deletable = False
+        return message_type
 
     @property
     def deletable(self):
