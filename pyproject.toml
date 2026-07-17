@@ -48,6 +48,10 @@ include = ["delete_me_discord*"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]
 
+[tool.pyright]
+include = ["delete_me_discord"]
+pythonVersion = "3.10"
+
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 version_variables = ["delete_me_discord/_version.py:__version__"]

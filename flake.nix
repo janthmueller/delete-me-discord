@@ -87,6 +87,7 @@
             ]))
             pkgs.uv
             pkgs.pre-commit
+            pkgs.pyright
             pkgs.ruff
             pkgs.nodejs_24
             pkgs.pnpm
