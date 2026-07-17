@@ -6,7 +6,13 @@ from typing import Any, Dict, Generator, List, Mapping, Optional, Set, Tuple, Un
 import logging
 import requests
 import urllib.parse
-from .models import DeleteOutcome, DiscordChannel, DiscordEmoji, DiscordMessage
+from .models import (
+    DeleteOutcome,
+    DiscordChannel,
+    DiscordEmoji,
+    DiscordMessage,
+    UpdateOutcome,
+)
 from .rate_limits import (
     DELETE_POLICY,
     FETCH_POLICY,
@@ -243,6 +249,20 @@ class DiscordAPI:
         url = f"{self.BASE_URL}/users/@me"
         return self._request(url, description="fetch current user")[0]
 
+    def get_current_guild_member(self, guild_id: str) -> Dict[str, Any]:
+        """Fetch the authenticated user's member object for one guild."""
+        url = f"{self.BASE_URL}/users/@me/guilds/{guild_id}/member"
+        payload = self._request(
+            url,
+            description=f"fetch current member for guild {sensitive(guild_id)}",
+        )
+        if len(payload) != 1 or not isinstance(payload[0], dict):
+            raise UnexpectedStatus(
+                "Malformed current-member response while attempting to fetch "
+                f"current member for guild {sensitive(guild_id)}."
+            )
+        return payload[0]
+
     def fetch_messages(
         self,
         channel_id: str,
@@ -412,6 +432,24 @@ class DiscordAPI:
                 e,
             )
             return DeleteOutcome.FAILED
+        except UnexpectedStatus as e:
+            if e.status_code != 400:
+                raise
+            if e.discord_code == 50083:
+                self.logger.diagnostic(
+                    "Thread %s was archived while deleting message %s.",
+                    sensitive(channel_id),
+                    sensitive(message_id),
+                )
+                return DeleteOutcome.THREAD_ARCHIVED
+            self.logger.warning(
+                "Discord rejected deletion of message %s in channel %s "
+                "(HTTP 400, Discord code %s).",
+                sensitive(message_id),
+                sensitive(channel_id),
+                e.discord_code if e.discord_code is not None else "unknown",
+            )
+            return DeleteOutcome.FAILED
         return DeleteOutcome.DELETED
 
     def delete_thread(self, thread_id: str) -> DeleteOutcome:
@@ -438,7 +476,64 @@ class DiscordAPI:
                 e,
             )
             return DeleteOutcome.FAILED
+        except UnexpectedStatus as e:
+            if e.status_code != 400:
+                raise
+            self.logger.warning(
+                "Discord rejected deletion of thread %s "
+                "(HTTP 400, Discord code %s).",
+                sensitive(thread_id),
+                e.discord_code if e.discord_code is not None else "unknown",
+            )
+            return DeleteOutcome.FAILED
         return DeleteOutcome.DELETED
+
+    def set_thread_archived(
+        self,
+        thread_id: str,
+        *,
+        archived: bool,
+    ) -> UpdateOutcome:
+        """Set one thread's archive state using Discord's idempotent channel update."""
+        update_url = f"{self.BASE_URL}/channels/{thread_id}"
+        state = "archived" if archived else "active"
+        try:
+            self._request(
+                update_url,
+                description=(
+                    f"set thread {sensitive(thread_id)} to {state} state"
+                ),
+                method="patch",
+                json_body={"archived": archived},
+                pacing_policy=DELETE_POLICY,
+                expected_statuses={200},
+            )
+        except ResourceUnavailable as exc:
+            if exc.status_code == 404:
+                self.logger.diagnostic(
+                    "Thread %s is absent while setting archive state.",
+                    sensitive(thread_id),
+                )
+                return UpdateOutcome.ABSENT
+            self.logger.warning(
+                "Discord did not allow thread %s to enter %s state: %s",
+                sensitive(thread_id),
+                state,
+                exc,
+            )
+            return UpdateOutcome.FAILED
+        except UnexpectedStatus as exc:
+            if exc.status_code != 400:
+                raise
+            self.logger.warning(
+                "Discord rejected setting thread %s to %s state "
+                "(HTTP 400, Discord code %s).",
+                sensitive(thread_id),
+                state,
+                exc.discord_code if exc.discord_code is not None else "unknown",
+            )
+            return UpdateOutcome.FAILED
+        return UpdateOutcome.APPLIED
 
     def delete_own_reaction(
         self,
@@ -507,6 +602,26 @@ class DiscordAPI:
                 e,
             )
             return DeleteOutcome.FAILED
+        except UnexpectedStatus as e:
+            if e.status_code != 400:
+                raise
+            if e.discord_code == 50083:
+                self.logger.diagnostic(
+                    "Thread %s was archived while deleting reaction %s from message %s.",
+                    sensitive(channel_id),
+                    sensitive(emoji_identifier, full=True),
+                    sensitive(message_id),
+                )
+                return DeleteOutcome.THREAD_ARCHIVED
+            self.logger.warning(
+                "Discord rejected deletion of reaction %s from message %s in "
+                "channel %s (HTTP 400, Discord code %s).",
+                sensitive(emoji_identifier, full=True),
+                sensitive(message_id),
+                sensitive(channel_id),
+                e.discord_code if e.discord_code is not None else "unknown",
+            )
+            return DeleteOutcome.FAILED
         return DeleteOutcome.DELETED
 
 
@@ -551,6 +666,7 @@ class DiscordAPI:
         description: str,
         method: str = "get",
         params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
         pacing_policy: str = READ_POLICY,
         expected_statuses: Optional[Set[int]] = None,
     ) -> List[Dict[str, Any]]:
@@ -560,8 +676,9 @@ class DiscordAPI:
         Args:
             url (str): The endpoint URL.
             description (str): Description of the request for logging.
-            method (str): HTTP method to use ("get" or "delete").
+            method (str): HTTP method to use ("get", "delete", or "patch").
             params (Optional[Dict[str, Any]]): Query parameters for the request.
+            json_body (Optional[Dict[str, Any]]): JSON request body.
             pacing_policy (str): Application pacing policy for the request.
             expected_statuses (Optional[Set[int]]): Successful statuses for this request.
 
@@ -574,8 +691,12 @@ class DiscordAPI:
             UnexpectedStatus: For non-handled HTTP status codes.
             ReachedMaxRetries: When the request exceeds max retries.
         """
-        assert method in {"get", "delete"}
-        success_codes = expected_statuses or {"get": {200}, "delete": {204}}[method]
+        assert method in {"get", "delete", "patch"}
+        success_codes = expected_statuses or {
+            "get": {200},
+            "delete": {204},
+            "patch": {200},
+        }[method]
         attempts = 0
         while attempts <= self.max_retries:
             request_context = self.request_scheduler.acquire(
@@ -591,11 +712,16 @@ class DiscordAPI:
                     ", ".join(request_context.wait_reasons),
                 )
             try:
+                request_kwargs: Dict[str, Any] = {
+                    "method": method,
+                    "url": url,
+                    "params": params,
+                    "timeout": self.request_timeout,
+                }
+                if json_body is not None:
+                    request_kwargs["json"] = json_body
                 response = self.session.request(
-                    method=method,
-                    url=url,
-                    params=params,
-                    timeout=self.request_timeout,
+                    **request_kwargs,
                 )
             except requests.RequestException as exc:
                 attempts += 1
@@ -625,7 +751,8 @@ class DiscordAPI:
             if response.status_code in {200, 204}:  # success
                 if response.status_code not in success_codes:
                     raise UnexpectedStatus(
-                        f"Unexpected status {response.status_code} for {method.upper()} while attempting to {description}."
+                        f"Unexpected status {response.status_code} for {method.upper()} while attempting to {description}.",
+                        status_code=response.status_code,
                     )
                 # DELETE 204 typically has no body; normalize to an empty list.
                 if response.status_code == 204:
@@ -716,8 +843,20 @@ class DiscordAPI:
                     f"Status Code: {response.status_code}",
                     status_code=response.status_code,
                 )
+            try:
+                error_payload = response.json()
+            except (TypeError, ValueError):
+                error_payload = None
+            discord_code = (
+                error_payload.get("code")
+                if isinstance(error_payload, dict)
+                and isinstance(error_payload.get("code"), int)
+                else None
+            )
             raise UnexpectedStatus(
-                f"Unhandled status code {response.status_code} while attempting to {description}."
+                f"Unhandled status code {response.status_code} while attempting to {description}.",
+                status_code=response.status_code,
+                discord_code=discord_code,
             )
 
         raise ReachedMaxRetries(f"Max retries exceeded while attempting to {description}.")

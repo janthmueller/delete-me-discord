@@ -61,6 +61,7 @@ def preflight_scope_ids(
     guild_by_id = _objects_by_id(guilds)
     root_by_id = _objects_by_id(root_channels)
     nodes_by_id: dict[str, ScopeNode] = {}
+    resolved_channels_by_id: dict[str, DiscordChannel] = {}
 
     for scope_id in (*normalized_include, *normalized_exclude):
         if scope_id in nodes_by_id:
@@ -72,6 +73,7 @@ def preflight_scope_ids(
             channel = root_by_id[scope_id]
             _require_supported_root_channel(scope_id, channel)
             nodes_by_id[scope_id] = _node_from_channel(scope_id, channel)
+            resolved_channels_by_id[scope_id] = channel
             continue
 
         try:
@@ -91,6 +93,7 @@ def preflight_scope_ids(
                 "to the authenticated user."
             )
         nodes_by_id[scope_id] = node
+        resolved_channels_by_id[scope_id] = channel
 
     included_guild_ids = frozenset(
         node.id if node.kind == "guild" else node.guild_id
@@ -108,6 +111,13 @@ def preflight_scope_ids(
             guilds=tuple(guilds),
             root_channels=tuple(root_channels),
             guild_ids=guild_ids,
+            rules=rules,
+            resolved_channels_by_id=resolved_channels_by_id,
+            exact_included_thread_ids=frozenset(
+                scope_id
+                for scope_id in normalized_include
+                if nodes_by_id[scope_id].kind == "thread"
+            ),
         ),
     )
 

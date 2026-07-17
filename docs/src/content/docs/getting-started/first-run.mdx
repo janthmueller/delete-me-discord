@@ -17,7 +17,7 @@ dmd list guilds
 dmd list channels
 ```
 
-This shows the IDs you can pass to `--include-ids`.
+This shows the IDs you can pass to `--include`.
 IDs can refer to guilds, categories, supported message channels, thread parents, or threads.
 
 All accessible active and archived threads are included by default. Thread discovery may require one or more paginated search requests for every thread-capable channel in every visible guild.
@@ -25,21 +25,33 @@ All accessible active and archived threads are included by default. Thread disco
 To inspect only active threads during an initial run, use:
 
 ```bash
-dmd list channels --exclude-thread-states archived
+dmd list channels -x archived
 ```
 
 To exclude an exact thread type, use a canonical type name from the channel tree:
 
 ```bash
-dmd list channels --exclude-channel-types PrivateThread
+dmd list channels -x PrivateThread
 ```
 
-Use `dmd list channel-types` and `dmd list thread-states` to inspect all accepted values. Use `--exclude-threads` to omit every thread type.
+Use `dmd list channel-types` and `dmd list thread-states` to inspect all accepted values. Use `-x threads` to omit every thread type.
+
+Channel listing and cleanup include archived threads by default. To preview
+only archived content, use:
+
+```bash
+dmd clean \
+  --include <id> archived \
+  --dry-run
+```
+
+See [Archived Thread Cleanup](../../guides/archived-thread-cleanup/) before a
+broad run that may temporarily change thread state.
 
 ## 2. Start with dry-run
 
 ```bash
-dmd clean --include-ids <id> --dry-run
+dmd clean --include <id> --dry-run
 ```
 
 `--dry-run` makes `dmd` fetch and evaluate content without deleting messages, reactions, or thread containers.
@@ -47,7 +59,7 @@ Use it to check the selected targets and retention rules before running the same
 
 Thread containers are not deleted in the default mode. Do not add `--delete-owned-threads` during a first broad run. That option removes an entire shared thread and belongs in a narrow thread-ID dry-run after you have read [Delete Owned Threads](../../guides/delete-owned-threads/).
 
-`--include-ids` accepts one or more IDs.
+`--include` accepts one or more IDs and filter values.
 Omit it to use the default scope: all eligible channels and accessible threads the tool can see.
 
 By default, the run also removes your reactions and preserves nothing because:
@@ -78,17 +90,23 @@ Common adjustments:
 - Add `--keep-last 20` if you always want to keep the last N messages in a channel.
 - Add `--fetch-within 2w1d` later if repeated runs should only inspect a recent slice.
 - Add `--max-messages 100` if you only want to inspect a small recent slice first.
-- Add `--exclude-thread-states archived` if archived thread history should not be scanned.
-- Add `--exclude-channel-types PrivateThread` to omit private threads, or use another displayed channel type such as `GuildVoice`.
+- Add `-x archived` when cleanup should search active threads only.
+- Store `exclude_thread_states=archived` in a reusable profile for the same active-only policy.
+- Add `-x PrivateThread` to omit private threads, or use another displayed channel type such as `GuildVoice`.
 
-Discord permits deleting messages in archived threads but restricts other mutations there, so reaction removal is skipped for archived threads.
+Discord's application API documentation permits message deletion in archived
+threads, but live user-account endpoints rejected direct mutations. DMD does
+not mutate an archived thread until it has built a buffered plan with eligible
+work. It then activates the thread and always attempts to restore its archived
+state. Add `--skip-unrestorable-threads` when DMD should skip a thread unless
+restoration rights can be reasonably established before cleanup.
 
 ## 4. Execute when the plan looks right
 
 Drop `--dry-run` once you are satisfied with the output:
 
 ```bash
-dmd clean --include-ids <id>
+dmd clean --include <id>
 ```
 
 If you want repeated cleanup over time, continue with [Rolling Retention](../../guides/rolling-retention/).

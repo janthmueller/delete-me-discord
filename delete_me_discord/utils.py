@@ -72,6 +72,17 @@ class ResourceUnavailable(Exception):
 class UnexpectedStatus(Exception):
     """Custom exception for unexpected/unhandled status codes."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        discord_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.discord_code = discord_code
+
 class JsonLogFormatter(logging.Formatter):
     """Format logs as JSON lines for sidecar integrations."""
 

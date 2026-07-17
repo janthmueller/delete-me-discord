@@ -40,6 +40,7 @@ def test_parse_args_clean_defaults():
     assert args.buffer_per_channel is False
     assert args.keep_reactions is False
     assert args.delete_owned_threads == "none"
+    assert args.skip_unrestorable_threads is False
     assert args.preserve_cache is False
     assert args.json is False
     assert args.redact_sensitive is None
@@ -80,6 +81,31 @@ def test_parse_args_rejects_unknown_owned_thread_deletion_mode():
         )
 
 
+def test_parse_args_accepts_skip_unrestorable_threads():
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--skip-unrestorable-threads"],
+    )
+
+    assert args.skip_unrestorable_threads is True
+
+
+def test_parse_args_removes_allow_active():
+    with pytest.raises(SystemExit):
+        parse_args(
+            "1.0.0",
+            argv=["clean", "--allow-active"],
+        )
+
+
+def test_parse_args_removes_archived_thread_cleanup_mode():
+    with pytest.raises(SystemExit):
+        parse_args(
+            "1.0.0",
+            argv=["clean", "--archived-thread-cleanup", "temporary"],
+        )
+
+
 def test_parse_args_list_channels_json_flag():
     args = parse_args("1.0.0", argv=["list", "channels", "-j"])
     assert args.command == "list"
@@ -90,12 +116,23 @@ def test_parse_args_list_channels_json_flag():
 def test_parse_args_list_channels_accepts_scope_filters():
     args = parse_args(
         "1.0.0",
-        argv=["list", "channels", "--include-ids", "guild-1", "category-1", "--exclude-ids", "channel-1"],
+        argv=[
+            "list",
+            "channels",
+            "--include",
+            "100000000000000001",
+            "300000000000000001",
+            "--exclude",
+            "300000000000000002",
+        ],
     )
     assert args.command == "list"
     assert args.list_command == "channels"
-    assert args.include_ids == ["guild-1", "category-1"]
-    assert args.exclude_ids == ["channel-1"]
+    assert args.include_ids == [
+        "100000000000000001",
+        "300000000000000001",
+    ]
+    assert args.exclude_ids == ["300000000000000002"]
 
 
 def test_parse_args_list_channels_accepts_channel_and_thread_exclusions():
@@ -116,6 +153,38 @@ def test_parse_args_list_channels_accepts_channel_and_thread_exclusions():
     assert args.exclude_channel_types == ["GuildVoice", "PrivateThread"]
     assert args.exclude_thread_states == ["archived"]
     assert args.exclude_threads is True
+
+
+def test_parse_args_unified_scope_selectors():
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "clean",
+            "-i",
+            "100000000000000001",
+            "GuildText",
+            "threads",
+            "archived",
+            "-x",
+            "200000000000000001",
+            "GuildVoice",
+            "active",
+        ],
+    )
+
+    assert args.include_ids == ["100000000000000001"]
+    assert args.exclude_ids == ["200000000000000001"]
+    assert args.include_channel_types == ["GuildText"]
+    assert args.exclude_channel_types == ["GuildVoice"]
+    assert args.include_thread_states == ["archived"]
+    assert args.exclude_thread_states == ["active"]
+    assert args.include_threads is True
+    assert args.exclude_threads is False
+
+
+def test_parse_args_list_guilds_rejects_non_id_selector():
+    with pytest.raises(SystemExit):
+        parse_args("1.0.0", argv=["list", "guilds", "-i", "GuildText"])
 
 
 @pytest.mark.parametrize(
@@ -183,12 +252,19 @@ def test_parse_args_rejects_duplicate_request_interval_policy():
 def test_parse_args_list_guilds_accepts_scope_filters():
     args = parse_args(
         "1.0.0",
-        argv=["list", "guilds", "--include-ids", "guild-1", "--exclude-ids", "guild-2"],
+        argv=[
+            "list",
+            "guilds",
+            "--include",
+            "100000000000000001",
+            "--exclude",
+            "100000000000000002",
+        ],
     )
     assert args.command == "list"
     assert args.list_command == "guilds"
-    assert args.include_ids == ["guild-1"]
-    assert args.exclude_ids == ["guild-2"]
+    assert args.include_ids == ["100000000000000001"]
+    assert args.exclude_ids == ["100000000000000002"]
 
 
 @pytest.mark.parametrize(

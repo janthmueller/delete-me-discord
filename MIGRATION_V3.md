@@ -14,10 +14,10 @@ review the comparison again.
 
 ## Release intent
 
-v3 is a major release because cleanup discovery now includes all accessible
-active and archived Discord threads by default. A command that previously
-visited only the supported non-thread channels can therefore inspect and delete
-from a larger scope after upgrading.
+v3 is a major release because cleanup discovery now includes accessible active
+and archived Discord threads by default. A command that previously visited only the
+supported non-thread channels can therefore inspect and delete from a larger
+scope after upgrading.
 
 The eventual commit reaching `main` must preserve a Conventional Commit major
 marker, for example `feat!: include threads in default cleanup discovery`, or a
@@ -140,11 +140,47 @@ Profiles that never defined thread behavior inherit the v3 default and include
 all accessible threads. Add `exclude_threads=true` to profiles that must retain
 the old scope.
 
+### Archived content is included by default
+
+Thread listing and content cleanup both include archived threads. The explicit
+active-only equivalent is:
+
+```bash
+dmd clean -x archived
+```
+
+Selecting archived threads discovers, buffers, and plans archived content,
+activates it only when at least one eligible message or reaction action exists,
+and attempts to restore the archived state in a `finally` block. The default
+continues for unlocked threads even when restoration rights cannot be
+established. Use `--skip-unrestorable-threads` for a stricter policy:
+
+```bash
+dmd clean --include <thread-id> --dry-run
+
+dmd clean --include <thread-id> --skip-unrestorable-threads --dry-run
+```
+
+Dry-run never changes thread state. Creator ownership or effective
+`MANAGE_THREADS` lets DMD reasonably expect to re-archive the thread. Locked
+threads always require effective `MANAGE_THREADS`.
+
+Long-running plans can outlive Discord's auto-archive timer. A delete rejected
+with Discord code `50083` triggers one exact channel refresh. DMD reopens and
+retries once only when the thread remains archived, lock state and
+`auto_archive_duration` are unchanged, and elapsed monotonic time has reached
+the configured interval within a 30-second tolerance. The new activation
+resets the timer baseline, so another reopen is possible only after another
+full interval. Early archives, changed state, unverifiable state, and a second
+immediate `50083` stop the remaining thread actions instead of fighting an
+external archive.
+
 ### Thread containers remain protected by default
 
 Default cleanup removes the authenticated user's messages and reactions inside
-threads but never deletes the thread object. Container deletion is available
-only through an explicit mode:
+active threads but never deletes the thread object. Archived content follows
+the separate policy above. Container deletion is available only through an
+explicit mode:
 
 ```bash
 # Require a complete scan with no messages from other or unknown authors.
@@ -217,6 +253,12 @@ Discord channel type numbers and display names now live in
 - thread containers: `GuildForum`, `GuildMedia`
 - structural/non-message types such as categories and directories
 
+`GuildMedia` is an optional Discord channel type that acts as a container for
+threads rather than a normal message history. If Discord exposes an existing
+media channel, DMD discovers and cleans its supported threads normally; the
+media parent itself is not a separate message-cleanup target. Discord may not
+yet expose this type for every guild or account.
+
 Discovery, exact-ID preflight, display, and cleanup use the same definitions.
 This removes the previous duplicated `{0, 1, 3}` channel-type checks and makes
 support for announcement, voice/stage chat, forum/media posts, and threads
@@ -224,15 +266,16 @@ consistent throughout the application.
 
 ### ScopeFilter is the shared policy
 
-`delete_me_discord/scope_filter.py` converts CLI/profile names into typed
-channel and thread-state exclusions. The same filter is passed through eager
-inventory collection, listing, and incremental cleanup. Exact-ID preflight
-validates identity independently, so an accepted ID can still be omitted when
-a type or thread-state exclusion wins.
+`delete_me_discord/scope_selectors.py` classifies the compact `-i/--include`
+and `-x/--exclude` values into complete IDs, canonical channel types, the
+`threads` group, and `active`/`archived` thread states. Existing structured
+profile fields remain supported, and `--include-ids`/`--exclude-ids` remain CLI
+aliases.
 
-Type and thread-state exclusions always take precedence over ID includes. This
-prevents an explicitly included channel ID from accidentally overriding a
-global safety exclusion such as `--exclude-threads`.
+`delete_me_discord/scope_filter.py` converts those selectors and profile fields
+into typed positive and negative channel/thread-state policy. The same filter
+is passed through eager inventory collection, listing, and incremental
+cleanup.
 
 ID filtering follows nearest-target precedence:
 
@@ -242,11 +285,53 @@ ID filtering follows nearest-target precedence:
 4. guild
 
 For example, an included thread can override an excluded guild, while an
-explicit exclusion on that thread still wins.
+explicit exclusion on that thread still wins. Exact included cleanup leaves
+(DMs, Group DMs, message channels, and threads) also override broad type and
+state exclusions. Parent, category, and guild includes do not override filters
+for their descendants.
+
+Thread-type conflicts have their own specificity order:
+
+1. exact thread ID
+2. concrete thread type
+3. the `threads` group
+
+A concrete include therefore overrides `-x threads`, while a concrete
+exclusion overrides `-i threads`. Exclusion wins when both sides name the same
+concrete type. Thread states are orthogonal filters: `active` or `archived`
+narrows the surviving thread types but does not override `-x threads`.
 
 `delete_me_discord/scope_rules.py` owns this policy independently from API
 discovery. If any include ID exists, unmatched channels default to excluded.
 With excludes only, unmatched channels retain the default included state.
+
+The resulting selection is order-independent:
+
+```text
+eligible
+∩ (((hierarchical ID scope ∩ positive attributes) - negative attributes)
+   ∪ exact included leaves)
+- exact excluded leaves
+```
+
+Examples:
+
+```bash
+# One category, excluding voice and stage chat.
+dmd clean -i <category-id> -x GuildVoice GuildStageVoice
+
+# Exclude a guild, scoop one category back in, then remove one child.
+dmd clean -x <guild-id> <channel-id> -i <category-id>
+
+# Exclude threads globally but retain one exact thread.
+dmd clean -x threads -i <thread-id>
+
+# Exclude the broad group but retain public threads.
+dmd clean -x threads -i PublicThread
+
+# Include the broad group except public threads.
+dmd clean -i threads -x PublicThread
+```
 
 The filter also determines the cheapest required discovery mode:
 
@@ -257,6 +342,12 @@ The filter also determines the cheapest required discovery mode:
 Parents are skipped when none of their possible thread types remain eligible.
 For example, excluding `AnnouncementThread` avoids searches under announcement
 channels without disabling public/private thread searches elsewhere.
+
+Exact-ID preflight now retains the resolved channel payloads in
+`ScopeDiscoverySeed`. An exact thread include is injected beneath its fetched
+parent with guild and permission context, so it does not require a thread
+search request. Broad text/forum/media parent, category, guild, type, and state
+selectors still use paginated thread discovery.
 
 ## Thread discovery pipeline
 
@@ -350,9 +441,33 @@ materializes exactly one channel and builds its complete plan before actions
 begin. Owned-thread `self-only` scans and `all --dry-run` impact reporting also
 force complete thread-history scans where their safety contract requires it.
 
-Archived threads are handled specially: Discord permits deleting the user's
-messages there but restricts other mutations. DMD therefore skips reaction
-removal in archived threads instead of failing the channel.
+Archived threads are handled specially. Discord's application API
+documentation permits deleting messages there, but live user-account endpoints
+rejected every tested direct archived-thread mutation with Discord code `50083`.
+DMD therefore no longer emits one failing request per message. Archived
+results force a buffered plan, PATCH the thread active only for a non-empty
+plan, perform normal message and reaction cleanup, and then attempt to restore
+the archived state. Internally, `temporary` requires known restoration rights,
+while `allow-active` implements the default best-effort policy.
+
+The preflight compares `owner_id` with the authenticated user and resolves
+effective `MANAGE_THREADS` from the partial guild permission value, current
+member role IDs, and parent-channel overwrites. Guild owners and administrators
+bypass overwrites. Unknown permission data fails closed in `temporary`; the
+default internal `allow-active` mode can continue for unlocked threads and
+reports when the thread remains active. The public
+`--skip-unrestorable-threads` flag selects the strict behavior.
+
+Restorable transitions are recorded before activation in an owner-only local
+journal. Restoration runs in `finally`, and the next non-dry cleanup retries any
+entry left by an interrupted process. The journal is cleared only after the
+thread is archived again or Discord reports that it is absent.
+
+Message and reaction deletes preserve Discord code `50083` as a distinct
+internal outcome. The cleaner uses it to refresh thread state, retry a likely
+auto-archive once, or terminate the buffered plan with an exact count of
+remaining actions. A thread confirmed archived during that check is not sent a
+redundant final archive update.
 
 Reaction ownership now distinguishes Discord's `me` and `me_burst` fields.
 Normal and Super Reactions are planned and deleted independently, including
@@ -583,6 +698,251 @@ GitHub Pages. Completed tests on `v3` do not trigger this downstream workflow.
 Manual deployment is allowed only from `main`. Pages deployments share one
 concurrency group so a stale deployment cannot race the latest build.
 
+## Planned work before the v3 release
+
+The current `v3` branch is an integration checkpoint, not the final release
+candidate. The following work is planned before merging it to `main`. This
+section is forward-looking: items remain unimplemented until their changes and
+tests land on the branch.
+
+### Phase 1: long-running live Discord suite
+
+Build an opt-in integration suite around multiple dedicated test accounts and
+isolated fixture guilds. The initial M0 harness and its orchestrator now live
+under `tests/live/`. They provide a default-off pytest
+gate, strict loading from owner-only local `TOKEN_*` secrets or environment
+variables, read-only account validation, and a private token-free run ledger
+with run-ID ownership checks. Token values, credential-key names, account names,
+and Discord IDs are never emitted to logs, exceptions, reports, test IDs, or CI
+artifacts; output uses only ordinal handles such as `account-1`. The ignored
+owner-only ledger may retain Discord IDs needed for ownership checks, but never
+credential names or values. The suite does not run in the ordinary pull-request
+gate. Fixture requests are serialized through a global process lock and a
+central conservative scheduler: reads wait 1-2 seconds and mutations wait 3-6
+seconds. The pinned user client owns Discord bucket and `retry_after` handling;
+the harness adds no second retry loop. Uncertain creates are reconciled by
+deterministic name, and duplicate matches stop the run.
+
+Discord no longer documents whole-guild creation or deletion for applications.
+The fixture controller consequently isolates an exact-commit `discord.py-self`
+adapter in the `tests/live` uv project from DMD's API v10 cleanup
+client. The adapter performs static login and fixture REST operations without
+starting a Gateway connection. Its boundary is unit-tested, response bodies
+remain private, and upstream contract drift fails closed before later fixture
+phases run. A dedicated nested lockfile freezes this test tool while the
+installable library root remains intentionally lock-free. On Linux, the Nix
+development shell exposes the C++ runtime needed by the adapter's native
+transport wheel without adding it to DMD's runtime closure.
+
+M1 now also includes a resumable topology builder. Two persistent ledger-owned
+guilds receive deterministic categories, message-bearing channel types,
+Community configuration, member and permission roles, restricted-channel
+overwrites, and all three non-owner fixture memberships. All four user-client
+adapters share one scheduler, and invite inspection and acceptance are paced as
+separate REST calls. Channels and roles are written to the private ledger after
+each successful or reconciled mutation. A repeated run verifies resource ID,
+name, kind, parent, permissions, guild, and ownership instead of recreating
+them. Whole-guild teardown marks verified nested channels and roles terminal
+with their parent guild.
+
+The live run also verified the current Discord capability boundary: Forum,
+Announcement, Stage, Voice, and Text fixtures were created, while Discord
+rejected `GUILD_MEDIA` with error `50024` (`Cannot execute action on this
+channel type`). That result is retained as an explicit unsupported capability,
+so future runs do not retry it indefinitely or claim coverage that Discord did
+not provide.
+
+The current live ledger also contains a validated 216-message matrix across
+nine scopes and active/archived public, announcement, private, and forum thread
+fixtures. Both tested fixture accounts received HTTP 403 when the harness
+probed Super Reactions. An isolated destructive check used ordinary DMD message
+cleanup on a forum post containing only its starter message: the message was
+deleted, while an independent API probe confirmed that the post's
+`PublicThread` container remained present. Removing that container therefore
+remains a separate, explicit owned-thread operation.
+
+A guarded destructive contract runner now covers every available
+message-bearing channel type without multiplying the retention-policy unit
+matrix. Its preparation stage independently observes tracked subject messages,
+foreign messages, subject reactions, foreign reactions, channel type, and
+thread archive state, then requires an exact redacted DMD preview. Execution is
+a separate opt-in command. It revalidates and previews each scope immediately
+before cleanup, checkpoints scopes individually, and independently requires
+subject messages and mutable subject reactions to be absent while foreign
+messages, foreign reactions, and the channel/thread container remain. The live
+matrix passed GuildText, GuildAnnouncement, GuildVoice chat, GuildStageVoice
+chat, DM, GroupDM, and every active PublicThread, AnnouncementThread,
+PrivateThread, and Forum-post form. Its first archived run recorded HTTP 400
+rejection with messages, reactions, and containers unchanged. A subsequent
+guarded replay processed those same archived fixtures through exact archived
+thread selectors, removed subject messages and reactions, and independently
+confirmed that foreign content and every
+container remained while all four threads returned to archived state. The
+restoration journal was empty after execution. `GUILD_MEDIA` stays an explicit
+unsupported result rather than a false pass.
+
+A separate isolated archived-thread race matrix now provides live transition
+evidence. Its preview gate independently verified one target message, one
+foreign message, one target reaction, and one foreign reaction in each of six
+archived threads. Execution passed ordinary temporary restoration,
+likely-auto-archive recovery with a controlled monotonic deadline, and locked
+cleanup by an account with `MANAGE_THREADS`. Real manager-driven early archive,
+lock-change, and second-archive transitions stopped cleanup without removing
+the target artifacts. All foreign artifacts remained, final archive and lock
+states matched policy, the retry stayed bounded, the dedicated restoration
+journal was empty, and the ledger relocked. This does not replace a future
+one-hour observation of Discord's natural auto-archive timer.
+
+Discord may require an interactive CAPTCHA for user-account invite acceptance.
+The suite treats that as a manual security boundary rather than attempting to
+bypass it. A dedicated command can write two short-lived, usage-limited invite
+links to an ignored owner-only state file without exposing codes or identities
+in output. After each missing account accepts both links through its isolated
+browser session, the normal topology command reconciles and continues.
+
+The account topology, fixture matrix, safety model, milestones, and open
+decisions are tracked in `LIVE_TEST_SUITE_PLAN.md`.
+
+The fixture builder should create and evolve representative Discord state over
+an extended run, potentially several hours, through an independent setup client
+whose scheduler and rate-limit contracts are tested separately from the
+application cleanup client. Fixtures should cover:
+
+- guild text, announcement, forum, media, voice, and stage chat
+- active and archived public, private, announcement, forum, and media threads
+- ordinary and unknown message types, attachments, replies, polls, and system
+  messages that are actually deletable by their author
+- normal and Super Reactions, including both variants of the same emoji and a
+  deleted custom emoji whose name is null
+- ordinary-member and moderator permission boundaries for owned-thread deletion
+- inaccessible, concurrently removed, and already absent resources
+
+Every live scenario should have four explicit phases: fixture creation, dry-run
+assertions, destructive execution, and postcondition verification. Fixture IDs
+and ownership must be recorded in a per-run ledger so an interrupted run can be
+resumed or cleaned up safely. Destructive cases require an explicit opt-in and
+must refuse to operate on resources not created for that run. A concurrency lock
+must prevent two destructive suites from sharing the same account or guild.
+
+The dry-run and execution phases must evaluate the same planner output. Most
+coverage should first prove that dry-run finds the intended artifacts without
+mutation; a smaller but representative set should then perform real message,
+reaction, and owned-thread cleanup and verify Discord's resulting state.
+
+### Phase 2: optional QR account login
+
+Prototype `dmd login --qr` as a safer convenience layer over the existing token
+and keyring flow. The current token prompt, `DISCORD_TOKEN`, and system-keyring
+storage remain supported. QR approval should happen in the official Discord
+mobile client so DMD never receives the account password or MFA secret.
+
+The goal is for a successful QR flow to obtain the same Discord account token
+that users can currently provide manually, validate it through `/users/@me`, and
+store it with the existing `KeyringTokenStore`. Later runs should load that token
+from the keyring without requiring another QR login, and logout should remove the
+local token as it does today.
+
+The exact remote-auth protocol, temporary handshake data, session lifecycle,
+dependencies, and failure behavior still require research and live validation.
+They must not be treated as settled design decisions in this migration plan. The
+eventual implementation must still:
+
+- never log tokens, passwords, MFA codes, QR payloads, or authentication request
+  bodies
+- fail closed when Discord requests CAPTCHA or an unsupported verification step
+  and never integrate a CAPTCHA-solving service
+- refuse plaintext credential fallback when the system keyring is unavailable
+- retain token entry as the recovery path when QR login is unavailable
+- use recorded protocol transcripts for deterministic tests before exercising
+  the flow against dedicated live accounts
+
+This must be a clean-room implementation. DMD is MIT licensed, while current
+[Discordo](https://github.com/ayn2op/discordo) and
+[Concord](https://github.com/chojs23/concord) releases are GPL and
+[Endcord](https://github.com/sparklost/endcord) is source-available, so those
+projects may inform expected behavior but their authentication code must not be
+copied into DMD.
+
+Discord's [documented OAuth2 scopes](https://docs.discord.com/developers/topics/oauth2)
+do not provide the unrestricted historical message and reaction access required
+by DMD. QR login therefore does not turn DMD into an official integration. The
+command and documentation must retain an explicit warning that
+[Discord prohibits automated normal-user accounts](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)
+and may terminate accounts using unofficial automation.
+
+Email/password login, MFA handling, device verification, and account recovery
+are not v3 requirements. They would make DMD process primary account credentials
+through a private, CAPTCHA-sensitive protocol and remain post-v3 research unless
+a substantially safer supported flow becomes available.
+
+### Phase 3: search-backed own-message discovery
+
+Add message search as an alternative discovery strategy when
+`--keep-reactions` is enabled. In that mode DMD only needs the authenticated
+user's messages, so walking every message merely to inspect reaction ownership
+is unnecessary. Search must not be used for normal reaction-cleanup runs because
+search results omit reaction data and cannot discover the user's reactions on
+messages authored by other users.
+
+Search is a candidate source of message IDs, not immediate deletion authority.
+Each candidate must be re-fetched before planning or mutation so current author,
+message type, timestamp, channel state, retention rules, and access are checked
+through the same path as traversal results. The implementation must also:
+
+- handle Discord's `202` indexing responses through the request scheduler
+- deduplicate results and partition searches by time or snowflake boundaries
+  instead of relying on the capped offset range for large histories
+- preserve scope filters, thread exclusions, `--fetch-within`,
+  `--max-messages`, keep rules, dry-run output, and deletion ordering
+- fall back to channel traversal when search is unavailable or cannot prove the
+  required completeness
+- compare search and traversal plans against the same live fixtures before
+  search becomes the default for eligible runs
+
+Search may eventually make preserve-cache unnecessary for search-backed,
+own-message-only runs because retained messages can be rediscovered on the next
+run. That is a hypothesis, not yet a migration decision. The cache must remain
+available until live tests establish search completeness across guilds, DMs,
+Group DMs, private threads, archived threads, indexing delays, and long
+histories. It may remain useful as a fallback even after search ships.
+
+### Phase 4: batched retention and reaction traversal
+
+Reaction cleanup still needs channel history traversal. Incremental retention
+also has a concrete inefficiency today: every preserved cached ID that is not in
+the main stream is re-fetched with its own `around=<id>&limit=1` request.
+
+Replace that point-fetch loop with a per-channel window planner. It should keep
+cached IDs in descending snowflake order, group nearby targets, and fetch
+bounded `around`, `before`, or `after` history pages so one response can satisfy
+multiple cached IDs. Sparse targets should retain a point-fetch fallback when a
+larger history page would cost more. Snowflake timestamps can propose windows,
+but the planner must adapt to actual message density rather than assuming that
+time proximity guarantees page proximity.
+
+This optimization must preserve the current merge contract: newest-to-oldest
+ordering, deduplication against the main stream, exact retention decisions,
+lazy per-channel processing, and graceful handling of deleted or inaccessible
+messages. Tests and live metrics should compare API request count and elapsed
+time for sparse, clustered, and mixed cache layouts before selecting the default
+window policy.
+
+### Release readiness gate
+
+The v3 release candidate is ready to merge only after:
+
+1. the normal cross-platform `Test` workflow passes on the final branch SHA
+2. the live suite passes its dry-run, destructive, permission, and recovery
+   scenarios against isolated Discord fixtures
+3. QR authentication preserves token redaction, keyring-only storage, CAPTCHA
+   failure, and existing token-login behavior, if it is included in v3
+4. search-backed discovery has plan-equivalence coverage and a traversal
+   fallback, if it is included in v3
+5. batched cache/history fetching preserves existing retention semantics, if it
+   is included in v3
+6. the migration guide, user documentation, artifact audit, and release notes
+   describe the final behavior rather than planned behavior
+
 ## Operational constraints
 
 - The default v3 scope is intentionally broader. Upgrade notes and the release
@@ -598,6 +958,10 @@ concurrency group so a stale deployment cannot race the latest build.
   skipped rather than aborting the run.
 - DMD can only discover threads visible to the authenticated user. Per-parent
   permission failures are skipped and do not imply that no thread exists.
+- Archived content is included by default but activated only for a non-empty
+  cleanup plan. Activation changes archive timestamps and is best-effort rather
+  than atomic. `--skip-unrestorable-threads` requires a reasonable restoration
+  guarantee before scanning.
 - The thread search endpoint follows Discord client behavior and is less stable
   than a documented public bot endpoint.
 - Super Reaction removal also follows a typed route observed in Discord's
@@ -619,14 +983,15 @@ concurrency group so a stale deployment cannot race the latest build.
 | Profiles and effective settings | `delete_me_discord/app_config.py` |
 | Channel model and filters | `delete_me_discord/channel_types.py`, `delete_me_discord/scope_filter.py` |
 | Scope IDs, rules, and inventory | `delete_me_discord/scope_ids.py`, `delete_me_discord/scope_rules.py`, `delete_me_discord/scope_inventory.py` |
-| Thread API and rate scheduling | `delete_me_discord/api.py`, `delete_me_discord/rate_limits.py` |
+| Thread API, archived-state policy, and rate scheduling | `delete_me_discord/api.py`, `delete_me_discord/thread_cleanup.py`, `delete_me_discord/rate_limits.py` |
 | Listing and rendering | `delete_me_discord/discovery.py`, `delete_me_discord/discovery_renderers.py` |
 | Cleanup semantics | `delete_me_discord/cleaner.py`, `delete_me_discord/models.py` |
 | Durable local state | `delete_me_discord/storage.py`, `delete_me_discord/auth.py`, `delete_me_discord/preserve_cache.py` |
 | Version and packaging | `delete_me_discord/_version.py`, `pyproject.toml`, `MANIFEST.in`, `delete_me_discord.spec`, `tools/verify_distribution.py` |
 | CI/CD | `.github/workflows/test.yml`, `.github/workflows/release.yml`, `.github/workflows/docs.yml`, `.github/workflows/pyinstaller.yml` |
 | Development environment | `flake.nix`, `flake.lock` |
-| Documentation | `README.md`, `MIGRATION_V3.md`, `DISCORD_USER_ARTIFACT_AUDIT.md`, `docs/src/content/docs/`, `docs/package.json`, `docs/pnpm-workspace.yaml` |
+| Live Discord validation | `tests/live/`, `tests/test_live_suite.py` |
+| Documentation | `README.md`, `MIGRATION_V3.md`, `DISCORD_USER_ARTIFACT_AUDIT.md`, `LIVE_TEST_SUITE_PLAN.md`, `docs/src/content/docs/`, `docs/package.json`, `docs/pnpm-workspace.yaml` |
 | Tests | `tests/` |
 
 ## Keeping this document current

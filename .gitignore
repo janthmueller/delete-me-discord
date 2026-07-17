@@ -1,6 +1,7 @@
 .direnv/
 .venv/
 uv.lock
+!/tests/live/uv.lock
 __pycache__/
 *.egg-info/
 build/
@@ -13,3 +14,5 @@ docs/.astro/
 docs/dist/
 .pnpm-home/
 .codex
+/tests/live/secrets.env
+/tests/live/state/

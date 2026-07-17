@@ -22,6 +22,9 @@ class EffectiveCleanSettings:
     profile: Optional[str]
     include_ids: list[str]
     exclude_ids: list[str]
+    include_channel_types: list[str]
+    include_thread_states: list[str]
+    include_threads: bool
     exclude_channel_types: list[str]
     exclude_thread_states: list[str]
     exclude_threads: bool
@@ -33,6 +36,7 @@ class EffectiveCleanSettings:
     buffer_per_channel: bool
     keep_reactions: bool
     delete_owned_threads: str
+    skip_unrestorable_threads: bool
     preserve_cache: bool
     preserve_cache_path: str
     max_retries: int
@@ -65,6 +69,7 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "buffer_per_channel": False,
     "keep_reactions": False,
     "delete_owned_threads": "none",
+    "skip_unrestorable_threads": False,
     "preserve_cache": False,
     "preserve_cache_path": DEFAULT_PRESERVE_CACHE_PATH,
     "max_retries": 5,
@@ -98,6 +103,7 @@ PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
     {"name": "buffer_per_channel", "type": "true|false", "parser": "bool", "nullable": False, "description": "Buffer one channel at a time before evaluation."},
     {"name": "keep_reactions", "type": "true|false", "parser": "bool", "nullable": False, "description": "Keep your reactions instead of removing them."},
     {"name": "delete_owned_threads", "type": "none|self-only|all", "parser": "enum", "choices": OWNED_THREAD_DELETE_MODES, "nullable": False, "description": "Optionally delete creator-owned thread channels; deletion can remove other users' content."},
+    {"name": "skip_unrestorable_threads", "type": "true|false", "parser": "bool", "nullable": False, "description": "Skip archived threads when restoring their archived state cannot be reasonably guaranteed."},
     {"name": "preserve_cache", "type": "true|false", "parser": "bool", "nullable": False, "description": "Enable preserve cache between runs."},
     {"name": "preserve_cache_path", "type": "string path", "parser": "non_empty_string", "nullable": False, "description": "Override the preserve cache path."},
     {"name": "max_retries", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Maximum retry attempts for retryable API requests."},
@@ -272,6 +278,9 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         profile=args.profile,
         include_ids=list(args.include_ids),
         exclude_ids=list(args.exclude_ids),
+        include_channel_types=list(getattr(args, "include_channel_types", [])),
+        include_thread_states=list(getattr(args, "include_thread_states", [])),
+        include_threads=bool(getattr(args, "include_threads", False)),
         exclude_channel_types=list(args.exclude_channel_types),
         exclude_thread_states=list(args.exclude_thread_states),
         exclude_threads=args.exclude_threads,
@@ -283,6 +292,9 @@ def resolve_effective_clean_settings(args) -> EffectiveCleanSettings:
         buffer_per_channel=args.buffer_per_channel,
         keep_reactions=args.keep_reactions,
         delete_owned_threads=args.delete_owned_threads,
+        skip_unrestorable_threads=bool(
+            getattr(args, "skip_unrestorable_threads", False)
+        ),
         preserve_cache=args.preserve_cache,
         preserve_cache_path=_apply_dry_run_suffix(args.preserve_cache_path, bool(args.dry_run)),
         max_retries=args.max_retries,

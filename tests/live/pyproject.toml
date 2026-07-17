@@ -1,0 +1,11 @@
+[project]
+name = "delete-me-discord-live-tests"
+version = "0.0.0"
+requires-python = ">=3.10"
+dependencies = [
+    "discord.py-self @ git+https://github.com/dolfies/discord.py-self@e4bb777ee77e8298c2f9baff6e7e33fbb6453cbf",
+    "requests>=2.34.2",
+]
+
+[tool.uv]
+package = false

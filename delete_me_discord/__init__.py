@@ -21,7 +21,7 @@ from .app_config import (
 )
 from .auth import resolve_token, run_auth_command
 from .cleaner import MessageCleaner
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
+from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, is_archived_thread
 from .discovery import run_discovery_commands
 from .options import parse_args
 from .preserve_cache import PreserveCache
@@ -30,6 +30,7 @@ from .scope_filter import ScopeFilter
 from .scope_filter import THREAD_STATES
 from .scope_inventory import ScopeInventory
 from .scope_ids import preflight_scope_ids
+from .thread_cleanup import ThreadRestorationJournal
 from .utils import AuthenticationError, parse_random_range, setup_logging
 from ._version import __version__
 
@@ -89,11 +90,20 @@ def _build_scope_filter(
     exclude_channel_types,
     exclude_thread_states,
     exclude_threads: bool = False,
+    *,
+    include_channel_types=(),
+    include_thread_states=(),
+    include_threads: bool = False,
+    exact_included_channel_ids=(),
 ) -> ScopeFilter:
     return ScopeFilter.from_names(
         excluded_channel_types=exclude_channel_types,
         excluded_thread_states=exclude_thread_states,
         exclude_threads=exclude_threads,
+        included_channel_types=include_channel_types,
+        included_thread_states=include_thread_states,
+        include_threads=include_threads,
+        exact_included_channel_ids=exact_included_channel_ids,
     )
 
 
@@ -126,16 +136,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
     scope_seed = None
     include_ids = settings.include_ids
     exclude_ids = settings.exclude_ids
-    scope_filter = _build_scope_filter(
-        settings.exclude_channel_types,
-        settings.exclude_thread_states,
-        settings.exclude_threads,
-    )
-    if settings.delete_owned_threads != "none" and scope_filter.thread_discovery_mode == "none":
-        logging.error(
-            "--delete-owned-threads requires at least one included thread type and state."
-        )
-        raise SystemExit(1)
+    preflight = None
     if include_ids or exclude_ids:
         logging.getLogger("discovery").progress("Validating explicit scope IDs.")
         try:
@@ -147,6 +148,52 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         exclude_ids = list(preflight.exclude_ids)
         scope_seed = preflight.seed
 
+    exact_included_channel_ids = (
+        [
+            scope_id
+            for scope_id in preflight.include_ids
+            if preflight.nodes_by_id[scope_id].kind
+            in {"private-channel", "message-channel", "thread"}
+        ]
+        if preflight is not None
+        else []
+    )
+    exact_archived_thread_selected = (
+        any(
+            preflight.nodes_by_id[scope_id].kind == "thread"
+            and is_archived_thread(preflight.seed.resolved_channels_by_id[scope_id])
+            for scope_id in preflight.include_ids
+        )
+        if preflight is not None
+        else False
+    )
+    scope_filter = _build_scope_filter(
+        settings.exclude_channel_types,
+        settings.exclude_thread_states,
+        settings.exclude_threads,
+        include_channel_types=getattr(settings, "include_channel_types", ()),
+        include_thread_states=getattr(settings, "include_thread_states", ()),
+        include_threads=getattr(settings, "include_threads", False),
+        exact_included_channel_ids=exact_included_channel_ids,
+    )
+    archived_threads_in_scope = (
+        scope_filter.thread_discovery_mode == "all"
+        or exact_archived_thread_selected
+    )
+    archived_thread_cleanup = (
+        (
+            "temporary"
+            if settings.skip_unrestorable_threads
+            else "allow-active"
+        )
+        if archived_threads_in_scope
+        else "skip"
+    )
+    if settings.delete_owned_threads != "none" and scope_filter.thread_discovery_mode == "none":
+        logging.error(
+            "--delete-owned-threads requires at least one included thread type and state."
+        )
+        raise SystemExit(1)
     preserve_cache = PreserveCache(
         path=settings.preserve_cache_path,
     ) if settings.preserve_cache else None
@@ -163,6 +210,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         scope_inventory=None,
         scope_seed=scope_seed,
         scope_filter=scope_filter,
+        thread_restoration_journal=ThreadRestorationJournal(),
     )
 
     cleaner.clean_messages(
@@ -174,6 +222,7 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         buffer_channel_messages=settings.buffer_per_channel,
         delete_reactions=not settings.keep_reactions,
         delete_owned_threads=settings.delete_owned_threads,
+        archived_thread_cleanup=archived_thread_cleanup,
     )
     if preserve_cache:
         preserve_cache.save()
@@ -195,10 +244,24 @@ def _run_list(args) -> None:
             exclude_ids = list(preflight.exclude_ids)
             seed = preflight.seed
         if list_channels:
+            exact_included_channel_ids = (
+                [
+                    scope_id
+                    for scope_id in preflight.include_ids
+                    if preflight.nodes_by_id[scope_id].kind
+                    in {"private-channel", "message-channel", "thread"}
+                ]
+                if seed is not None
+                else []
+            )
             scope_filter = _build_scope_filter(
                 args.exclude_channel_types,
                 args.exclude_thread_states,
                 args.exclude_threads,
+                include_channel_types=getattr(args, "include_channel_types", ()),
+                include_thread_states=getattr(args, "include_thread_states", ()),
+                include_threads=getattr(args, "include_threads", False),
+                exact_included_channel_ids=exact_included_channel_ids,
             )
             if not args.json:
                 target_label = (

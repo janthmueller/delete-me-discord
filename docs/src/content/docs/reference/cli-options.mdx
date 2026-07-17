@@ -41,12 +41,13 @@ Other top-level commands are:
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Reports foreign reactions affected by parent-message deletion and, when owned-thread deletion is enabled, scans those threads to report container impact. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
-| `-i` | `--include-ids` | all eligible | Restrict processing to matching complete Discord IDs. |
-| `-x` | `--exclude-ids` | none | Exclude matching complete Discord IDs from processing. |
+| `-i` | `--include SELECTOR...` | all eligible | Include complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. `--include-ids` remains an alias. |
+| `-x` | `--exclude SELECTOR...` | none | Exclude complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. `--exclude-ids` remains an alias. |
 | `-` | `--exclude-channel-types TYPE...` | none | Exclude exact message-bearing Discord channel types such as `GuildVoice` or `PrivateThread`. |
 | `-` | `--exclude-thread-states STATE...` | none | Exclude `active` or `archived` threads. |
 | `-` | `--exclude-threads` | off | Exclude all announcement, public, and private threads. |
 | `-` | `--delete-owned-threads MODE` | `none` | Optionally delete creator-owned thread containers. `self-only` requires a complete scan with no messages from other authors; `all` permits deleting their messages too. Both are destructive and require `MANAGE_THREADS`. |
+| `-` | `--skip-unrestorable-threads` | off | Skip archived threads when restoring their archived state cannot be reasonably guaranteed. |
 | `-` | `--profile` | unset | Load cleanup defaults from a named profile in `config.json`. Explicit CLI flags still win. |
 | `-t` | `--token` | unset | Override stored credentials and `DISCORD_TOKEN` for this command only. |
 
@@ -69,7 +70,7 @@ Other top-level commands are:
 | `-m` | `--max-messages` | unlimited | Maximum number of messages to fetch per channel. |
 | `-` | `--buffer-per-channel` | off | Buffer one channel at a time before evaluation. |
 | `-` | `--fetch-sleep-time` | `0.2 0.4` | Minimum interval between message fetch requests. One value is fixed, two define a random range in seconds. |
-| `-` | `--delete-sleep-time` | `1.5 2` | Minimum interval between delete requests. One value is fixed, two define a random range in seconds. |
+| `-` | `--delete-sleep-time` | `1.5 2` | Minimum interval between cleanup mutation requests, including temporary thread-state updates. One value is fixed, two define a random range in seconds. |
 
 ### Timing and retries
 
@@ -131,8 +132,13 @@ When thread information is not needed, skip every thread search:
 dmd list channels --exclude-threads
 ```
 
-The same default and exclusion apply to `dmd clean`.
+`dmd clean` uses the same active-and-archived default. Archived threads are
+evaluated while archived and activated only when their cleanup plan contains
+work. Use `-x archived` for active-only cleanup.
 </Aside>
+
+Use `--include archived --dry-run` to preview only archived threads. See
+[Archived Thread Cleanup](../../guides/archived-thread-cleanup/).
 
 ### Profile listing
 
@@ -140,9 +146,9 @@ The same default and exclusion apply to `dmd clean`.
 
 ### Filter value listings
 
-`dmd list channel-types` lists the canonical values accepted by `--exclude-channel-types`.
+`dmd list channel-types` lists the canonical values accepted by `--include` and `--exclude`.
 
-`dmd list thread-states` lists the values accepted by `--exclude-thread-states`.
+`dmd list thread-states` lists the thread-state values accepted by `--include` and `--exclude`.
 
 Both commands are local and do not require a Discord token. Add `--json` for a JSON array.
 
@@ -150,8 +156,8 @@ Both commands are local and do not require a Discord token. Add `--json` for a J
 
 - `--token`
 - `--config-path`
-- `--include-ids`
-- `--exclude-ids`
+- `--include`
+- `--exclude`
 - `--json`
 - `--quiet`
 - `--verbose`
@@ -161,7 +167,61 @@ Both commands are local and do not require a Discord token. Add `--json` for a J
 
 `dmd list channels` also supports `--exclude-channel-types`, `--exclude-thread-states`, and `--exclude-threads`.
 
-`--include-ids` and `--exclude-ids` accept complete decimal Discord IDs. Guild and DM IDs are validated from the current top-level lists; category, channel, thread-parent, and thread IDs use an exact channel lookup. Old suffix shorthand is treated as an exact ID and fails when Discord cannot resolve it.
+`--include` and `--exclude` classify ASCII decimal values as complete Discord
+IDs. Guild and DM IDs are validated from the current top-level lists;
+category, channel, thread-parent, and thread IDs use an exact channel lookup.
+Old suffix shorthand is treated as an exact ID and fails when Discord cannot
+resolve it.
+
+Canonical channel types are case-sensitive. `threads` groups
+`AnnouncementThread`, `PublicThread`, and `PrivateThread`; `active` and
+`archived` select thread states:
+
+```bash
+# Only active threads.
+dmd clean -i active --dry-run
+
+# All accessible public threads, including archived ones.
+dmd clean -i PublicThread --dry-run
+
+# One category, without voice or stage chat.
+dmd clean -i <category-id> -x GuildVoice GuildStageVoice --dry-run
+
+# Exclude all threads except one exact thread.
+dmd clean -x threads -i <thread-id> --dry-run
+
+# Exclude the thread group, but retain its narrower public-thread type.
+dmd clean -x threads -i PublicThread --dry-run
+
+# Include the thread group, except its narrower public-thread type.
+dmd clean -i threads -x PublicThread --dry-run
+```
+
+Selector conflicts are order-independent and use specificity:
+
+1. exact channel or thread ID
+2. concrete channel type such as `PublicThread`
+3. the `threads` type group
+
+A narrower selector overrides a broader one. At equal specificity, exclusion
+wins. Therefore `-i PublicThread -x threads` selects public threads, while
+`-i PublicThread -x PublicThread` selects none.
+
+`active` and `archived` are an independent state dimension, not children of the
+`threads` group. They narrow whichever thread types survive type selection.
+Consequently, `-i PublicThread -x archived` selects active public threads, but
+`-i archived -x threads` selects no threads.
+
+ID rules additionally establish hierarchical scope with nearest-target
+precedence: channel/thread, parent, category, then guild. An exact included
+cleanup leaf (DM, Group DM, message channel, or thread) is an explicit exception
+to broad type/state and ancestor exclusions; an exact leaf exclusion still
+wins. Including a guild, category, forum, media channel, or text parent does
+not create such an exception for its children.
+
+Archived cleanup always attempts to restore the original archived state. Add
+`--skip-unrestorable-threads` when DMD should skip before scanning unless
+restoration rights can be reasonably established.
 
 `dmd list profiles` supports:
 
@@ -305,7 +365,9 @@ If a profile defines a message limit and you want to remove it for one run, use:
 
 ### Thread Discovery
 
-All accessible announcement, public, and private threads are discovered by default, including active and archived threads.
+`dmd list channels` discovers all accessible announcement, public, and private
+threads by default, including active and archived threads. Cleanup uses the
+same thread scope.
 
 Use these local commands to inspect the accepted filter values:
 
@@ -320,17 +382,25 @@ Channel-type exclusions use the canonical names shown in discovery output. Suppo
 - `AnnouncementThread`, `PublicThread`, and `PrivateThread`
 - `DM` and `GroupDM`
 
-Thread state is independent of channel type. Use `--exclude-thread-states archived` to search active threads only, or `--exclude-thread-states active` to retain only archived threads.
+Thread state is independent of channel type. Use `-x archived` to search active threads only, or `-i archived` to select archived threads.
 
-Use `--exclude-threads` as a shortcut for excluding `AnnouncementThread`, `PublicThread`, and `PrivateThread` together.
+Use `-x threads` as a broad shortcut for excluding `AnnouncementThread`,
+`PublicThread`, and `PrivateThread` together. A concrete include such as
+`-i PublicThread` is more specific and adds that type back. A concrete
+exclusion remains authoritative at the same level.
 
-Type and state exclusions always win over ID includes. Existing ID hierarchy remains available for specific targets: use `--exclude-ids <category-id>` to exclude one Discord category and its selected descendants.
+Exact leaf IDs can override broad type/state exclusions. Existing ID hierarchy remains available for specific targets: use `--exclude <category-id>` to exclude one Discord category and its selected descendants.
 
 Forum and media channels are containers rather than message channels. Thread discovery makes those parent IDs selectable, while cleanup operates on their discovered thread posts.
 
 The Rich terminal tree nests each thread below its visible parent channel. If the parent is unavailable or filtered out, the thread remains at category level with parent context. JSON output keeps its existing flat channel entries and `parent_id` fields for compatibility.
 
-Thread discovery can issue one or more paginated API requests for every relevant thread-capable channel in each visible guild. Exclusions avoid searches when none of the remaining thread types can exist under a parent. Discord permits message deletion in archived threads but restricts other mutations, so `dmd` skips reaction removal there.
+Thread discovery can issue one or more paginated API requests for every
+relevant thread-capable channel in each visible guild. Exclusions avoid searches
+when none of the remaining thread types can exist under a parent. Archived
+results use a buffered content plan and guarded activation only when that plan
+contains work. `--delete-owned-threads self-only` or `all` follows the same
+selected thread scope.
 
 `dmd list channels` completes this discovery before rendering its tree. Cleanup instead advances one guild and one parent at a time: it completes a parent's paginated thread snapshot, processes that parent and its child threads, and then continues. Explicit include/exclude IDs receive exact preflight validation before deletion but reuse that preflight data and remain incremental.
 

@@ -49,6 +49,7 @@ class DiscordChannel(TypedDict, total=False):
     message_count: int
     recipients: list[DiscordRecipient]
     thread_metadata: dict[str, Any]
+    permission_overwrites: list[dict[str, Any]]
 
 
 class DiscordMessage(TypedDict):
@@ -76,11 +77,24 @@ class DeleteOutcome(Enum):
 
     DELETED = "deleted"
     ABSENT = "absent"
+    THREAD_ARCHIVED = "thread_archived"
     FAILED = "failed"
 
     @property
     def desired_state_reached(self) -> bool:
         return self in {DeleteOutcome.DELETED, DeleteOutcome.ABSENT}
+
+
+class UpdateOutcome(Enum):
+    """Observed result of one idempotent state update."""
+
+    APPLIED = "applied"
+    ABSENT = "absent"
+    FAILED = "failed"
+
+    @property
+    def desired_state_reached(self) -> bool:
+        return self in {UpdateOutcome.APPLIED, UpdateOutcome.ABSENT}
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,178 @@
+---
+title: Archived Thread Cleanup
+description: Preview and clean content in archived Discord threads without activating them unexpectedly.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`dmd list channels` and `dmd clean` discover accessible active and archived
+threads by default. This follows DMD's default policy of cleaning every
+supported part of the authenticated user's visible footprint.
+
+Thread discovery may add pagination, Discord indexing waits, and rate-limit
+pressure. Use an active-only scope when archived history is not needed:
+
+```bash
+dmd clean -x archived
+```
+
+Use an explicit parent plus state to preview archived cleanup in a narrower
+scope:
+
+```bash
+dmd clean \
+  --include <thread-or-parent-id> archived \
+  --dry-run
+```
+
+An exact archived thread ID is enough by itself because preflight resolves its
+current state:
+
+```bash
+dmd clean --include <thread-id> --dry-run
+```
+
+Dry-run reads and evaluates the archived history but never changes thread
+state. When the plan is non-empty, it reports that execution would attempt to
+activate the thread, perform the listed message and reaction actions, and
+restore the archived state.
+
+## Activation is plan-driven
+
+DMD does not activate a thread merely because it contains messages. It first
+applies the normal ownership and retention policy, including:
+
+- `--keep-last` and `--keep-last-scope`
+- `--keep-within`
+- `--fetch-within` and `--max-messages`
+- `--keep-reactions`
+- preserve-cache entries
+
+The thread remains archived when the resulting plan has no message deletion or
+reaction removal. Messages selected for deletion do not receive separate
+reaction-removal calls because deleting their parent message already removes
+all attached reactions.
+
+## Permission checks
+
+An unlocked archived thread may be activated when Discord authorizes the
+account to do so. A locked thread requires effective `MANAGE_THREADS`.
+Even in that case, DMD changes only `archived`: it does not clear or reapply the
+thread's `locked` flag. The thread therefore remains moderator-locked while it
+is temporarily active.
+
+Restoration is considered available when:
+
+- the thread's `owner_id` matches the authenticated user; or
+- the account has effective `MANAGE_THREADS` in the parent channel.
+
+DMD reads guild-level permissions from the existing guild listing, fetches the
+current member's role IDs once per relevant guild, and applies the parent
+channel's `@everyone`, role, and member-specific overwrites in Discord's
+documented order. Guild ownership and `ADMINISTRATOR` bypass channel
+overwrites.
+
+By default, an unlocked thread remains eligible when restoration permission is
+unavailable or unknown. DMD attempts restoration after cleanup and reports if
+the thread remains active. Add `--skip-unrestorable-threads` to skip before
+scanning unless restoration can be reasonably established. Locked threads
+still require effective `MANAGE_THREADS` because they cannot otherwise be
+activated.
+
+Discord remains the final authority. Permission state can change after the
+preflight, so a rejected activation skips the complete plan once instead of
+issuing one failing request per message.
+
+## Long-running cleanup and auto-archive
+
+Activating a thread counts as activity and restarts Discord's configured
+auto-archive timer. A sufficiently large cleanup can nevertheless run longer
+than that timer. If Discord returns code `50083` while DMD is deleting a
+message or reaction, DMD refreshes the thread and applies a bounded state
+check.
+
+DMD reopens the thread and retries the blocked action once only when all of
+these conditions hold:
+
+- the thread is still archived;
+- its lock state is unchanged;
+- its configured auto-archive duration is unchanged and known; and
+- the elapsed time since DMD last activated it has reached that duration,
+  allowing a 30-second scheduling tolerance.
+
+The activation timestamp is reset after a successful reopen. This permits
+another bounded reopen if a very long cleanup reaches a later complete
+auto-archive interval, without creating an immediate retry loop.
+
+An archive that occurs earlier than the expected deadline is treated as an
+external state change, which includes a user or moderator archiving the thread.
+A changed lock state, changed duration, malformed state response, failed state
+refresh, or second immediate `50083` also stops the remaining actions for that
+thread. DMD reports the interruption and does not keep reopening against that
+state. Successfully completed actions are not rolled back.
+
+This is deliberately a conservative heuristic. Discord does not identify the
+actor or reason that archived a thread in the failed delete response, so DMD
+cannot prove that an archive at the deadline was automatic.
+
+See Discord's documentation for
+[thread editing and deletion](https://docs.discord.com/developers/topics/threads#editing-deleting-threads),
+[channel modification](https://docs.discord.com/developers/resources/channel#modify-channel),
+and [permission overwrites](https://docs.discord.com/developers/topics/permissions#permission-overwrites).
+
+## Restoration and recovery
+
+A real archived-thread run records the thread in an owner-only local restoration
+journal before activating it. Restoration runs in a `finally` block even when
+message cleanup raises an error. The journal entry is removed only after the
+thread is archived again or Discord reports that the thread no longer exists.
+
+If the process stops after activation, the next non-dry cleanup run retries
+pending restorations before normal discovery. A failed restoration remains in
+the journal and is reported as an error.
+
+<Aside type="caution" title="Temporary is best-effort">
+No client-side sequence is atomic. The process can lose network access,
+permissions can change, or Discord can reject restoration after cleanup. Also,
+activating and re-archiving a thread changes its archive timestamp and may
+affect its ordering in Discord. A state change during execution can leave a
+partially completed plan; the summary reports actions that were not attempted.
+</Aside>
+
+## Requiring restorable threads
+
+The default maximizes deletion: it cleans an unlocked archived thread when
+Discord permits activation even if DMD cannot establish that the account can
+archive it again. Restoration is still attempted.
+
+Use `--skip-unrestorable-threads` for the stricter state-preservation policy:
+
+```bash
+dmd clean \
+  --include <thread-id> \
+  --skip-unrestorable-threads \
+  --dry-run
+```
+
+DMD then skips an archived thread before scanning its messages when restoration
+rights are unavailable or unknown. A runtime permission change or network
+failure can still prevent restoration after activation, so the journal and
+summary remain necessary.
+
+## Profiles
+
+The strict policy can be stored in a cleanup profile:
+
+```bash
+dmd profile update <name> --set skip_unrestorable_threads=true
+```
+
+Store `exclude_thread_states=archived` instead when the profile should avoid
+archived discovery entirely.
+
+## Thread container deletion
+
+Archived selection controls message and reaction cleanup **inside** an archived
+thread. It does not delete the thread object. Whole-thread deletion remains a
+separate, stronger opt-in through `--delete-owned-threads` and follows the same
+selected active/archived scope.

@@ -160,10 +160,10 @@ because Discord provides text chat on those channel types. Threads are not
 documented as children of DM, Group DM, voice, or stage channels.
 
 Reactions attach to message objects, so the same channel matrix covers normal
-and Super Reactions. Archived threads are an important state exception:
-Discord permits message deletion there, but generally blocks reaction changes
-until the thread is active. DMD correctly skips reaction cleanup in archived
-threads.
+and Super Reactions. Archived threads are an important state exception: DMD's
+live user-account tests observed Discord rejecting direct message and reaction
+mutations until the thread was active. DMD includes archived content by default,
+plans both action types, and activates the thread only for a non-empty plan.
 
 ### Existing automated coverage
 
@@ -179,8 +179,12 @@ checking display labels:
   forum, and nested-thread inclusion and rendering.
 - cleaner behavior tests verify that direct message channels and threads enter
   cleanup while forum containers do not.
-- archived-thread tests verify that own messages are deleted while reaction
-  removal is suppressed.
+- archived-thread tests verify default discovery, dry-run planning, guarded
+  activation, own-message and own-reaction cleanup, restoration,
+  locked-thread permissions, interrupted restoration recovery, likely
+  auto-archive reopening for both message and reaction actions, early external
+  archive termination, changed lock/duration rejection, and bounded retry
+  behavior.
 - reaction tests cover normal and burst ownership independently, both variants
   on one emoji, the typed burst route, and null-name custom emoji formatting.
 - owned-thread tests cover the default-off contract, creator matching,
@@ -301,8 +305,8 @@ does not remove another user's primary content.
 
 | Interaction | Stored on | Can the user remove it? | Current DMD status | Recommendation |
 | --- | --- | --- | --- | --- |
-| Normal reaction | Reaction entry on a message, `me=true` | Yes, through Delete Own Reaction while the message/thread is mutable | Covered outside archived threads | Keep in core |
-| Super Reaction | Same reaction entry, `me_burst=true`, type `BURST` | Discord's client uses a typed own-reaction removal route | Covered outside archived threads; represented separately from normal reactions | Keep in core and monitor the client-only route |
+| Normal reaction | Reaction entry on a message, `me=true` | Yes, through Delete Own Reaction while the message/thread is mutable | Covered directly in active threads and through guarded archived-thread activation | Keep in core |
+| Super Reaction | Same reaction entry, `me_burst=true`, type `BURST` | Discord's client uses a typed own-reaction removal route | Represented separately from normal reactions; archived cleanup uses the same guarded activation | Keep in core and monitor the client-only route |
 | Reaction using a deleted custom emoji | Reaction emoji may have an ID but a null name | Current client formats the route identifier as `null:id` | Covered by route formatting and fixtures | Keep the null-name fixture |
 | Poll vote | Poll results contain `me_voted`; vote belongs to the voter | Client allows `Remove Vote` while the poll is open. Public app API says apps cannot vote and documents no vote-removal endpoint. | Not modeled | Candidate core interaction using a verified user endpoint only |
 | Scheduled-event interest/RSVP | Scheduled event user/subscription | User can toggle interest in the client | Not modeled | Account-state feature, not message cleanup |
@@ -356,8 +360,10 @@ states that deleting a thread requires `MANAGE_THREADS`.
 
 A creator without that permission can generally change creator-owned thread
 properties such as its name, archive state, and auto-archive duration. Locked
-and archived state add restrictions. Deleting messages in an archived thread
-is the one ordinary message mutation Discord explicitly permits.
+and archived state add restrictions. Discord documents message deletion as the
+one ordinary mutation allowed while archived, but the live user-account
+endpoint returned code `50083`; DMD therefore uses explicit guarded activation
+instead of relying on direct archived mutation.
 
 Public threads created from an existing message share the source message ID and
 can become orphaned when that source message is deleted. Forum and media posts
@@ -369,9 +375,18 @@ or context-free post rather than deleting the thread.
 The current default is correct:
 
 - discover accessible threads
-- delete the authenticated user's own messages inside them
-- remove the authenticated user's own normal and Super Reactions when the thread is mutable
+- delete the authenticated user's own messages inside active and archived threads
+- remove the authenticated user's own normal and Super Reactions in those threads
+- activate archived threads only after a non-empty cleanup plan is built
+- attempt to restore every thread that DMD activates
 - do not delete the thread container
+
+The default best-effort policy can clean an unlocked thread when restoration
+rights are unavailable or unknown. `--skip-unrestorable-threads` requires
+creator attribution or effective `MANAGE_THREADS` before scanning. Restorable
+transitions are journaled before activation, restoration runs in `finally`, and
+interrupted restorations are retried on the next run. Locked threads still
+require effective `MANAGE_THREADS`.
 
 Creator-owned container deletion is now available only through
 `--delete-owned-threads`:
@@ -386,8 +401,8 @@ Creator-owned container deletion is now available only through
 Both opt-in modes use Discord's thread delete endpoint, which still enforces
 `MANAGE_THREADS`. DMD does not infer permission from creator ownership. A dry-run
 can plan but cannot prove permission. If a real delete receives an unavailable
-or missing-permission response, ordinary own-message/reaction cleanup continues
-inside the thread.
+or missing-permission response, ordinary own-message/reaction cleanup follows
+the selected archived-thread policy.
 
 Successful container deletion supersedes retention, reaction-preservation,
 fetch-boundary, and preserve-cache decisions for that thread. `self-only` is

@@ -26,6 +26,9 @@ def _base_clean_args(tmp_path, **overrides):
         _explicit_fields=set(),
         include_ids=[],
         exclude_ids=[],
+        include_channel_types=[],
+        include_thread_states=[],
+        include_threads=False,
         exclude_channel_types=[],
         exclude_thread_states=[],
         exclude_threads=False,
@@ -44,6 +47,7 @@ def _base_clean_args(tmp_path, **overrides):
         buffer_per_channel=False,
         keep_reactions=False,
         delete_owned_threads="none",
+        skip_unrestorable_threads=False,
         preserve_cache=False,
         preserve_cache_path=str(tmp_path / "cache.json"),
         quiet=False,
@@ -66,6 +70,9 @@ def _base_list_args(tmp_path, **overrides):
         retry_time_buffer=["1", "1"],
         include_ids=[],
         exclude_ids=[],
+        include_channel_types=[],
+        include_thread_states=[],
+        include_threads=False,
         exclude_channel_types=[],
         exclude_thread_states=[],
         exclude_threads=False,
@@ -207,6 +214,35 @@ def test_main_list_channels_applies_requested_scope_filter(tmp_path, monkeypatch
 
     assert captured["fetch_kwargs"] == {"scope_filter": scope_filter}
     assert captured["inventory"] is inventory
+
+
+def test_main_list_channels_discovers_archived_threads_by_default(
+    tmp_path,
+    monkeypatch,
+):
+    args = _base_list_args(tmp_path, list_command="channels")
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def fake_fetch(api, **kwargs):
+        captured["scope_filter"] = kwargs["scope_filter"]
+        return delete_me_discord.ScopeInventory(
+            guilds=[],
+            root_channels=[],
+            guild_channels_by_guild={},
+            scope_filter=kwargs["scope_filter"],
+        )
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
+    monkeypatch.setattr(delete_me_discord, "run_discovery_commands", lambda **_: None)
+
+    delete_me_discord._run_list(args)
+
+    assert captured["scope_filter"].thread_discovery_mode == "all"
 
 
 def test_main_list_profiles_outputs_names(tmp_path, monkeypatch, capsys):
@@ -1017,6 +1053,99 @@ def test_run_clean_passes_scope_filter_to_cleaner(tmp_path, monkeypatch):
         ["GuildVoice", "PrivateThread"],
         ["archived"],
     )
+
+
+@pytest.mark.parametrize(
+    (
+        "skip_unrestorable_threads",
+        "delete_owned_threads",
+        "excluded_states",
+        "expected_mode",
+        "expected_cleanup_mode",
+    ),
+    [
+        (False, "none", [], "all", "allow-active"),
+        (True, "none", [], "all", "temporary"),
+        (False, "self-only", [], "all", "allow-active"),
+        (False, "all", [], "all", "allow-active"),
+        (False, "none", ["active"], "all", "allow-active"),
+        (False, "none", ["archived"], "active", "skip"),
+    ],
+)
+def test_run_clean_archived_thread_default_and_strict_policy(
+    tmp_path,
+    monkeypatch,
+    skip_unrestorable_threads,
+    delete_owned_threads,
+    excluded_states,
+    expected_mode,
+    expected_cleanup_mode,
+):
+    args = _base_clean_args(
+        tmp_path,
+        skip_unrestorable_threads=skip_unrestorable_threads,
+        delete_owned_threads=delete_owned_threads,
+        exclude_thread_states=excluded_states,
+    )
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            captured["scope_filter"] = kwargs["scope_filter"]
+
+        def clean_messages(self, **kwargs):
+            captured["cleanup_mode"] = kwargs["archived_thread_cleanup"]
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord._run_clean(args)
+
+    assert captured["scope_filter"].thread_discovery_mode == expected_mode
+    assert captured["cleanup_mode"] == expected_cleanup_mode
+
+
+def test_archived_selector_uses_permissive_cleanup_by_default(
+    tmp_path,
+    monkeypatch,
+):
+    args = _base_clean_args(
+        tmp_path,
+        include_thread_states=["archived"],
+    )
+    captured = {}
+
+    class FakeAPI:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_current_user(self):
+            return {"id": "me", "username": "me"}
+
+    class FakeCleaner:
+        def __init__(self, **kwargs):
+            captured["scope_filter"] = kwargs["scope_filter"]
+
+        def clean_messages(self, **kwargs):
+            captured["cleanup_mode"] = kwargs["archived_thread_cleanup"]
+            return 0
+
+    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
+
+    delete_me_discord._run_clean(args)
+
+    assert captured["scope_filter"].included_thread_states == {"archived"}
+    assert captured["scope_filter"].thread_discovery_mode == "all"
+    assert captured["cleanup_mode"] == "allow-active"
 
 
 def test_run_clean_exits_early_without_any_token(tmp_path, monkeypatch):

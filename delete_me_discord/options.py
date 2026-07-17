@@ -14,6 +14,7 @@ from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
 from .rate_limits import REQUEST_POLICY_DEFAULTS
 from .scope_filter import THREAD_STATES
+from .scope_selectors import parse_scope_selectors
 from .utils import parse_random_range, parse_redaction_spec, parse_time_delta
 
 
@@ -163,18 +164,28 @@ def _scope_parent(
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
-        "-i", "--include-ids",
+        "-i", "--include", "--include-ids",
+        dest="include_selectors",
         type=str,
         nargs="*",
         default=_clean_default("include_ids", clean_defaults),
-        help="List of complete channel, guild, thread, or parent/category Discord IDs to include."
+        metavar="SELECTOR",
+        help=(
+            "Include complete Discord IDs, channel types, 'threads', or thread "
+            "states ('active'/'archived')."
+        ),
     )
     parser.add_argument(
-        "-x", "--exclude-ids",
+        "-x", "--exclude", "--exclude-ids",
+        dest="exclude_selectors",
         type=str,
         nargs="*",
         default=_clean_default("exclude_ids", clean_defaults),
-        help="List of complete channel, guild, thread, or parent/category Discord IDs to exclude."
+        metavar="SELECTOR",
+        help=(
+            "Exclude complete Discord IDs, channel types, 'threads', or thread "
+            "states ('active'/'archived')."
+        ),
     )
     if channel_filter_options:
         parser.add_argument(
@@ -274,7 +285,7 @@ def build_parser(
         default=_clean_default("dry_run", clean_defaults),
         help=(
             "Plan cleanup and deletion-cascade impact without deleting messages, "
-            "reactions, or thread containers."
+            "reactions, or thread containers, and without changing thread state."
         )
     )
     clean_parser.add_argument(
@@ -339,6 +350,15 @@ def build_parser(
         ),
     )
     clean_parser.add_argument(
+        "--skip-unrestorable-threads",
+        action=argparse.BooleanOptionalAction,
+        default=_clean_default("skip_unrestorable_threads", clean_defaults),
+        help=(
+            "Skip archived threads when restoring their archived state cannot "
+            "be reasonably guaranteed."
+        ),
+    )
+    clean_parser.add_argument(
         "--preserve-cache",
         action=argparse.BooleanOptionalAction,
         default=_clean_default("preserve_cache", clean_defaults),
@@ -362,7 +382,7 @@ def build_parser(
         nargs="+",
         default=_clean_default("delete_sleep_time", clean_defaults),
         metavar=("MIN", "MAX"),
-        help="Minimum interval (in seconds) between delete requests. Provide one value or two values for randomness. Default is [1.5, 2]."
+        help="Minimum interval (in seconds) between cleanup mutation requests. Provide one value or two values for randomness. Default is [1.5, 2]."
     )
 
     list_parser = subparsers.add_parser(
@@ -574,6 +594,43 @@ def parse_args(version: str, argv=None):
 
     parser = build_parser(version, json_output=json_output, clean_defaults=clean_defaults)
     args = parser.parse_args(raw_argv)
+    if hasattr(args, "include_selectors"):
+        try:
+            selectors = parse_scope_selectors(
+                args.include_selectors,
+                args.exclude_selectors,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        if (
+            getattr(args, "list_command", None) == "guilds"
+            and (
+                selectors.included_channel_types
+                or selectors.excluded_channel_types
+                or selectors.included_thread_states
+                or selectors.excluded_thread_states
+                or selectors.include_threads
+                or selectors.exclude_threads
+            )
+        ):
+            parser.error("dmd list guilds accepts only complete Discord ID selectors")
+        args.include_ids = list(selectors.include_ids)
+        args.exclude_ids = list(selectors.exclude_ids)
+        args.include_channel_types = list(selectors.included_channel_types)
+        args.include_thread_states = list(selectors.included_thread_states)
+        args.include_threads = selectors.include_threads
+        if hasattr(args, "exclude_channel_types"):
+            args.exclude_channel_types = list(dict.fromkeys([
+                *args.exclude_channel_types,
+                *selectors.excluded_channel_types,
+            ]))
+            args.exclude_thread_states = list(dict.fromkeys([
+                *args.exclude_thread_states,
+                *selectors.excluded_thread_states,
+            ]))
+            args.exclude_threads = args.exclude_threads or selectors.exclude_threads
+        del args.include_selectors
+        del args.exclude_selectors
     if hasattr(args, "request_interval"):
         request_intervals = {}
         for policy, interval in args.request_interval:

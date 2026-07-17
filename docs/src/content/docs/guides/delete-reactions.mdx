@@ -19,7 +19,9 @@ When the tool encounters a message in scope, it can remove normal reactions and 
 - Discord reports normal ownership as `me` and Super Reaction ownership as `me_burst`; DMD plans the two variants independently, including when both use the same emoji.
 - Use `--keep-reactions` if you want kept messages to keep your reactions as well.
 - Reaction removal is always about your own reactions, not other users' reactions.
-- Reaction removal is skipped in archived threads because Discord restricts mutations there.
+- Archived threads are included by default. Reactions are planned while the
+  thread remains archived and removed only after successful guarded activation.
+  Use `-x archived` to omit them.
 
 ## Example
 

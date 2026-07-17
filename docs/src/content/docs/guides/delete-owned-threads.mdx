@@ -5,13 +5,38 @@ description: Explicitly remove thread containers created by your Discord account
 
 import { Aside } from '@astrojs/starlight/components';
 
-Ordinary cleanup deletes your messages and reactions inside discovered threads. It does **not** delete the thread channel itself.
+Ordinary cleanup deletes your messages and reactions inside active and archived
+discovered threads. See [Archived Thread Cleanup](../archived-thread-cleanup/)
+for its guarded activation and restoration behavior. Neither path deletes the
+thread channel itself.
 
 Use `--delete-owned-threads` only when you also want to remove creator-owned thread containers such as public threads, private threads, announcement threads, forum posts, or media posts.
 
 <Aside type="caution" title="This removes a shared conversation">
 Deleting a thread removes the whole container. Depending on the selected mode, that can include messages and reactions created by other users. Discord requires `MANAGE_THREADS` even when `owner_id` identifies you as the creator.
 </Aside>
+
+## Forum and media posts
+
+Discord models a forum or media channel as a thread-only parent. The parent has
+no message history of its own: every visible post is a `PublicThread`, created
+together with a starter message that has the same ID as the thread.
+
+DMD therefore does not need a separate forum-post deletion implementation:
+
+- selecting a forum ID discovers its accessible active and archived posts
+- ordinary cleanup processes your messages and reactions inside each post
+- selecting a post ID targets that one `PublicThread`
+- `--delete-owned-threads` uses the same guarded whole-thread deletion path for
+  a creator-owned forum or media post
+
+Deleting only the starter message does not delete the post container. To remove
+the complete post, preview the exact post ID with `--delete-owned-threads` and
+remember that Discord still requires `MANAGE_THREADS`.
+
+This behavior is covered by the live fixture suite: ordinary cleanup deleted an
+isolated forum starter message, and a separate Discord API probe confirmed that
+the post's `PublicThread` container remained accessible afterward.
 
 ## Modes
 
@@ -92,7 +117,11 @@ Discord does not expose an atomic "delete only if unchanged" operation. Another 
 
 Discord's thread API requires `MANAGE_THREADS` for deletion. A matching `owner_id` proves creator attribution, not permission.
 
-Dry-run cannot prove that Discord will authorize the later delete request. During a real run, DMD attempts deletion and, if Discord returns an unavailable or missing-permission response, continues with ordinary cleanup of your own messages and reactions inside the thread.
+Dry-run cannot prove that Discord will authorize the later delete request.
+During a real run, DMD attempts deletion and, if Discord returns an unavailable
+or missing-permission response, falls back to ordinary content cleanup. An
+archived fallback follows the selected thread scope and guarded temporary
+activation policy.
 
 ## Retention interaction
 

@@ -68,6 +68,10 @@
         };
 
         devShells.default = pkgs.mkShell {
+          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux (
+            pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]
+          );
+
           packages = [
             (python.withPackages (ps: [
               ps.build

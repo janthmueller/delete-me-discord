@@ -1,7 +1,7 @@
 import pytest
 
 from delete_me_discord.api import DiscordAPI
-from delete_me_discord.models import DeleteOutcome
+from delete_me_discord.models import DeleteOutcome, UpdateOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.rate_limits import DiscordRequestScheduler
 from delete_me_discord.type_enums import ReactionType
@@ -34,12 +34,14 @@ class FakeSession:
         self.last_url = None
         self.last_method = None
         self.last_timeout = None
+        self.last_json = None
 
-    def request(self, method, url, params=None, timeout=None):
+    def request(self, method, url, params=None, json=None, timeout=None):
         self.calls += 1
         self.last_method = method
         self.last_url = url
         self.last_params = params or {}
+        self.last_json = json
         self.last_timeout = timeout
         try:
             response = self.responses[self.calls - 1]
@@ -101,11 +103,24 @@ def test_get_channel_rejects_malformed_collection_response():
         api.get_channel("123456789012345678")
 
 
-def test_request_raises_unexpected_status():
-    session = FakeSession(FakeResponse(418, {"error": "teapot"}))
+def test_get_current_guild_member_uses_current_user_route():
+    session = FakeSession(FakeResponse(200, {"roles": ["role-1"]}))
     api = make_api(session)
-    with pytest.raises(UnexpectedStatus):
+
+    member = api.get_current_guild_member("guild-1")
+
+    assert member["roles"] == ["role-1"]
+    assert session.last_url.endswith("/users/@me/guilds/guild-1/member")
+
+
+def test_request_raises_unexpected_status():
+    session = FakeSession(FakeResponse(418, {"code": 12345}))
+    api = make_api(session)
+    with pytest.raises(UnexpectedStatus) as exc_info:
         api.get_guilds()
+
+    assert exc_info.value.status_code == 418
+    assert exc_info.value.discord_code == 12345
 
 
 def test_request_retries_and_hits_max():
@@ -195,6 +210,33 @@ def test_delete_thread_handles_missing_permission():
     assert api.delete_thread("thread-1") == DeleteOutcome.FAILED
 
 
+def test_set_thread_archived_uses_patch_with_explicit_state():
+    session = FakeSession(FakeResponse(200, {"id": "thread-1"}))
+    api = make_api(session)
+
+    assert (
+        api.set_thread_archived("thread-1", archived=False)
+        == UpdateOutcome.APPLIED
+    )
+    assert session.last_method == "patch"
+    assert session.last_url.endswith("/channels/thread-1")
+    assert session.last_json == {"archived": False}
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (403, UpdateOutcome.FAILED),
+        (404, UpdateOutcome.ABSENT),
+        (400, UpdateOutcome.FAILED),
+    ],
+)
+def test_set_thread_archived_normalizes_expected_rejections(status, expected):
+    api = make_api(FakeSession(FakeResponse(status, {"code": 50083})))
+
+    assert api.set_thread_archived("thread-1", archived=True) == expected
+
+
 def test_delete_endpoints_report_absent_on_404():
     message_api = make_api(FakeSession(FakeResponse(404, {"message": "Unknown Message"})))
     reaction_api = make_api(FakeSession(FakeResponse(404, {"message": "Unknown Message"})))
@@ -206,6 +248,37 @@ def test_delete_endpoints_report_absent_on_404():
         == DeleteOutcome.ABSENT
     )
     assert thread_api.delete_thread("thread-1") == DeleteOutcome.ABSENT
+
+
+def test_message_and_reaction_deletes_report_archived_thread_on_50083():
+    message_api = make_api(FakeSession(FakeResponse(400, {"code": 50083})))
+    reaction_api = make_api(FakeSession(FakeResponse(400, {"code": 50083})))
+
+    assert (
+        message_api.delete_message("c1", "m1")
+        == DeleteOutcome.THREAD_ARCHIVED
+    )
+    assert (
+        reaction_api.delete_own_reaction("c1", "m1", {"name": "wave"})
+        == DeleteOutcome.THREAD_ARCHIVED
+    )
+
+
+def test_delete_endpoints_report_other_discord_rejections_on_400(caplog):
+    message_api = make_api(FakeSession(FakeResponse(400, {"code": 1234})))
+    reaction_api = make_api(FakeSession(FakeResponse(400, {"code": 1234})))
+    thread_api = make_api(FakeSession(FakeResponse(400, {"code": 50083})))
+
+    with caplog.at_level("WARNING"):
+        assert message_api.delete_message("c1", "m1") == DeleteOutcome.FAILED
+        assert (
+            reaction_api.delete_own_reaction("c1", "m1", {"name": "wave"})
+            == DeleteOutcome.FAILED
+        )
+        assert thread_api.delete_thread("thread-1") == DeleteOutcome.FAILED
+
+    assert caplog.text.count("Discord code 1234") == 2
+    assert caplog.text.count("Discord code 50083") == 1
 
 
 def test_delete_own_reaction_malformed_emoji_log_is_redacted(caplog):
