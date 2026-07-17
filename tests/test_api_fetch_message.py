@@ -1,3 +1,4 @@
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -209,6 +210,114 @@ def test_fetch_summary_reports_wait_before_next_page_only(monkeypatch):
     }
 
 
+@pytest.mark.parametrize(
+    ("value", "name", "deletable"),
+    [
+        (0, "DEFAULT", True),
+        (1, "RECIPIENT_ADD", False),
+        (2, "RECIPIENT_REMOVE", False),
+        (3, "CALL", False),
+        (4, "CHANNEL_NAME_CHANGE", False),
+        (5, "CHANNEL_ICON_CHANGE", False),
+        (6, "CHANNEL_PINNED_MESSAGE", True),
+        (7, "USER_JOIN", True),
+        (8, "PREMIUM_GUILD_SUBSCRIPTION", True),
+        (9, "PREMIUM_GUILD_SUBSCRIPTION_TIER_1", True),
+        (10, "PREMIUM_GUILD_SUBSCRIPTION_TIER_2", True),
+        (11, "PREMIUM_GUILD_SUBSCRIPTION_TIER_3", True),
+        (12, "CHANNEL_FOLLOW_ADD", True),
+        (14, "GUILD_DISCOVERY_DISQUALIFIED", True),
+        (15, "GUILD_DISCOVERY_REQUALIFIED", True),
+        (16, "GUILD_DISCOVERY_GRACE_PERIOD_INITIAL_WARNING", True),
+        (17, "GUILD_DISCOVERY_GRACE_PERIOD_FINAL_WARNING", True),
+        (18, "THREAD_CREATED", True),
+        (19, "REPLY", True),
+        (20, "CHAT_INPUT_COMMAND", True),
+        (21, "THREAD_STARTER_MESSAGE", False),
+        (22, "GUILD_INVITE_REMINDER", True),
+        (23, "CONTEXT_MENU_COMMAND", True),
+        (24, "AUTO_MODERATION_ACTION", False),
+        (25, "ROLE_SUBSCRIPTION_PURCHASE", True),
+        (26, "INTERACTION_PREMIUM_UPSELL", True),
+        (27, "STAGE_START", True),
+        (28, "STAGE_END", True),
+        (29, "STAGE_SPEAKER", True),
+        (30, "STAGE_RAISE_HAND", True),
+        (31, "STAGE_TOPIC", True),
+        (32, "GUILD_APPLICATION_PREMIUM_SUBSCRIPTION", True),
+        (35, "PREMIUM_REFERRAL", False),
+        (36, "GUILD_INCIDENT_ALERT_MODE_ENABLED", True),
+        (37, "GUILD_INCIDENT_ALERT_MODE_DISABLED", True),
+        (38, "GUILD_INCIDENT_REPORT_RAID", True),
+        (39, "GUILD_INCIDENT_REPORT_FALSE_ALARM", True),
+        (40, "GUILD_DEADCHAT_REVIVE_PROMPT", True),
+        (41, "CUSTOM_GIFT", True),
+        (42, "GUILD_GAMING_STATS_PROMPT", True),
+        (44, "PURCHASE_NOTIFICATION", True),
+        (46, "POLL_RESULT", True),
+        (47, "CHANGELOG", True),
+        (48, "NITRO_NOTIFICATION", True),
+        (49, "CHANNEL_LINKED_TO_LOBBY", True),
+        (50, "GIFTING_PROMPT", True),
+        (51, "IN_GAME_MESSAGE_NUX", True),
+        (52, "GUILD_JOIN_REQUEST_ACCEPT_NOTIFICATION", True),
+        (53, "GUILD_JOIN_REQUEST_REJECT_NOTIFICATION", True),
+        (54, "GUILD_JOIN_REQUEST_WITHDRAWN_NOTIFICATION", True),
+        (55, "HD_STREAMING_UPGRADED", True),
+        (58, "REPORT_TO_MOD_DELETED_MESSAGE", True),
+        (59, "REPORT_TO_MOD_TIMEOUT_USER", True),
+        (60, "REPORT_TO_MOD_KICK_USER", True),
+        (61, "REPORT_TO_MOD_BAN_USER", True),
+        (62, "REPORT_TO_MOD_CLOSED_REPORT", True),
+        (63, "EMOJI_ADDED", True),
+        (64, "PREMIUM_GROUP_INVITE", False),
+        (65, "VOICE_SESSION", True),
+        (66, "GUILD_BOOST_UPSELL", True),
+        (67, "FRIEND_REQUEST_ACCEPTED", True),
+        (68, "MEDIA_MENTION_MESSAGE", True),
+    ],
+)
+def test_message_type_mapping(value, name, deletable):
+    message_type = MessageType(value)
+
+    assert message_type.name == name
+    assert message_type.deletable is deletable
+
+
+def test_fetch_messages_maps_friend_request_accepted_type(monkeypatch):
+    api = DiscordAPI(token="dummy-token")
+    responses = [
+        [
+            {
+                "id": "200",
+                "timestamp": "2026-01-02T00:00:00.000000+00:00",
+                "type": 67,
+                "author": {"id": "u1"},
+                "reactions": [],
+            }
+        ],
+        [],
+    ]
+
+    monkeypatch.setattr(api, "_request", lambda *_, **__: responses.pop(0))
+
+    message = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))[0]
+
+    assert message["type"] is MessageType.FRIEND_REQUEST_ACCEPTED
+    assert message["type"].deletable is True
+
+
+def test_unknown_numeric_message_type_warns_and_remains_non_deletable(caplog):
+    with caplog.at_level(logging.WARNING, logger="MessageType"):
+        message_type = MessageType(999)
+        MessageType(999)
+
+    assert message_type.name == "UNKNOWN_999"
+    assert message_type.deletable is False
+    warnings = [record for record in caplog.records if "unrecognized message type 999" in record.message]
+    assert len(warnings) == 2
+
+
 def test_fetch_messages_stops_at_max_messages(monkeypatch):
     api = DiscordAPI(token="dummy-token")
     responses = [
@@ -266,5 +375,6 @@ def test_fetch_messages_keeps_unknown_message_type_without_aborting(monkeypatch,
 
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
 
-    assert messages[0]["type"] == 999
-    assert "unsupported message type 999" in caplog.text
+    assert messages[0]["type"].name == "UNKNOWN_999"
+    assert messages[0]["type"].deletable is False
+    assert "unrecognized message type 999" in caplog.text

@@ -72,8 +72,6 @@ class DiscordAPI:
             self.request_scheduler = request_scheduler
             for name, interval in (request_intervals or {}).items():
                 self.request_scheduler.configure_policy(name, interval)
-        self._warned_message_types: set[str] = set()
-
         self.headers = {
             "Authorization": self._token,
             "Content-Type": "application/json"
@@ -319,7 +317,7 @@ class DiscordAPI:
                     message_id=message["id"],
                     timestamp=message["timestamp"],
                     channel_id=channel_id,
-                    type=self._message_type(message.get("type", 0)),
+                    type=MessageType(message.get("type", 0)),
                     author_id=message.get("author", {}).get("id"),
                     author_username=message.get("author", {}).get("username"),
                     content=message.get("content"),
@@ -386,7 +384,7 @@ class DiscordAPI:
             message_id=message["id"],
             timestamp=message["timestamp"],
             channel_id=channel_id,
-            type=self._message_type(message.get("type", 0)),
+            type=MessageType(message.get("type", 0)),
             author_id=message.get("author", {}).get("id"),
             author_username=message.get("author", {}).get("username"),
             content=message.get("content"),
@@ -642,19 +640,6 @@ class DiscordAPI:
         if emoji_id:
             return f"{'null' if name is None else name}:{emoji_id}"
         return name
-
-    def _message_type(self, value: Any) -> MessageType | Any:
-        try:
-            return MessageType(value)
-        except (TypeError, ValueError):
-            warning_key = repr(value)
-            if warning_key not in self._warned_message_types:
-                self.logger.warning(
-                    "Discord returned unsupported message type %r; message deletion will be skipped for those items.",
-                    value,
-                )
-                self._warned_message_types.add(warning_key)
-            return value
 
     @staticmethod
     def _retry_backoff(attempt: int) -> float:

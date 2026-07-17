@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v2.2.6 (2026-07-16)
+
+### Bug Fixes
+
+- **messages**: Handle new Discord message types
+  ([`59e9bfe`](https://github.com/janthmueller/delete-me-discord/commit/59e9bfef64f320de3f8549a9a868f783a9523970))
+
+### Chores
+
+- **ci**: Restrict test workflow permissions
+  ([`125ac29`](https://github.com/janthmueller/delete-me-discord/commit/125ac29fc63904fccbbd494b61473b15d110840a))
+
+- **deps**: Lock file maintenance ([#33](https://github.com/janthmueller/delete-me-discord/pull/33),
+  [`04c899f`](https://github.com/janthmueller/delete-me-discord/commit/04c899fa2608b8b86c9214c3522242fb4f435ab0))
+
+- **deps**: Update dependency postcss to v8.5.17
+  ([#35](https://github.com/janthmueller/delete-me-discord/pull/35),
+  [`3ef8c98`](https://github.com/janthmueller/delete-me-discord/commit/3ef8c98b108ce10c10c83a4905077099ac8d5206))
+
+- **deps**: Update pnpm to v10.34.5
+  ([#17](https://github.com/janthmueller/delete-me-discord/pull/17),
+  [`582d572`](https://github.com/janthmueller/delete-me-discord/commit/582d572d6a80f1212acc812c1aecadd4451acde2))
+
+- **deps**: Update pnpm to v11 ([#27](https://github.com/janthmueller/delete-me-discord/pull/27),
+  [`0a6e3a8`](https://github.com/janthmueller/delete-me-discord/commit/0a6e3a8672f1fe2bf62de61f68a2e9db37dbc14f))
+
+
 ## v2.2.5 (2026-07-10)
 
 ### Bug Fixes
