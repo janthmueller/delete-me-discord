@@ -1,3 +1,4 @@
+import os
 import stat
 
 import pytest
@@ -31,7 +32,8 @@ def test_restoration_journal_is_private_and_user_scoped(tmp_path):
 
     assert journal.pending("me") == ("thread-1",)
     assert journal.pending("other") == ("thread-2",)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
     journal.clear("me", "thread-1")
     assert journal.pending("me") == ()
