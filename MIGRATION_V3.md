@@ -1020,8 +1020,8 @@ The v3 release candidate is ready to merge only after:
 
 | Area | Primary files |
 | --- | --- |
-| CLI and orchestration | `delete_me_discord/__init__.py`, `delete_me_discord/options.py` |
-| Profiles and effective settings | `delete_me_discord/app_config.py` |
+| CLI and orchestration | `delete_me_discord/cli/commands.py`, `delete_me_discord/cli/parser.py`, `delete_me_discord/cli/logging.py` |
+| Profiles and effective settings | `delete_me_discord/config/models.py`, `delete_me_discord/config/schema.py`, `delete_me_discord/config/profiles.py` |
 | Channel model and filters | `delete_me_discord/discord/channel_types.py`, `delete_me_discord/scope/filter.py` |
 | Scope IDs, rules, and inventory | `delete_me_discord/scope/resolver.py`, `delete_me_discord/scope/rules.py`, `delete_me_discord/scope/inventory.py` |
 | Thread API, archived-state policy, and rate scheduling | `delete_me_discord/discord/client.py`, `delete_me_discord/discord/transport.py`, `delete_me_discord/cleanup/threads.py`, `delete_me_discord/discord/rate_limits.py` |

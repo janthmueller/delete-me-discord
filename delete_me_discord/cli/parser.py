@@ -1,20 +1,21 @@
 import argparse
 import json
 import sys
+from typing import cast
 
-from .app_config import (
+from ..config import (
     CLEAN_ARG_DEFAULTS,
     build_clean_defaults,
     load_profile,
     profile_requests_json_output,
 )
-from .auth import DEFAULT_CONFIG_PATH
-from .discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
-from .cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
-from .privacy import RedactionConfig
-from .discord.rate_limits import REQUEST_POLICY_DEFAULTS
-from .scope import THREAD_STATES, parse_scope_selectors
-from .utils import parse_random_range, parse_redaction_spec, parse_time_delta
+from ..auth import DEFAULT_CONFIG_PATH
+from ..cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
+from ..discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
+from ..discord.rate_limits import REQUEST_POLICY_DEFAULTS
+from ..privacy import RedactionConfig
+from ..scope import THREAD_STATES, parse_scope_selectors
+from ..utils import parse_random_range, parse_redaction_spec, parse_time_delta
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -98,8 +99,8 @@ def _clean_default(name: str, clean_defaults: dict[str, object] | None = None):
     return (clean_defaults or CLEAN_ARG_DEFAULTS)[name]
 
 
-def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
+def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) -> JsonArgumentParser:
+    parser = JsonArgumentParser(add_help=False)
     parser.add_argument(
         "-q", "--quiet",
         action=argparse.BooleanOptionalAction,
@@ -134,8 +135,8 @@ def _common_output_parent(*, clean_defaults: dict[str, object] | None = None) ->
     return parser
 
 
-def _config_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
+def _config_parent(*, clean_defaults: dict[str, object] | None = None) -> JsonArgumentParser:
+    parser = JsonArgumentParser(add_help=False)
     parser.add_argument(
         "--config-path",
         type=str,
@@ -145,8 +146,11 @@ def _config_parent(*, clean_defaults: dict[str, object] | None = None) -> argpar
     return parser
 
 
-def _auth_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False, parents=[_config_parent(clean_defaults=clean_defaults)])
+def _auth_parent(*, clean_defaults: dict[str, object] | None = None) -> JsonArgumentParser:
+    parser = JsonArgumentParser(
+        add_help=False,
+        parents=[_config_parent(clean_defaults=clean_defaults)],
+    )
     parser.add_argument(
         "-t", "--token",
         type=str,
@@ -160,8 +164,8 @@ def _scope_parent(
     *,
     clean_defaults: dict[str, object] | None = None,
     channel_filter_options: bool = True,
-) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
+) -> JsonArgumentParser:
+    parser = JsonArgumentParser(add_help=False)
     parser.add_argument(
         "-i", "--include", "--include-ids",
         dest="include_selectors",
@@ -212,8 +216,8 @@ def _scope_parent(
     return parser
 
 
-def _api_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(add_help=False)
+def _api_parent(*, clean_defaults: dict[str, object] | None = None) -> JsonArgumentParser:
+    parser = JsonArgumentParser(add_help=False)
     policy_names = ", ".join(sorted(REQUEST_POLICY_DEFAULTS))
     parser.add_argument(
         "--max-retries",
@@ -234,7 +238,12 @@ def _api_parent(*, clean_defaults: dict[str, object] | None = None) -> argparse.
         "--request-interval",
         action="append",
         type=_request_interval,
-        default=list(_clean_default("request_intervals", clean_defaults)),
+        default=list(
+            cast(
+                list[tuple[str, tuple[float, float]]],
+                _clean_default("request_intervals", clean_defaults),
+            )
+        ),
         metavar="POLICY=MIN[,MAX]",
         help=(
             "Override a named minimum request interval. Repeat for multiple policies. "
@@ -628,8 +637,8 @@ def parse_args(version: str, argv=None):
                 *selectors.excluded_thread_states,
             ]))
             args.exclude_threads = args.exclude_threads or selectors.exclude_threads
-        del args.include_selectors
-        del args.exclude_selectors
+        delattr(args, "include_selectors")
+        delattr(args, "exclude_selectors")
     if hasattr(args, "request_interval"):
         request_intervals = {}
         for policy, interval in args.request_interval:
@@ -637,7 +646,7 @@ def parse_args(version: str, argv=None):
                 parser.error(f"request policy '{policy}' was overridden more than once")
             request_intervals[policy] = interval
         args.request_intervals = request_intervals
-        del args.request_interval
+        delattr(args, "request_interval")
     if getattr(args, "command", None) == "clean" and args.verbose is None:
         args.verbose = _clean_default("verbose", clean_defaults)
     if isinstance(args.redact_sensitive, list):

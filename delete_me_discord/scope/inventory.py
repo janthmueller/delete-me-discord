@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any, Generator, cast
 
@@ -8,6 +7,7 @@ from ..discord.channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CH
 from ..discord.client import DiscordClient
 from ..discord.errors import ResourceUnavailable
 from ..discord.models import DiscordChannel
+from ..logging import get_logger
 from ..privacy import sensitive
 from .filter import ScopeFilter, ThreadDiscoveryMode
 from .rules import ScopeRules
@@ -397,7 +397,7 @@ def _iter_inventory_cleanup_contexts(
 
 
 def _api_logger(api: DiscordClient) -> Any:
-    return cast(Any, getattr(api, "logger", logging.getLogger("scope_inventory")))
+    return cast(Any, getattr(api, "logger", get_logger("scope_inventory")))
 
 
 def _with_guild_id(channel: DiscordChannel, guild_id: str) -> DiscordChannel:

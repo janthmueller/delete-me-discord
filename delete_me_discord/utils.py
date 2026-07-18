@@ -1,151 +1,14 @@
 # delete_me_discord/utils.py
 
 import argparse
-import json
-import logging
 import math
 import re
-import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Mapping, Tuple, Optional
-from rich.console import Console
-from rich.logging import RichHandler
-from rich.padding import Padding
+from typing import List, Dict, Any, Mapping, Tuple
 
 from .discord.channel_types import channel_type_name
-from rich.table import Table
-from rich.text import Text
+from .privacy import RedactionConfig, sensitive, sensitive_name
 
-from .privacy import RedactionConfig, sensitive, sensitive_name, set_redaction_config
-
-
-PROGRESS_LEVEL = 15
-EVENT_LEVEL = 14
-DETAIL_LEVEL = 13
-DIAGNOSTIC_LEVEL = 12
-
-logging.addLevelName(PROGRESS_LEVEL, "PROGRESS")
-logging.addLevelName(EVENT_LEVEL, "EVENT")
-logging.addLevelName(DETAIL_LEVEL, "DETAIL")
-logging.addLevelName(DIAGNOSTIC_LEVEL, "DIAGNOSTIC")
-
-
-def _log_at_level(level: int):
-    def _inner(self, message, *args, indent: int = 0, prefix: str = "", no_wrap: bool = False, **kwargs):
-        if self.isEnabledFor(level):
-            extra = dict(kwargs.pop("extra", {}) or {})
-            extra["cli_indent"] = indent
-            extra["cli_prefix"] = prefix
-            extra["cli_no_wrap"] = no_wrap
-            self._log(level, message, args, extra=extra, **kwargs)
-    return _inner
-
-
-if not hasattr(logging.Logger, "progress"):
-    logging.Logger.progress = _log_at_level(PROGRESS_LEVEL)
-
-if not hasattr(logging.Logger, "event"):
-    logging.Logger.event = _log_at_level(EVENT_LEVEL)
-
-if not hasattr(logging.Logger, "detail"):
-    logging.Logger.detail = _log_at_level(DETAIL_LEVEL)
-
-if not hasattr(logging.Logger, "diagnostic"):
-    logging.Logger.diagnostic = _log_at_level(DIAGNOSTIC_LEVEL)
-
-
-class JsonLogFormatter(logging.Formatter):
-    """Format logs as JSON lines for sidecar integrations."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        return json.dumps(payload, ensure_ascii=True)
-
-
-RICH_CONSOLE = Console()
-
-
-class CliIndentFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.cli_indent = max(0, int(getattr(record, "cli_indent", 0) or 0))
-        record.cli_no_wrap = bool(getattr(record, "cli_no_wrap", False))
-        return True
-
-
-class CliRichHandler(RichHandler):
-    """Rich handler that indents full rendered message blocks."""
-
-    def render_message(self, record: logging.LogRecord, message: str):
-        renderable = super().render_message(record, message)
-        indent = max(0, int(getattr(record, "cli_indent", 0) or 0))
-        prefix = str(getattr(record, "cli_prefix", "") or "")
-        no_wrap = bool(getattr(record, "cli_no_wrap", False))
-        if no_wrap and isinstance(renderable, Text):
-            renderable.no_wrap = True
-            renderable.overflow = "ellipsis"
-        if prefix:
-            table = Table.grid(padding=0)
-            table.add_column(no_wrap=True)
-            table.add_column(no_wrap=no_wrap, overflow="ellipsis" if no_wrap else "fold")
-            indent_text = "  " * indent
-            prefix_cell = f"{indent_text}{prefix} "
-            table.add_row(prefix_cell, renderable)
-            return table
-        if indent:
-            return Padding(renderable, (0, 0, 0, indent * 2))
-        return renderable
-
-
-def setup_logging(
-    verbosity: int = 0,
-    quiet: bool = False,
-    json_output: bool = False,
-    redaction_config: Optional[RedactionConfig] = None,
-) -> None:
-    """
-    Configures the logging settings.
-
-    Args:
-        verbosity (int): User-facing verbosity level from -v repetitions.
-        quiet (bool): Reduce output to warnings and errors only.
-        json_output (bool): Emit JSON logs when True.
-        redaction_config (Optional[RedactionConfig]): Sensitive-value redaction settings.
-    """
-    set_redaction_config(redaction_config)
-    if quiet:
-        numeric_level = logging.WARNING
-    elif verbosity <= 0:
-        numeric_level = PROGRESS_LEVEL
-    elif verbosity == 1:
-        numeric_level = EVENT_LEVEL
-    elif verbosity == 2:
-        numeric_level = DETAIL_LEVEL
-    else:
-        numeric_level = DIAGNOSTIC_LEVEL
-
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.setLevel(numeric_level)
-    if json_output:
-        handler = logging.StreamHandler(stream=sys.stdout)
-        handler.setFormatter(JsonLogFormatter())
-        root_logger.addHandler(handler)
-    else:
-        handler = CliRichHandler(
-            console=RICH_CONSOLE,
-            show_time=False,
-            show_level=False,
-            show_path=False,
-            omit_repeated_times=False,
-        )
-        handler.addFilter(CliIndentFilter())
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        root_logger.addHandler(handler)
 
 def format_timestamp(dt: datetime) -> str:
     """Return a consistent UTC timestamp like [12/08/25 19:05:14]."""
@@ -204,6 +67,7 @@ def parse_redaction_spec(values: List[str]) -> RedactionConfig:
         raise argparse.ArgumentTypeError("Redaction prefix and suffix must be non-negative integers.")
 
     return RedactionConfig(enabled=True, prefix=prefix, suffix=suffix)
+
 
 def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, float]:
     """

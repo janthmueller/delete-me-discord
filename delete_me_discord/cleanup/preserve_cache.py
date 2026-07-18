@@ -1,8 +1,8 @@
 import json
-import logging
 import os
 from typing import Any, Dict, List
 
+from ..logging import get_logger
 from ..privacy import sensitive
 from ..storage import atomic_write_json
 
@@ -27,7 +27,7 @@ class PreserveCache:
         path: str = DEFAULT_PRESERVE_CACHE_PATH,
     ):
         self.path = path or DEFAULT_PRESERVE_CACHE_PATH
-        self.logger: Any = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
         self.data: Dict[str, Any] = {
             "schema_version": self.SCHEMA_VERSION,
             "channels": {},

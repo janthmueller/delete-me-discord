@@ -1,6 +1,5 @@
 """Discord endpoint operations over a reusable HTTP transport."""
 
-import logging
 import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, Generator, List, Mapping, Optional, Tuple, Union, cast
@@ -22,6 +21,7 @@ from .rate_limits import (
 from .type_enums import MessageType, ReactionType
 from .errors import ResourceUnavailable, UnexpectedStatus
 from .transport import DiscordTransport
+from ..logging import get_logger
 from ..utils import format_timestamp
 from ..privacy import sensitive
 
@@ -64,7 +64,7 @@ class DiscordClient:
             request_intervals=request_intervals,
             request_scheduler=request_scheduler,
         )
-        self.logger: Any = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
         self._last_fetch_summaries: Dict[str, Dict[str, Any]] = {}
 
     def configure_request_policy(

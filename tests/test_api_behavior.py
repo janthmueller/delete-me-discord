@@ -21,7 +21,7 @@ from delete_me_discord.discord.errors import (
     UnexpectedStatus,
 )
 from delete_me_discord.discord.transport import DiscordTransport
-from delete_me_discord.utils import DIAGNOSTIC_LEVEL
+from delete_me_discord.logging import DIAGNOSTIC_LEVEL
 
 
 class FakeResponse:

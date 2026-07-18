@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
@@ -19,6 +18,7 @@ from .rate_limits import (
     DiscordRequestScheduler,
     WaitSnapshot,
 )
+from ..logging import get_logger
 
 
 class DiscordTransport:
@@ -59,7 +59,7 @@ class DiscordTransport:
                 "Content-Type": "application/json",
             }
         )
-        self.logger: Any = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
 
     def configure_policy(
         self,

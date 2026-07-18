@@ -1,3 +1,5 @@
+"""Configuration schema, profile persistence, and effective-settings tests."""
+
 import json
 import sys
 from datetime import timedelta
@@ -9,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.app_config import (
+from delete_me_discord.config import (
     add_profile,
     build_clean_defaults,
     load_config,
@@ -22,7 +24,7 @@ from delete_me_discord.app_config import (
     update_profile,
     validate_profile_unset_fields,
 )
-from delete_me_discord.options import parse_args
+from delete_me_discord.cli.parser import parse_args
 
 
 def _assert_runtime_value(value, expected):

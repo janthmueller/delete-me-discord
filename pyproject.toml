@@ -39,8 +39,8 @@ source = "https://github.com/janthmueller/delete-me-discord"
 tracker = "https://github.com/janthmueller/delete-me-discord/issues"
 
 [project.scripts]
-delete-me-discord = "delete_me_discord:main"
-dmd = "delete_me_discord:main"
+delete-me-discord = "delete_me_discord.cli.commands:main"
+dmd = "delete_me_discord.cli.commands:main"
 
 [tool.setuptools.packages.find]
 include = ["delete_me_discord*"]

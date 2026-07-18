@@ -22,7 +22,7 @@ from delete_me_discord.cleanup.threads import (
     MANAGE_THREADS_PERMISSION,
     ThreadRestorationJournal,
 )
-from delete_me_discord.utils import PROGRESS_LEVEL
+from delete_me_discord.logging import PROGRESS_LEVEL
 
 
 def make_inventory() -> ScopeInventory:

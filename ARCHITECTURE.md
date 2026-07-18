@@ -32,11 +32,12 @@ delete_me_discord/
 ├── __init__.py             # Public package metadata only
 ├── __main__.py             # CLI entry point
 ├── _version.py
+├── logging.py              # Application log levels and logger extensions
 │
 ├── cli/
 │   ├── parser.py           # Argument definitions
 │   ├── commands.py         # Command dispatch
-│   └── logging.py          # Verbosity and custom log levels
+│   └── logging.py          # Verbosity and output formatting
 │
 ├── config/
 │   ├── models.py           # Typed effective settings
@@ -109,6 +110,13 @@ live in `discord/client.py`. Rate-limit scheduling, response errors, payload
 models, and Discord enums are colocated under `discord/`, and the former root
 Discord implementation modules have been removed.
 
+CLI construction, dispatch, verbosity, and output formatting now live under
+`cli/`. The package root exports version metadata only, while installed scripts
+and `python -m delete_me_discord` enter through the CLI package. Effective
+settings, profile schema/defaults, and profile persistence now live under
+`config/`; schema validation requires every cleanup default to be classified as
+profile-supported or runtime-only.
+
 ## Refactor Phases
 
 ### Phase 1: Complete The Cleanup Package
@@ -167,14 +175,15 @@ Completion criteria:
 
 ### Phase 4: Separate CLI And Configuration
 
-- [ ] Move argument construction to `cli/parser.py`.
-- [ ] Move command dispatch from root `__init__.py` to `cli/commands.py`.
-- [ ] Move logging extensions from `utils.py` to `cli/logging.py`.
-- [ ] Add a minimal `__main__.py`.
-- [ ] Reduce `__init__.py` to package metadata and intentional exports.
-- [ ] Split settings, schema/defaults, and profile persistence into `config/`.
-- [ ] Generate or validate CLI/profile defaults from one authoritative schema.
-- [ ] Remove root `options.py` and `app_config.py`.
+- [x] Move argument construction to `cli/parser.py`.
+- [x] Move command dispatch from root `__init__.py` to `cli/commands.py`.
+- [x] Move shared log levels out of `utils.py` and CLI presentation to
+  `cli/logging.py`.
+- [x] Add a minimal `__main__.py`.
+- [x] Reduce `__init__.py` to package metadata and intentional exports.
+- [x] Split settings, schema/defaults, and profile persistence into `config/`.
+- [x] Generate or validate CLI/profile defaults from one authoritative schema.
+- [x] Remove root `options.py` and `app_config.py`.
 
 Completion criteria:
 

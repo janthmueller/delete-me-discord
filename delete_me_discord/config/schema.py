@@ -2,54 +2,19 @@ import argparse
 import json
 import os
 import re
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal, Optional
 
-from .auth import DEFAULT_CONFIG_PATH
-from .discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
-from .cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
-from .privacy import RedactionConfig
-from .scope import THREAD_STATES
-from .storage import atomic_write_json
-from .utils import parse_random_range, parse_time_delta
-
-
-@dataclass(frozen=True)
-class EffectiveCleanSettings:
-    token: Optional[str]
-    config_path: str
-    profile: Optional[str]
-    include_ids: list[str]
-    exclude_ids: list[str]
-    include_channel_types: list[str]
-    include_thread_states: list[str]
-    include_threads: bool
-    exclude_channel_types: list[str]
-    exclude_thread_states: list[str]
-    exclude_threads: bool
-    keep_last: int
-    keep_last_scope: str
-    keep_within: timedelta
-    fetch_within: Optional[timedelta]
-    max_messages: Optional[int]
-    buffer_per_channel: bool
-    keep_reactions: bool
-    delete_owned_threads: str
-    skip_unrestorable_threads: bool
-    preserve_cache: bool
-    preserve_cache_path: str
-    max_retries: int
-    retry_time_buffer: tuple[float, float]
-    request_intervals: dict[str, tuple[float, float]]
-    fetch_sleep_time: tuple[float, float]
-    delete_sleep_time: tuple[float, float]
-    dry_run: bool
-    quiet: bool
-    verbose: int
-    json: bool
-    redact_sensitive: Optional[RedactionConfig]
-    redact_names: bool
+from ..auth import DEFAULT_CONFIG_PATH
+from ..cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
+from ..discord.channel_types import (
+    FILTERABLE_CHANNEL_TYPE_NAMES,
+    OWNED_THREAD_DELETE_MODES,
+)
+from ..privacy import RedactionConfig
+from ..scope import THREAD_STATES
+from ..utils import parse_random_range, parse_time_delta
+from .models import EffectiveCleanSettings
 
 
 CLEAN_ARG_DEFAULTS: dict[str, Any] = {
@@ -119,142 +84,53 @@ PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
 ]
 
 
-_PROFILE_FIELD_NAMES = {spec["name"] for spec in PROFILE_FIELD_SPECS}
+_PROFILE_FIELD_NAMES = frozenset(spec["name"] for spec in PROFILE_FIELD_SPECS)
 _PROFILE_FIELD_SPEC_BY_NAME = {spec["name"]: spec for spec in PROFILE_FIELD_SPECS}
+_RUNTIME_ONLY_CLEAN_FIELDS = frozenset(
+    {
+        "config_path",
+        "profile",
+        "request_intervals",
+        "token",
+    }
+)
 
 
-def load_config(path: str = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
-    config_path = path or DEFAULT_CONFIG_PATH
-    if not os.path.exists(config_path):
-        return {}
-    with open(config_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
-        raise ValueError("Config root must be a JSON object.")
-    return raw
+def _validate_schema_definition() -> None:
+    profile_field_names = [spec["name"] for spec in PROFILE_FIELD_SPECS]
+    if len(profile_field_names) != len(_PROFILE_FIELD_NAMES):
+        raise RuntimeError("Profile schema contains duplicate field names.")
+
+    default_fields = frozenset(CLEAN_ARG_DEFAULTS)
+    unknown_profile_fields = _PROFILE_FIELD_NAMES - default_fields
+    if unknown_profile_fields:
+        rendered = ", ".join(sorted(unknown_profile_fields))
+        raise RuntimeError(
+            f"Profile schema fields lack cleanup defaults: {rendered}."
+        )
+
+    unclassified_fields = (
+        default_fields - _PROFILE_FIELD_NAMES - _RUNTIME_ONLY_CLEAN_FIELDS
+    )
+    if unclassified_fields:
+        rendered = ", ".join(sorted(unclassified_fields))
+        raise RuntimeError(
+            f"Cleanup defaults are not classified by the profile schema: {rendered}."
+        )
+
+    missing_runtime_fields = _RUNTIME_ONLY_CLEAN_FIELDS - default_fields
+    if missing_runtime_fields:
+        rendered = ", ".join(sorted(missing_runtime_fields))
+        raise RuntimeError(
+            f"Runtime-only cleanup fields lack defaults: {rendered}."
+        )
 
 
-def load_profile_names(path: str = DEFAULT_CONFIG_PATH) -> list[str]:
-    profiles = _load_profiles_dict(path)
-    return sorted(profiles.keys())
+_validate_schema_definition()
 
 
 def get_profile_field_specs() -> list[dict[str, Any]]:
     return [dict(spec) for spec in PROFILE_FIELD_SPECS]
-
-
-def load_raw_profile(path: str, name: str) -> Any:
-    profiles = _load_profiles_dict(path)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
-    return profiles[name]
-
-
-def profile_requests_json_output(path: str, name: str) -> bool:
-    profiles = _load_profiles_dict(path)
-    raw = profiles.get(name)
-    if not isinstance(raw, dict):
-        return False
-    if "json" not in raw:
-        return False
-    try:
-        return _normalize_profile_value(f"Profile '{name}'", "json", raw["json"], mode="runtime") is True
-    except ValueError:
-        return False
-
-
-def load_profile(path: str, name: str) -> dict[str, Any]:
-    profiles = _load_profiles_dict(path)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
-    return _normalize_profile_data(f"Profile '{name}'", profiles[name], mode="runtime")
-
-
-def parse_profile_set_assignments(assignments: list[str]) -> dict[str, Any]:
-    raw: dict[str, Any] = {}
-    for assignment in assignments:
-        if "=" not in assignment:
-            raise ValueError(
-                f"Invalid --set value '{assignment}'. Expected key=value."
-            )
-        field, raw_value = assignment.split("=", 1)
-        field = field.strip()
-        if not field:
-            raise ValueError(
-                f"Invalid --set value '{assignment}'. Field name must not be empty."
-            )
-        if field in raw:
-            raise ValueError(f"Duplicate --set field '{field}'.")
-        raw[field] = _normalize_profile_value(
-            "Profile input",
-            field,
-            raw_value,
-            mode="cli-set",
-        )
-    return raw
-
-
-def validate_profile_unset_fields(fields: list[str]) -> list[str]:
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for field in fields:
-        field = field.strip()
-        if not field:
-            raise ValueError("Profile unset field names must not be empty.")
-        if field not in _PROFILE_FIELD_NAMES:
-            raise ValueError(f"Unsupported profile field '{field}'.")
-        if field not in seen:
-            deduped.append(field)
-            seen.add(field)
-    return deduped
-
-
-def add_profile(path: str, name: str, profile_data: dict[str, Any]) -> None:
-    config = load_config(path)
-    profiles = _mutable_profiles(config)
-    if name in profiles:
-        raise ValueError(f"Profile '{name}' already exists.")
-    profiles[name] = _normalize_profile_data(f"Profile '{name}'", profile_data, mode="stored")
-    _write_config(path, config)
-
-
-def update_profile(
-    path: str,
-    name: str,
-    profile_updates: dict[str, Any],
-    unset_fields: list[str],
-) -> None:
-    config = load_config(path)
-    profiles = _mutable_profiles(config)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
-    current_raw = profiles[name]
-    if not isinstance(current_raw, dict):
-        raise ValueError(f"Profile '{name}' must be a JSON object.")
-
-    current = dict(_migrate_legacy_thread_fields(f"Profile '{name}'", current_raw))
-    missing_unset_fields = [field for field in unset_fields if field not in current]
-    if missing_unset_fields:
-        joined = ", ".join(sorted(missing_unset_fields))
-        raise ValueError(
-            f"Profile '{name}' does not currently define field(s): {joined}."
-        )
-    for field in unset_fields:
-        current.pop(field, None)
-    current.update(profile_updates)
-    profiles[name] = _normalize_profile_data(f"Profile '{name}'", current, mode="stored")
-    _write_config(path, config)
-
-
-def remove_profile(path: str, name: str) -> None:
-    config = load_config(path)
-    profiles = _mutable_profiles(config)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
-    del profiles[name]
-    if not profiles:
-        config.pop("profiles", None)
-    _write_config(path, config)
 
 
 def build_clean_defaults(profile_name: Optional[str], profile_defaults: Optional[dict[str, Any]]) -> dict[str, Any]:
@@ -349,16 +225,6 @@ def _derive_profile_preserve_cache_path(profile_name: str) -> str:
         "preserve-cache",
         f"{safe_name}.json",
     )
-
-
-def _load_profiles_dict(path: str) -> dict[str, Any]:
-    config = load_config(path)
-    profiles = config.get("profiles")
-    if profiles is None:
-        return {}
-    if not isinstance(profiles, dict):
-        raise ValueError("Config field 'profiles' must be a JSON object.")
-    return profiles
 
 
 def _normalize_profile_data(source_label: str, raw: Any, *, mode: ProfileValueMode) -> dict[str, Any]:
@@ -605,21 +471,6 @@ def _normalize_redaction_config(source_label: str, field: str, value: Any, *, mo
 
 def _profile_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-") or "profile"
-
-
-def _mutable_profiles(config: dict[str, Any]) -> dict[str, Any]:
-    profiles = config.get("profiles")
-    if profiles is None:
-        profiles = {}
-        config["profiles"] = profiles
-        return profiles
-    if not isinstance(profiles, dict):
-        raise ValueError("Config field 'profiles' must be a JSON object.")
-    return profiles
-
-
-def _write_config(path: str, config: dict[str, Any]) -> None:
-    atomic_write_json(path, config)
 
 
 def _parse_json_value(field: str, raw_value: str) -> Any:

@@ -14,8 +14,8 @@ def test_project_scripts_include_short_alias():
 
     scripts = data["project"]["scripts"]
 
-    assert scripts["delete-me-discord"] == "delete_me_discord:main"
-    assert scripts["dmd"] == "delete_me_discord:main"
+    assert scripts["delete-me-discord"] == "delete_me_discord.cli.commands:main"
+    assert scripts["dmd"] == "delete_me_discord.cli.commands:main"
 
 
 def test_source_version_matches_project_metadata():

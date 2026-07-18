@@ -23,7 +23,7 @@ from delete_me_discord.discord.models import DeleteOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.scope import ScopeFilter, ScopeInventory
 from delete_me_discord.discord.type_enums import ReactionType
-from delete_me_discord.utils import DETAIL_LEVEL, PROGRESS_LEVEL
+from delete_me_discord.logging import DETAIL_LEVEL, PROGRESS_LEVEL
 
 
 class DummyType:

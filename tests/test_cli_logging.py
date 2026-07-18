@@ -1,4 +1,4 @@
-# delete-me-discord JSON logging tests
+# delete-me-discord CLI logging tests
 import json
 import logging
 import sys
@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.utils import JsonLogFormatter
+from delete_me_discord.cli.logging import JsonLogFormatter
 from delete_me_discord.privacy import RedactionConfig, sensitive, set_redaction_config
 
 

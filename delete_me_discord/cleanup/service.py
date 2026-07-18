@@ -1,15 +1,15 @@
 """Cleanup run service and channel orchestration."""
 
-import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Generator, Iterable, List, Optional, Set, Tuple, Union
+from typing import Callable, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 from ..discord.channel_types import is_archived_thread
 from ..discord.client import DiscordClient
 from ..discord.models import DiscordChannel, DiscordMessage
 from ..discord.rate_limits import DELETE_POLICY, FETCH_POLICY
+from ..logging import get_logger
 from ..scope import (
     CleanupChannelContext,
     ScopeFilter,
@@ -91,7 +91,7 @@ class MessageCleaner:
         if preserve_n_mode not in {"mine", "all"}:
             raise ValueError("preserve_n_mode must be 'mine' or 'all'.")
         self.preserve_n_mode = preserve_n_mode
-        self.logger: Any = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
         self.reporter = CleanupReporter(self.logger)
         self.preserve_cache = preserve_cache
         self.scope_inventory = scope_inventory

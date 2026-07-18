@@ -1,4 +1,4 @@
-# delete-me-discord main orchestration tests
+# delete-me-discord CLI command dispatch tests
 import json
 import sys
 from pathlib import Path
@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import delete_me_discord
+from delete_me_discord.cli import commands as delete_me_discord
 from delete_me_discord.privacy import RedactionConfig
 from delete_me_discord.privacy import set_redaction_config
 from delete_me_discord.scope import ScopeFilter

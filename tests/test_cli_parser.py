@@ -1,4 +1,4 @@
-# delete-me-discord options parsing tests
+# delete-me-discord CLI parser tests
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -10,7 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import pytest
 
-from delete_me_discord.options import parse_args
+from delete_me_discord.cli.parser import parse_args
 
 
 def test_parse_args_clean_defaults():
