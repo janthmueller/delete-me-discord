@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any, Protocol, cast
 
 
@@ -74,6 +75,11 @@ def get_logger(name: str | None = None) -> ApplicationLogger:
     return cast(ApplicationLogger, logging.getLogger(name))
 
 
+def format_timestamp(value: datetime) -> str:
+    """Return a compact, consistent UTC timestamp for log output."""
+    return value.astimezone(timezone.utc).strftime("[%y/%m/%d %H:%M:%S]")
+
+
 install_logging_extensions()
 
 
@@ -84,5 +90,6 @@ __all__ = [
     "EVENT_LEVEL",
     "PROGRESS_LEVEL",
     "get_logger",
+    "format_timestamp",
     "install_logging_extensions",
 ]

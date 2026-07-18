@@ -5,7 +5,6 @@ import re
 from datetime import timedelta
 from typing import Any, Literal, Optional
 
-from ..auth import DEFAULT_CONFIG_PATH
 from ..cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from ..discord.channel_types import (
     FILTERABLE_CHANNEL_TYPE_NAMES,
@@ -13,8 +12,16 @@ from ..discord.channel_types import (
 )
 from ..privacy import RedactionConfig
 from ..scope import THREAD_STATES
-from ..utils import parse_random_range, parse_time_delta
 from .models import EffectiveCleanSettings
+from .parsing import parse_random_range, parse_time_delta
+
+
+DEFAULT_CONFIG_PATH = os.path.join(
+    os.path.expanduser("~"),
+    ".config",
+    "delete-me-discord",
+    "config.json",
+)
 
 
 CLEAN_ARG_DEFAULTS: dict[str, Any] = {

@@ -41,6 +41,7 @@ delete_me_discord/
 │
 ├── config/
 │   ├── models.py           # Typed effective settings
+│   ├── parsing.py          # Shared range and duration parsing
 │   ├── schema.py           # Defaults and validation
 │   └── profiles.py         # Profile loading, migration, persistence
 │
@@ -51,6 +52,7 @@ delete_me_discord/
 │   ├── errors.py           # HTTP and Discord failure types
 │   ├── models.py           # Discord payload types and operation outcomes
 │   ├── channel_types.py    # Channel enums, groups, and predicates
+│   ├── formatting.py       # Redaction-aware Discord object labels
 │   └── type_enums.py       # Message and reaction enums
 │
 ├── cleanup/
@@ -116,6 +118,20 @@ and `python -m delete_me_discord` enter through the CLI package. Effective
 settings, profile schema/defaults, and profile persistence now live under
 `config/`; schema validation requires every cleanup default to be classified as
 profile-supported or runtime-only.
+
+Authentication command behavior and token-source policy now live in
+`auth/service.py`; OS keyring and legacy plaintext migration are isolated in
+`auth/keyring.py`. The former utility module has been removed: duration/range
+parsing belongs to `config/parsing.py`, redaction argument parsing belongs to
+the CLI parser, timestamps belong to application logging, and channel labels
+belong to `discord/formatting.py`. `privacy.py` and `storage.py` remain at root
+because they are small cross-cutting primitives used by several independent
+packages.
+
+All package modules import successfully as independent first imports, the
+in-package static dependency graph has no cycles, and package `__all__`
+definitions resolve without stale exports. The removed `app_config`, `options`,
+and `utils` modules are absent rather than retained as compatibility shims.
 
 ## Refactor Phases
 
@@ -193,12 +209,12 @@ Completion criteria:
 
 ### Phase 5: Finish Supporting Boundaries
 
-- [ ] Split authentication commands from keyring persistence.
-- [ ] Move every remaining `utils.py` helper to its owning module.
-- [ ] Remove `utils.py`.
-- [ ] Review whether `privacy.py` and `storage.py` remain clearer at root or
+- [x] Split authentication commands from keyring persistence.
+- [x] Move every remaining `utils.py` helper to its owning module.
+- [x] Remove `utils.py`.
+- [x] Review whether `privacy.py` and `storage.py` remain clearer at root or
   belong under a small infrastructure package.
-- [ ] Run a final import-cycle and package-surface audit.
+- [x] Run a final import-cycle and package-surface audit.
 
 ## Deferred Features
 

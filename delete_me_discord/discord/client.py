@@ -21,8 +21,7 @@ from .rate_limits import (
 from .type_enums import MessageType, ReactionType
 from .errors import ResourceUnavailable, UnexpectedStatus
 from .transport import DiscordTransport
-from ..logging import get_logger
-from ..utils import format_timestamp
+from ..logging import format_timestamp, get_logger
 from ..privacy import sensitive
 
 

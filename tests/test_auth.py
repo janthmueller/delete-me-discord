@@ -17,6 +17,7 @@ from delete_me_discord.auth import (
     resolve_token,
     run_auth_command,
 )
+from delete_me_discord.discord.errors import AuthenticationError
 
 
 class FakeKeyringError(Exception):
@@ -44,7 +45,7 @@ class FakeKeyring:
 
 def _fake_keyring(monkeypatch):
     keyring = FakeKeyring()
-    monkeypatch.setattr("delete_me_discord.auth._get_keyring", lambda: (keyring, FakeKeyringError))
+    monkeypatch.setattr("delete_me_discord.auth.keyring._get_keyring", lambda: (keyring, FakeKeyringError))
     return keyring
 
 
@@ -115,7 +116,7 @@ def test_keyring_token_store_scopes_token_by_config_path(tmp_path, monkeypatch):
 
 def test_keyring_token_store_returns_none_when_keyring_unavailable(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "delete_me_discord.auth._get_keyring",
+        "delete_me_discord.auth.keyring._get_keyring",
         lambda: (_ for _ in ()).throw(RuntimeError("System keyring support is not installed.")),
     )
 
@@ -203,7 +204,7 @@ def test_run_auth_login_migrates_nested_legacy_config_to_keyring(tmp_path, monke
         encoding="utf-8",
     )
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -212,7 +213,7 @@ def test_run_auth_login_migrates_nested_legacy_config_to_keyring(tmp_path, monke
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     store = KeyringTokenStore(str(config_path))
@@ -230,7 +231,7 @@ def test_run_auth_login_migrates_top_level_legacy_config_to_keyring(tmp_path, mo
         encoding="utf-8",
     )
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -239,7 +240,7 @@ def test_run_auth_login_migrates_top_level_legacy_config_to_keyring(tmp_path, mo
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     store = KeyringTokenStore(str(config_path))
@@ -259,7 +260,7 @@ def test_run_auth_login_uses_existing_keyring_token_and_cleans_legacy_config(tmp
     store = KeyringTokenStore(str(config_path))
     keyring.set_password(KEYRING_SERVICE, store.username, "keyring-token")
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -268,7 +269,7 @@ def test_run_auth_login_uses_existing_keyring_token_and_cleans_legacy_config(tmp
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     assert keyring.get_password(KEYRING_SERVICE, store.username) == "keyring-token"
@@ -288,7 +289,7 @@ def test_run_auth_login_does_not_rewrite_existing_keyring_token(tmp_path, monkey
     keyring.set_password(KEYRING_SERVICE, store.username, "keyring-token")
     keyring.fail_set = True
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -297,7 +298,7 @@ def test_run_auth_login_does_not_rewrite_existing_keyring_token(tmp_path, monkey
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     assert keyring.get_password(KEYRING_SERVICE, store.username) == "keyring-token"
@@ -308,7 +309,7 @@ def test_run_auth_login_prompts_when_no_stored_token_exists(tmp_path, monkeypatc
     keyring = _fake_keyring(monkeypatch)
     config_path = tmp_path / "config.json"
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "prompt-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "prompt-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -317,7 +318,7 @@ def test_run_auth_login_prompts_when_no_stored_token_exists(tmp_path, monkeypatc
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     store = KeyringTokenStore(str(config_path))
@@ -334,7 +335,7 @@ def test_run_auth_login_passes_retry_options_to_api(tmp_path, monkeypatch):
         max_retries=7,
         retry_time_buffer=["2", "3"],
     )
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "prompt-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "prompt-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -345,7 +346,7 @@ def test_run_auth_login_passes_retry_options_to_api(tmp_path, monkeypatch):
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
 
@@ -356,7 +357,7 @@ def test_run_auth_login_replace_prompts_even_when_keyring_token_exists(tmp_path,
     store = KeyringTokenStore(str(config_path))
     keyring.set_password(KEYRING_SERVICE, store.username, "old-token")
     args = SimpleNamespace(command="login", replace=True, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "new-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "new-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -365,7 +366,7 @@ def test_run_auth_login_replace_prompts_even_when_keyring_token_exists(tmp_path,
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     assert keyring.get_password(KEYRING_SERVICE, store.username) == "new-token"
@@ -379,7 +380,7 @@ def test_run_auth_login_replace_removes_legacy_config_after_keyring_save(tmp_pat
         encoding="utf-8",
     )
     args = SimpleNamespace(command="login", replace=True, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "new-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "new-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -388,7 +389,7 @@ def test_run_auth_login_replace_removes_legacy_config_after_keyring_save(tmp_pat
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     run_auth_command(args)
     store = KeyringTokenStore(str(config_path))
@@ -407,7 +408,7 @@ def test_run_auth_login_preserves_legacy_config_when_keyring_save_fails(tmp_path
         encoding="utf-8",
     )
     args = SimpleNamespace(command="login", replace=False, config_path=str(config_path))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: (_ for _ in ()).throw(AssertionError("should not prompt")))
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -416,7 +417,7 @@ def test_run_auth_login_preserves_legacy_config_when_keyring_save_fails(tmp_path
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)
@@ -430,10 +431,10 @@ def test_run_auth_login_preserves_legacy_config_when_keyring_save_fails(tmp_path
 def test_run_auth_login_exits_when_keyring_unavailable(tmp_path, monkeypatch):
     args = SimpleNamespace(command="login", replace=False, config_path=str(tmp_path / "config.json"))
     monkeypatch.setattr(
-        "delete_me_discord.auth._get_keyring",
+        "delete_me_discord.auth.keyring._get_keyring",
         lambda: (_ for _ in ()).throw(RuntimeError("System keyring support is not installed.")),
     )
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "prompt-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "prompt-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
@@ -442,7 +443,7 @@ def test_run_auth_login_exits_when_keyring_unavailable(tmp_path, monkeypatch):
         def get_current_user(self):
             return {"id": "123456789012345678", "username": "example-user"}
 
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)
@@ -486,7 +487,7 @@ def test_run_auth_logout_preserves_non_auth_config(tmp_path, monkeypatch):
 def test_run_auth_login_exits_when_prompt_returns_empty(tmp_path, monkeypatch):
     _fake_keyring(monkeypatch)
     args = SimpleNamespace(command="login", replace=False, config_path=str(tmp_path / "config.json"))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "   ")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "   ")
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)
@@ -496,18 +497,16 @@ def test_run_auth_login_exits_when_prompt_returns_empty(tmp_path, monkeypatch):
 def test_run_auth_login_exits_on_authentication_failure(tmp_path, monkeypatch):
     _fake_keyring(monkeypatch)
     args = SimpleNamespace(command="login", replace=False, config_path=str(tmp_path / "config.json"))
-    monkeypatch.setattr("delete_me_discord.auth.getpass.getpass", lambda *_: "bad-token")
+    monkeypatch.setattr("delete_me_discord.auth.service.getpass.getpass", lambda *_: "bad-token")
 
     class FakeAPI:
         def __init__(self, token, **kwargs):
             assert token == "bad-token"
 
         def get_current_user(self):
-            raise delete_me_discord.auth.AuthenticationError("bad token")
+            raise AuthenticationError("bad token")
 
-    import delete_me_discord.auth
-
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)
@@ -531,11 +530,9 @@ def test_run_auth_whoami_exits_on_authentication_failure(tmp_path, monkeypatch):
             assert token == "bad-token"
 
         def get_current_user(self):
-            raise delete_me_discord.auth.AuthenticationError("bad token")
+            raise AuthenticationError("bad token")
 
-    import delete_me_discord.auth
-
-    monkeypatch.setattr("delete_me_discord.auth.DiscordClient", FakeAPI)
+    monkeypatch.setattr("delete_me_discord.auth.service.DiscordClient", FakeAPI)
 
     with pytest.raises(SystemExit) as exc:
         run_auth_command(args)

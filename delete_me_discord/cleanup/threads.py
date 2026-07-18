@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Mapping, Sequence, cast
 
+from ..discord.formatting import channel_str
 from ..discord.models import DiscordChannel, UpdateOutcome
 from ..discord.errors import ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
 from ..privacy import sensitive
 from ..storage import atomic_write_json
-from ..utils import channel_str
 
 
 ARCHIVED_THREAD_CLEANUP_MODES = ("skip", "temporary", "allow-active")

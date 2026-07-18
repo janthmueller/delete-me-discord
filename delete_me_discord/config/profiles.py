@@ -4,9 +4,9 @@ import json
 import os
 from typing import Any
 
-from ..auth import DEFAULT_CONFIG_PATH
 from ..storage import atomic_write_json
 from .schema import (
+    DEFAULT_CONFIG_PATH,
     _PROFILE_FIELD_NAMES,
     _migrate_legacy_thread_fields,
     _normalize_profile_data,

@@ -1,6 +1,7 @@
 """Configuration defaults, validation, models, and profile persistence."""
 
 from .models import EffectiveCleanSettings
+from .parsing import parse_random_range, parse_time_delta
 from .profiles import (
     add_profile,
     load_config,
@@ -15,6 +16,7 @@ from .profiles import (
 )
 from .schema import (
     CLEAN_ARG_DEFAULTS,
+    DEFAULT_CONFIG_PATH,
     build_clean_defaults,
     get_profile_field_specs,
     resolve_effective_clean_settings,
@@ -22,6 +24,7 @@ from .schema import (
 
 __all__ = [
     "CLEAN_ARG_DEFAULTS",
+    "DEFAULT_CONFIG_PATH",
     "EffectiveCleanSettings",
     "add_profile",
     "build_clean_defaults",
@@ -30,7 +33,9 @@ __all__ = [
     "load_profile",
     "load_profile_names",
     "load_raw_profile",
+    "parse_random_range",
     "parse_profile_set_assignments",
+    "parse_time_delta",
     "profile_requests_json_output",
     "remove_profile",
     "resolve_effective_clean_settings",

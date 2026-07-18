@@ -5,17 +5,18 @@ from typing import cast
 
 from ..config import (
     CLEAN_ARG_DEFAULTS,
+    DEFAULT_CONFIG_PATH,
     build_clean_defaults,
     load_profile,
+    parse_random_range,
+    parse_time_delta,
     profile_requests_json_output,
 )
-from ..auth import DEFAULT_CONFIG_PATH
 from ..cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from ..discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
 from ..discord.rate_limits import REQUEST_POLICY_DEFAULTS
 from ..privacy import RedactionConfig
 from ..scope import THREAD_STATES, parse_scope_selectors
-from ..utils import parse_random_range, parse_redaction_spec, parse_time_delta
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -42,6 +43,38 @@ class CountFromZeroAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         current = getattr(namespace, self.dest, None)
         setattr(namespace, self.dest, 1 if current is None else current + 1)
+
+
+def _parse_redaction_spec(values: list[str]) -> RedactionConfig:
+    if values == []:
+        return RedactionConfig(enabled=True)
+
+    parts = [part.strip() for part in values if part.strip()]
+    if len(parts) not in {1, 2}:
+        raise argparse.ArgumentTypeError(
+            "Invalid redact-sensitive format. Use '--redact-sensitive' for "
+            "full masking, one suffix integer like '4', or two integers like "
+            "'0 4'."
+        )
+
+    try:
+        if len(parts) == 1:
+            prefix = 0
+            suffix = int(parts[0])
+        else:
+            prefix = int(parts[0])
+            suffix = int(parts[1])
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Invalid redact-sensitive format. Prefix and suffix must be integers."
+        ) from exc
+
+    if prefix < 0 or suffix < 0:
+        raise argparse.ArgumentTypeError(
+            "Redaction prefix and suffix must be non-negative integers."
+        )
+
+    return RedactionConfig(enabled=True, prefix=prefix, suffix=suffix)
 
 
 def _optional_time_delta(value: str):
@@ -651,7 +684,7 @@ def parse_args(version: str, argv=None):
         args.verbose = _clean_default("verbose", clean_defaults)
     if isinstance(args.redact_sensitive, list):
         try:
-            args.redact_sensitive = parse_redaction_spec(args.redact_sensitive)
+            args.redact_sensitive = _parse_redaction_spec(args.redact_sensitive)
         except argparse.ArgumentTypeError as exc:
             parser.error(str(exc))
     if args.redact_sensitive is not None:

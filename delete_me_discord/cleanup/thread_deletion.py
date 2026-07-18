@@ -7,8 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from ..discord.channel_types import is_thread_channel
+from ..discord.formatting import channel_str
 from ..discord.models import DeleteOutcome, DiscordChannel, DiscordMessage
-from ..utils import channel_str
 from .models import (
     ForeignReactionImpact,
     OwnedThreadDeletionOutcome,

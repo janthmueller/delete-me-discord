@@ -1,8 +1,8 @@
 from collections.abc import Mapping
 from typing import Any, Optional
 
+from ..discord.formatting import channel_str
 from ..discord.models import DiscordChannel
-from ..utils import channel_str
 from .models import (
     ChannelPlan,
     CleanupRunOptions,

@@ -16,6 +16,7 @@ from ..config import (
     load_profile,
     load_profile_names,
     load_raw_profile,
+    parse_random_range,
     parse_profile_set_assignments,
     remove_profile,
     resolve_effective_clean_settings,
@@ -29,7 +30,6 @@ from ..discovery import run_discovery_commands
 from ..logging import get_logger
 from ..privacy import sensitive, sensitive_name
 from ..scope import ScopeFilter, ScopeInventory, THREAD_STATES, preflight_scope_ids
-from ..utils import parse_random_range
 from .logging import setup_logging
 from .parser import parse_args
 

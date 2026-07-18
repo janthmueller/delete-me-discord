@@ -7,9 +7,10 @@ from typing import Callable, Generator, Iterable, List, Optional, Set, Tuple, Un
 
 from ..discord.channel_types import is_archived_thread
 from ..discord.client import DiscordClient
+from ..discord.formatting import channel_str
 from ..discord.models import DiscordChannel, DiscordMessage
 from ..discord.rate_limits import DELETE_POLICY, FETCH_POLICY
-from ..logging import get_logger
+from ..logging import format_timestamp, get_logger
 from ..scope import (
     CleanupChannelContext,
     ScopeFilter,
@@ -28,7 +29,6 @@ from .threads import (
     ThreadRestorationJournal,
     ThreadRestoreOutcome,
 )
-from ..utils import channel_str, format_timestamp
 from .executor import ChannelExecutor
 from .models import (
     ActionKind,
