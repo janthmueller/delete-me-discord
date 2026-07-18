@@ -3,6 +3,7 @@
 import json
 import logging
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -25,7 +26,7 @@ class JsonLogFormatter(logging.Formatter):
     """Format logs as JSON lines for sidecar integrations."""
 
     def format(self, record: logging.LogRecord) -> str:
-        payload = {
+        payload: dict[str, object] = {
             "timestamp": datetime.fromtimestamp(
                 record.created,
                 tz=timezone.utc,
@@ -34,6 +35,12 @@ class JsonLogFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        event_name = getattr(record, "dmd_event", None)
+        event_data = getattr(record, "dmd_event_data", None)
+        if isinstance(event_name, str) and event_name:
+            payload["event"] = event_name
+            if isinstance(event_data, Mapping):
+                payload["data"] = dict(event_data)
         return json.dumps(payload, ensure_ascii=True)
 
 

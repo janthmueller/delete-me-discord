@@ -186,6 +186,75 @@ def test_scoped_dmd_uses_exact_scope_without_command_line_token(
     assert captured["command"][-1] == "--dry-run"
 
 
+def test_scoped_dmd_events_keep_only_privacy_safe_structured_fields(
+    monkeypatch,
+):
+    captured = {}
+
+    def run(command, **kwargs):
+        captured["command"] = command
+        captured["environment"] = kwargs["env"]
+        return SimpleNamespace(
+            returncode=0,
+            stdout="\n".join((
+                json.dumps({
+                    "level": "INFO",
+                    "message": "Dry run enabled.",
+                }),
+                json.dumps({
+                    "level": "EVENT",
+                    "message": "Would delete message ***.",
+                    "event": "cleanup.action",
+                    "data": {
+                        "mode": "dry-run",
+                        "artifact": "message",
+                        "action": "delete",
+                        "count": 1,
+                    },
+                }),
+            )),
+            stderr="",
+        )
+
+    monkeypatch.setattr(live_suite.subprocess, "run", run)
+
+    events = live_suite._run_scoped_dmd_events(
+        "private-token",
+        "scope-id",
+        extra_args=("--keep-last", "2"),
+    )
+
+    assert events == (
+        live_suite.StructuredCleanupEvent(
+            "cleanup.action",
+            {
+                "mode": "dry-run",
+                "artifact": "message",
+                "action": "delete",
+                "count": 1,
+            },
+        ),
+    )
+    assert "private-token" not in captured["command"]
+    assert captured["environment"]["DISCORD_TOKEN"] == "private-token"
+    assert "--json" in captured["command"]
+    assert "-vv" in captured["command"]
+    assert "--dry-run" in captured["command"]
+    assert captured["command"][-2:] == ["--keep-last", "2"]
+
+
+def test_structured_dmd_parser_rejects_private_event_fields():
+    output = json.dumps({
+        "event": "cleanup.action",
+        "data": {
+            "message_id": "private-value",
+        },
+    })
+
+    with pytest.raises(LiveSuiteSafetyError, match="private event field"):
+        live_suite._parse_structured_cleanup_events(output)
+
+
 def test_require_fixture_roles_orders_generic_roles_and_hides_invalid_keys():
     tokens = {
         "peer_b": "fourth.token",
@@ -339,8 +408,151 @@ def test_observe_destructive_contract_scope_reads_full_redacted_state():
     assert observation.deletable_message_ids == {"150", "200", "300"}
     assert observation.subject_reactions_on_foreign_messages == 1
     assert observation.foreign_reactions_on_foreign_messages == 2
+    assert observation.message_ids_newest_first == ("300", "200", "150")
+    assert observation.subject_reactions_by_message == {"200": 1}
+    assert observation.foreign_reaction_impact_by_message == {
+        "300": (0, 0, True),
+        "200": (0, 0, False),
+        "150": (0, 0, True),
+    }
     assert "private-token" not in repr(observation)
     assert len(session.requests) == 2
+
+
+def test_planner_contract_evaluates_actions_keeps_and_foreign_impact():
+    observation = live_suite.DestructiveContractObservation(
+        container_exists=True,
+        archived=False,
+        message_authors={
+            "m8": "peer",
+            "m7": "subject",
+            "m6": "subject",
+            "m5": "peer",
+            "m4": "subject",
+            "m3": "peer",
+            "m2": "subject",
+            "m1": "peer",
+        },
+        deletable_message_ids=frozenset({"m7", "m6", "m4", "m2"}),
+        subject_reactions_on_foreign_messages=4,
+        foreign_reactions_on_foreign_messages=0,
+        message_ids_newest_first=(
+            "m8",
+            "m7",
+            "m6",
+            "m5",
+            "m4",
+            "m3",
+            "m2",
+            "m1",
+        ),
+        subject_reactions_by_message={
+            "m8": 1,
+            "m5": 2,
+            "m3": 1,
+        },
+        foreign_reaction_impact_by_message={
+            "m8": (0, 0, True),
+            "m7": (0, 0, True),
+            "m6": (0, 0, True),
+            "m5": (0, 0, True),
+            "m4": (2, 0, True),
+            "m3": (0, 0, True),
+            "m2": (0, 1, True),
+            "m1": (0, 0, True),
+        },
+    )
+
+    expectation = live_suite.evaluate_planner_contract(
+        observation,
+        subject_id="subject",
+        keep_last=2,
+    )
+
+    assert expectation == live_suite.PlannerContractExpectation(
+        messages_delete=2,
+        messages_keep=2,
+        reactions_delete=1,
+        reactions_keep=3,
+        foreign_reactions_normal=2,
+        foreign_reactions_burst=1,
+        foreign_reactions_complete=True,
+    )
+
+
+def test_planner_contract_requires_matching_summary_and_detail_events():
+    expected = live_suite.PlannerContractExpectation(
+        messages_delete=2,
+        messages_keep=2,
+        reactions_delete=1,
+        reactions_keep=3,
+        foreign_reactions_normal=2,
+        foreign_reactions_burst=1,
+        foreign_reactions_complete=True,
+    )
+    events = (
+        live_suite.StructuredCleanupEvent(
+            "cleanup.action",
+            {
+                "mode": "dry-run",
+                "artifact": "message",
+                "count": 2,
+            },
+        ),
+        live_suite.StructuredCleanupEvent(
+            "cleanup.action",
+            {
+                "mode": "dry-run",
+                "artifact": "reaction",
+                "count": 1,
+            },
+        ),
+        live_suite.StructuredCleanupEvent(
+            "cleanup.decision",
+            {
+                "mode": "dry-run",
+                "artifact": "message",
+                "count": 2,
+            },
+        ),
+        live_suite.StructuredCleanupEvent(
+            "cleanup.decision",
+            {
+                "mode": "dry-run",
+                "artifact": "reaction",
+                "count": 3,
+            },
+        ),
+        live_suite.StructuredCleanupEvent(
+            "cleanup.summary",
+            {
+                "scope": "run",
+                "mode": "dry-run",
+                "messages_delete": 2,
+                "messages_keep": 2,
+                "reactions_delete": 1,
+                "reactions_keep": 3,
+                "foreign_reactions_normal": 2,
+                "foreign_reactions_burst": 1,
+                "foreign_reactions_complete": True,
+            },
+        ),
+    )
+
+    live_suite._require_planner_contract_events(events, expected)
+
+    mismatched = (
+        *events[:-1],
+        live_suite.StructuredCleanupEvent(
+            "cleanup.summary",
+            {
+                **events[-1].data,
+                "messages_delete": 1,
+            },
+        ),
+    )
+    with pytest.raises(LiveSuiteSafetyError, match="summary"):
+        live_suite._require_planner_contract_events(mismatched, expected)
 
 
 def test_validate_account_tokens_paces_every_account_request():

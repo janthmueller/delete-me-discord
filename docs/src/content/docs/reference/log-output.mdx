@@ -121,6 +121,13 @@ In `--json` mode:
 - terminal-oriented formatting is disabled
 - each log entry is emitted as a JSON object
 - entries still include timestamp, level, logger, and message
+- cleanup action, decision, and summary entries additionally include a stable
+  `event` name and scalar `data` fields
+
+Structured cleanup fields describe modes, artifact/action kinds, and counts.
+They do not contain Discord IDs, names, message content, emoji names, local
+paths, or credentials. The human-readable `message` field still follows the
+normal sensitive-value redaction settings.
 
 ## Sensitive value redaction
 

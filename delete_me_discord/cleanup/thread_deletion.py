@@ -9,6 +9,7 @@ from typing import Any
 from ..discord.channel_types import is_thread_channel
 from ..discord.formatting import channel_str
 from ..discord.models import DeleteOutcome, DiscordChannel, DiscordMessage
+from ..logging import structured_event
 from .models import (
     ForeignReactionImpact,
     OwnedThreadDeletionOutcome,
@@ -150,6 +151,14 @@ class OwnedThreadDeletionCoordinator:
             if mode == "all"
             else "after finding no messages from other authors in the completed scan"
         )
+        event = structured_event(
+            "cleanup.action",
+            mode="dry-run" if dry_run else "execute",
+            artifact="thread",
+            action="delete",
+            count=1,
+            delete_mode=mode,
+        )
         if dry_run:
             self.logger.event(
                 "Would delete owned thread %s, %s.",
@@ -157,6 +166,7 @@ class OwnedThreadDeletionCoordinator:
                 impact_description,
                 indent=1,
                 prefix="-",
+                extra=event,
             )
             return OwnedThreadDeletionOutcome(
                 terminal=True,
@@ -170,6 +180,7 @@ class OwnedThreadDeletionCoordinator:
             impact_description,
             indent=1,
             prefix="-",
+            extra=event,
         )
         delete_outcome = self.api.delete_thread(channel["id"])
         if delete_outcome == DeleteOutcome.DELETED:

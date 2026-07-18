@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import logging
 import os
 import re
@@ -78,6 +79,9 @@ FIXTURE_ROLES = ("owner", "subject", "peer_a", "peer_b")
 FORUM_STARTER_THREAD_KEY = "thread:smoke:forum-starter"
 FORUM_STARTER_MESSAGE_KEY = "message:smoke:forum-starter"
 FORUM_STARTER_CONTAINER_CAPABILITY = "forum-starter-delete:container"
+PLANNER_CONTRACT_FIXTURE_KEY = "thread:matrix:subject-public"
+PLANNER_CONTRACT_CAPABILITY = "planner-contract:structured-dry-run"
+PLANNER_CONTRACT_KEEP_LAST = 4
 GUILD_FIXTURES = (
     ("guild:matrix", "matrix"),
     ("guild:permission", "permission"),
@@ -133,6 +137,14 @@ class DestructiveContractObservation:
     foreign_reactions_on_foreign_messages: int
     locked: bool | None = None
     auto_archive_duration: int | None = None
+    message_ids_newest_first: tuple[str, ...] = ()
+    subject_reactions_by_message: Mapping[str, int] = field(
+        default_factory=dict
+    )
+    foreign_reaction_impact_by_message: Mapping[
+        str,
+        tuple[int, int, bool],
+    ] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return (
@@ -146,8 +158,29 @@ class DestructiveContractObservation:
             "foreign_reactions_on_foreign_messages="
             f"{self.foreign_reactions_on_foreign_messages}, "
             f"locked={self.locked!r}, "
-            f"auto_archive_duration={self.auto_archive_duration!r})"
+            f"auto_archive_duration={self.auto_archive_duration!r}, "
+            f"ordered_messages={len(self.message_ids_newest_first)})"
         )
+
+
+@dataclass(frozen=True, repr=False)
+class StructuredCleanupEvent:
+    name: str
+    data: Mapping[str, str | int | float | bool | None]
+
+    def __repr__(self) -> str:
+        return f"StructuredCleanupEvent(name={self.name!r})"
+
+
+@dataclass(frozen=True)
+class PlannerContractExpectation:
+    messages_delete: int
+    messages_keep: int
+    reactions_delete: int
+    reactions_keep: int
+    foreign_reactions_normal: int
+    foreign_reactions_burst: int
+    foreign_reactions_complete: bool
 
 
 @dataclass(frozen=True)
@@ -2066,6 +2099,360 @@ def _run_scoped_dmd(
     return " ".join((completed.stdout + "\n" + completed.stderr).split())
 
 
+_PRIVATE_STRUCTURED_FIELD_PARTS = frozenset({
+    "content",
+    "emoji",
+    "id",
+    "name",
+    "path",
+    "token",
+})
+
+
+def _parse_structured_cleanup_events(
+    output: str,
+) -> tuple[StructuredCleanupEvent, ...]:
+    events: list[StructuredCleanupEvent] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except (TypeError, ValueError):
+            raise LiveSuiteSafetyError(
+                "DMD structured output contained a non-JSON line."
+            ) from None
+        if not isinstance(payload, Mapping):
+            raise LiveSuiteSafetyError(
+                "DMD structured output contained a non-object entry."
+            )
+        event_name = payload.get("event")
+        if event_name is None:
+            continue
+        data = payload.get("data")
+        if not isinstance(event_name, str) or not event_name:
+            raise LiveSuiteSafetyError(
+                "DMD structured output contained an invalid event name."
+            )
+        if not isinstance(data, Mapping):
+            raise LiveSuiteSafetyError(
+                "DMD structured output contained invalid event data."
+            )
+        normalized: dict[str, str | int | float | bool | None] = {}
+        for key, value in data.items():
+            if not isinstance(key, str) or not key:
+                raise LiveSuiteSafetyError(
+                    "DMD structured output contained an invalid event field."
+                )
+            key_parts = frozenset(key.lower().split("_"))
+            if key_parts & _PRIVATE_STRUCTURED_FIELD_PARTS:
+                raise LiveSuiteSafetyError(
+                    "DMD structured output exposed a private event field."
+                )
+            if value is not None and not isinstance(
+                value,
+                (str, int, float, bool),
+            ):
+                raise LiveSuiteSafetyError(
+                    "DMD structured output contained a non-scalar event value."
+                )
+            normalized[key] = value
+        events.append(StructuredCleanupEvent(event_name, normalized))
+    if not events:
+        raise LiveSuiteSafetyError(
+            "DMD structured output did not contain cleanup events."
+        )
+    return tuple(events)
+
+
+def _run_scoped_dmd_events(
+    subject_token: str,
+    scope_id: str,
+    *,
+    extra_args: Sequence[str] = (),
+) -> tuple[StructuredCleanupEvent, ...]:
+    environment = os.environ.copy()
+    environment["DISCORD_TOKEN"] = subject_token
+    command = [
+        "uv",
+        "run",
+        "dmd",
+        "clean",
+        "--include",
+        scope_id,
+        "--redact-sensitive",
+        "--redact-names",
+        "--json",
+        "-vv",
+        "--dry-run",
+        *extra_args,
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        diagnostic = _sanitize_redacted_dmd_failure(
+            completed.stdout + "\n" + completed.stderr
+        )
+        raise LiveSuiteSafetyError(
+            "Structured DMD execution failed. Redacted diagnostic: "
+            f"{diagnostic}"
+        )
+    return _parse_structured_cleanup_events(completed.stdout)
+
+
+def evaluate_planner_contract(
+    observation: DestructiveContractObservation,
+    *,
+    subject_id: str,
+    keep_last: int,
+) -> PlannerContractExpectation:
+    """Independently apply DMD's documented keep-last/mine contract."""
+    if keep_last < 0:
+        raise ValueError("keep_last must not be negative.")
+    if not observation.message_ids_newest_first:
+        raise LiveSuiteSafetyError(
+            "Planner contract observation has no ordered messages."
+        )
+
+    messages_delete = 0
+    messages_keep = 0
+    reactions_delete = 0
+    reactions_keep = 0
+    foreign_normal = 0
+    foreign_burst = 0
+    foreign_complete = True
+    preserved_subject_count = 0
+    seen_message_ids: set[str] = set()
+
+    for message_id in observation.message_ids_newest_first:
+        if message_id in seen_message_ids:
+            raise LiveSuiteSafetyError(
+                "Planner contract observation contains duplicate messages."
+            )
+        seen_message_ids.add(message_id)
+        author_id = observation.message_authors.get(message_id)
+        if not isinstance(author_id, str):
+            raise LiveSuiteSafetyError(
+                "Planner contract observation omitted a message author."
+            )
+        is_deletable = (
+            author_id == subject_id
+            and message_id in observation.deletable_message_ids
+        )
+        if is_deletable and keep_last:
+            preserved_subject_count += 1
+        in_preserve_window = (
+            keep_last > 0 and preserved_subject_count <= keep_last
+        )
+        if is_deletable:
+            if in_preserve_window:
+                messages_keep += 1
+                continue
+            messages_delete += 1
+            normal, burst, complete = (
+                observation.foreign_reaction_impact_by_message.get(
+                    message_id,
+                    (0, 0, True),
+                )
+            )
+            foreign_normal += normal
+            foreign_burst += burst
+            foreign_complete = foreign_complete and complete
+            continue
+
+        own_reactions = observation.subject_reactions_by_message.get(
+            message_id,
+            0,
+        )
+        if in_preserve_window:
+            reactions_keep += own_reactions
+        else:
+            reactions_delete += own_reactions
+
+    return PlannerContractExpectation(
+        messages_delete=messages_delete,
+        messages_keep=messages_keep,
+        reactions_delete=reactions_delete,
+        reactions_keep=reactions_keep,
+        foreign_reactions_normal=foreign_normal,
+        foreign_reactions_burst=foreign_burst,
+        foreign_reactions_complete=foreign_complete,
+    )
+
+
+def _require_planner_contract_events(
+    events: Sequence[StructuredCleanupEvent],
+    expected: PlannerContractExpectation,
+) -> None:
+    run_summaries = [
+        event
+        for event in events
+        if event.name == "cleanup.summary"
+        and event.data.get("scope") == "run"
+        and event.data.get("mode") == "dry-run"
+    ]
+    if len(run_summaries) != 1:
+        raise LiveSuiteSafetyError(
+            "Planner contract did not emit exactly one run summary."
+        )
+    summary = run_summaries[0].data
+    expected_summary = {
+        "messages_delete": expected.messages_delete,
+        "messages_keep": expected.messages_keep,
+        "reactions_delete": expected.reactions_delete,
+        "reactions_keep": expected.reactions_keep,
+        "foreign_reactions_normal": expected.foreign_reactions_normal,
+        "foreign_reactions_burst": expected.foreign_reactions_burst,
+        "foreign_reactions_complete": expected.foreign_reactions_complete,
+    }
+    if any(summary.get(key) != value for key, value in expected_summary.items()):
+        raise LiveSuiteSafetyError(
+            "Planner contract run summary did not match observed Discord state."
+        )
+
+    def event_count(
+        event_name: str,
+        artifact: str,
+        field: str,
+    ) -> int:
+        total = 0
+        for event in events:
+            if (
+                event.name != event_name
+                or event.data.get("mode") != "dry-run"
+                or event.data.get("artifact") != artifact
+            ):
+                continue
+            value = event.data.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise LiveSuiteSafetyError(
+                    "Planner contract event contained an invalid count."
+                )
+            total += value
+        return total
+
+    observed = PlannerContractExpectation(
+        messages_delete=event_count(
+            "cleanup.action",
+            "message",
+            "count",
+        ),
+        messages_keep=event_count(
+            "cleanup.decision",
+            "message",
+            "count",
+        ),
+        reactions_delete=event_count(
+            "cleanup.action",
+            "reaction",
+            "count",
+        ),
+        reactions_keep=event_count(
+            "cleanup.decision",
+            "reaction",
+            "count",
+        ),
+        foreign_reactions_normal=expected.foreign_reactions_normal,
+        foreign_reactions_burst=expected.foreign_reactions_burst,
+        foreign_reactions_complete=expected.foreign_reactions_complete,
+    )
+    if observed != expected:
+        raise LiveSuiteSafetyError(
+            "Planner contract detailed events did not match observed Discord state."
+        )
+
+
+def verify_live_planner_contract(
+    ledger: LiveLedger,
+    ledger_path: Path,
+    subject_token: str,
+    *,
+    pacer: FixturePacer | None = None,
+) -> PlannerContractExpectation:
+    """Compare one exact structured DMD plan with independent Discord state."""
+    if ledger.destructive_unlocked:
+        raise LiveSuiteSafetyError(
+            "Planner contract requires destructive execution to be locked."
+        )
+    resource = _require_active_resource(
+        ledger,
+        PLANNER_CONTRACT_FIXTURE_KEY,
+        "thread",
+    )
+    messages = _contract_scope_messages(ledger, resource)
+    scope = DestructiveContractScope(
+        "planner-contract",
+        PLANNER_CONTRACT_FIXTURE_KEY,
+        "thread",
+        ChannelType.PUBLIC_THREAD,
+    )
+    observation = observe_destructive_contract_scope(
+        subject_token,
+        scope,
+        resource,
+        messages,
+        ledger.accounts,
+        pacer=pacer,
+    )
+    if not observation.container_exists:
+        raise LiveSuiteSafetyError(
+            "Planner contract fixture container is absent."
+        )
+    expectation = evaluate_planner_contract(
+        observation,
+        subject_id=ledger.accounts["subject"],
+        keep_last=PLANNER_CONTRACT_KEEP_LAST,
+    )
+    required_nonzero = (
+        expectation.messages_delete,
+        expectation.messages_keep,
+        expectation.reactions_delete,
+        expectation.reactions_keep,
+        expectation.foreign_reactions_normal
+        + expectation.foreign_reactions_burst,
+    )
+    if any(value <= 0 for value in required_nonzero):
+        raise LiveSuiteSafetyError(
+            "Planner contract fixture no longer covers every required decision."
+        )
+    if not expectation.foreign_reactions_complete:
+        raise LiveSuiteSafetyError(
+            "Planner contract foreign-reaction impact is incomplete."
+        )
+
+    events = _run_scoped_dmd_events(
+        subject_token,
+        resource.resource_id,
+        extra_args=(
+            "--keep-last",
+            str(PLANNER_CONTRACT_KEEP_LAST),
+            "--keep-last-scope",
+            "mine",
+            "--keep-within",
+            "0",
+            "--fetch-within",
+            "none",
+            "--max-messages",
+            "none",
+            "--buffer-per-channel",
+            "--no-keep-reactions",
+            "--delete-owned-threads",
+            "none",
+            "--no-preserve-cache",
+        ),
+    )
+    _require_planner_contract_events(events, expectation)
+    ledger.capabilities[PLANNER_CONTRACT_CAPABILITY] = "verified"
+    ledger.save(ledger_path)
+    return expectation
+
+
 def execute_destructive_smoke(
     ledger: LiveLedger,
     ledger_path: Path,
@@ -3264,6 +3651,11 @@ def observe_destructive_contract_scope(
         deletable_message_ids: set[str] = set()
         subject_reactions = 0
         foreign_reactions = 0
+        subject_reactions_by_message: dict[str, int] = {}
+        foreign_reaction_impact_by_message: dict[
+            str,
+            tuple[int, int, bool],
+        ] = {}
         deletable_type_values = {
             int(message_type)
             for message_type in MessageType
@@ -3280,13 +3672,15 @@ def observe_destructive_contract_scope(
                 and message_type in deletable_type_values
             ):
                 deletable_message_ids.add(message_id)
-            if author_id == target_id:
-                continue
             reactions = payload.get("reactions", [])
             if not isinstance(reactions, list):
                 raise LiveSuiteSafetyError(
                     "Discord returned malformed destructive contract reactions."
                 )
+            own_reactions_on_message = 0
+            foreign_normal = 0
+            foreign_burst = 0
+            foreign_impact_complete = True
             for reaction in reactions:
                 if not isinstance(reaction, Mapping):
                     raise LiveSuiteSafetyError(
@@ -3297,11 +3691,48 @@ def observe_destructive_contract_scope(
                     raise LiveSuiteSafetyError(
                         "Discord returned an invalid destructive contract reaction count."
                     )
-                own_count = int(reaction.get("me") is True) + int(
-                    reaction.get("me_burst") is True
+                me = reaction.get("me")
+                me_burst = reaction.get("me_burst")
+                own_count = int(me is True) + int(me_burst is True)
+                own_reactions_on_message += own_count
+                details = reaction.get("count_details")
+                normal = (
+                    details.get("normal")
+                    if isinstance(details, Mapping)
+                    else None
                 )
-                subject_reactions += own_count
-                foreign_reactions += max(0, count - own_count)
+                burst = (
+                    details.get("burst")
+                    if isinstance(details, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(me, bool)
+                    or not isinstance(me_burst, bool)
+                    or isinstance(normal, bool)
+                    or not isinstance(normal, int)
+                    or normal < int(me)
+                    or isinstance(burst, bool)
+                    or not isinstance(burst, int)
+                    or burst < int(me_burst)
+                    or count != normal + burst
+                ):
+                    foreign_impact_complete = False
+                else:
+                    foreign_normal += normal - int(me)
+                    foreign_burst += burst - int(me_burst)
+                if author_id != target_id:
+                    subject_reactions += own_count
+                    foreign_reactions += max(0, count - own_count)
+            if own_reactions_on_message:
+                subject_reactions_by_message[message_id] = (
+                    own_reactions_on_message
+                )
+            foreign_reaction_impact_by_message[message_id] = (
+                foreign_normal,
+                foreign_burst,
+                foreign_impact_complete,
+            )
 
         return DestructiveContractObservation(
             True,
@@ -3312,6 +3743,9 @@ def observe_destructive_contract_scope(
             foreign_reactions,
             locked,
             auto_archive_duration,
+            tuple(observed_payloads),
+            subject_reactions_by_message,
+            foreign_reaction_impact_by_message,
         )
     finally:
         if owns_client:
@@ -5259,6 +5693,29 @@ def _run_dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_planner_contract(args: argparse.Namespace) -> int:
+    with SuiteLock(args.lock):
+        ledger = LiveLedger.load(args.ledger)
+        _confirm_run_id(ledger, args.confirm_run_id)
+        tokens, report = _load_validated_accounts(args)
+        _require_current_accounts(ledger, report)
+        expectation = verify_live_planner_contract(
+            ledger,
+            args.ledger,
+            tokens["subject"],
+            pacer=FixturePacer(),
+        )
+    planned_actions = (
+        expectation.messages_delete + expectation.reactions_delete
+    )
+    kept_artifacts = expectation.messages_keep + expectation.reactions_keep
+    print(
+        "Planner contract verification complete: "
+        f"{planned_actions} action(s), {kept_artifacts} keep decision(s)."
+    )
+    return 0
+
+
 def _run_destructive_smoke(args: argparse.Namespace) -> int:
     with SuiteLock(args.lock):
         ledger = LiveLedger.load(args.ledger)
@@ -5607,6 +6064,27 @@ def build_parser() -> argparse.ArgumentParser:
     dry_run_parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK_PATH)
     dry_run_parser.add_argument("--confirm-run-id", required=True)
     dry_run_parser.set_defaults(handler=_run_dry_run)
+
+    planner_contract_parser = subparsers.add_parser(
+        "planner-contract",
+        help="Compare structured keep/delete decisions with current Discord state",
+    )
+    _add_account_arguments(planner_contract_parser)
+    planner_contract_parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=DEFAULT_LEDGER_PATH,
+    )
+    planner_contract_parser.add_argument(
+        "--lock",
+        type=Path,
+        default=DEFAULT_LOCK_PATH,
+    )
+    planner_contract_parser.add_argument(
+        "--confirm-run-id",
+        required=True,
+    )
+    planner_contract_parser.set_defaults(handler=_run_planner_contract)
 
     destructive_parser = subparsers.add_parser(
         "destructive-smoke",

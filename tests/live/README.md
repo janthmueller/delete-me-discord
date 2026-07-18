@@ -203,6 +203,20 @@ to be discoverable in every thread form. Archived fixture previews use
 an exact archived thread selector; dry-run never changes thread state, but
 its plan includes the activation and restoration that a real cleanup would need.
 
+Run the read-only structured planner contract at any later phase while
+destructive execution is locked:
+
+```bash
+uv run --project tests/live python -m tests.live.live_suite planner-contract \
+  --confirm-run-id '<current-run-id>'
+```
+
+The harness independently reads the mixed-ownership public-thread fixture,
+reproduces `--keep-last 4 --keep-last-scope mine`, and compares DMD's redacted
+JSON action, keep-decision, summary, and foreign-reaction-impact events exactly.
+Only scalar counts and action categories are retained; raw log messages and
+Discord identifiers are discarded. The command does not mutate Discord.
+
 After the expanded dry-run passes, prepare one isolated forum starter-message
 deletion:
 

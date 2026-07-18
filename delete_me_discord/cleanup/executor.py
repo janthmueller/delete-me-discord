@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
 from ..discord.models import DeleteOutcome, DiscordEmoji, DiscordMessage
-from ..logging import format_timestamp
+from ..logging import format_timestamp, structured_event
 from ..privacy import sensitive
 from ..discord.rate_limits import DELETE_POLICY
 from ..discord.type_enums import ReactionType
@@ -102,10 +102,17 @@ class ChannelExecutor:
             message_id = facts.message["message_id"]
 
             if decision.preserve_message and facts.is_deletable:
-                self.logger.debug(
+                self.logger.detail(
                     "Preserving deletable message %s sent at %s UTC.",
                     sensitive(message_id),
                     format_timestamp(facts.message_time),
+                    extra=structured_event(
+                        "cleanup.decision",
+                        mode="dry-run" if dry_run else "execute",
+                        artifact="message",
+                        decision="keep",
+                        count=1,
+                    ),
                 )
                 if channel_plan is None:
                     stats.preserved_deletable_count += 1
@@ -113,9 +120,23 @@ class ChannelExecutor:
                 continue
 
             if decision.preserve_reaction_count > 0:
+                reaction_count = decision.preserve_reaction_count
+                self.logger.detail(
+                    "Preserving %s reaction%s on message %s.",
+                    reaction_count,
+                    "" if reaction_count == 1 else "s",
+                    sensitive(message_id),
+                    extra=structured_event(
+                        "cleanup.decision",
+                        mode="dry-run" if dry_run else "execute",
+                        artifact="reaction",
+                        decision="keep",
+                        count=reaction_count,
+                    ),
+                )
                 if channel_plan is None:
                     stats.preserved_reactions_count += (
-                        decision.preserve_reaction_count
+                        reaction_count
                     )
                     preserved_msg_ids.append(message_id)
                 continue
@@ -202,12 +223,20 @@ class ChannelExecutor:
     ) -> Optional[DeleteOutcome]:
         """Execute a single planned action or simulate it in dry-run mode."""
         if action.kind == ActionKind.DELETE_MESSAGE:
+            event = structured_event(
+                "cleanup.action",
+                mode="dry-run" if dry_run else "execute",
+                artifact="message",
+                action="delete",
+                count=1,
+            )
             if dry_run:
                 self.logger.event(
                     "Would delete message %s.",
                     sensitive(action.message_id),
                     indent=1,
                     prefix="-",
+                    extra=event,
                 )
                 self._log_message_detail(facts)
                 return None
@@ -217,6 +246,7 @@ class ChannelExecutor:
                 sensitive(action.message_id),
                 indent=1,
                 prefix="-",
+                extra=event,
             )
             self._log_message_detail(facts)
             outcome = self.api.delete_message(
@@ -234,6 +264,15 @@ class ChannelExecutor:
         emoji: DiscordEmoji = action.emoji or {}
         emoji_name = emoji.get("name") or "unknown"
         reaction_label = self._reaction_action_label(action)
+        event = structured_event(
+            "cleanup.action",
+            mode="dry-run" if dry_run else "execute",
+            artifact="reaction",
+            action="delete",
+            count=1,
+            normal_count=int(action.reaction_type == ReactionType.NORMAL),
+            burst_count=int(action.reaction_type == ReactionType.BURST),
+        )
         if dry_run:
             self.logger.event(
                 "Would delete %s from message %s.",
@@ -241,6 +280,7 @@ class ChannelExecutor:
                 sensitive(action.message_id),
                 indent=1,
                 prefix="-",
+                extra=event,
             )
             self._log_reaction_detail(emoji_name)
             return None
@@ -251,6 +291,7 @@ class ChannelExecutor:
             sensitive(action.message_id),
             indent=1,
             prefix="-",
+            extra=event,
         )
         self._log_reaction_detail(emoji_name)
         outcome = self.api.delete_own_reaction(
@@ -280,10 +321,23 @@ class ChannelExecutor:
         message_id = actions[0].message_id
         emoji_names = [self._reaction_detail(action) for action in actions]
         reaction_count = len(actions)
+        normal_count = sum(
+            action.reaction_type == ReactionType.NORMAL for action in actions
+        )
+        burst_count = reaction_count - normal_count
         reaction_label = (
             self._reaction_action_label(actions[0])
             if reaction_count == 1
             else f"{reaction_count} reactions"
+        )
+        event = structured_event(
+            "cleanup.action",
+            mode="dry-run" if dry_run else "execute",
+            artifact="reaction",
+            action="delete",
+            count=reaction_count,
+            normal_count=normal_count,
+            burst_count=burst_count,
         )
 
         if dry_run:
@@ -293,6 +347,7 @@ class ChannelExecutor:
                 sensitive(message_id),
                 indent=1,
                 prefix="-",
+                extra=event,
             )
             self._log_reaction_detail(emoji_names)
             return _DeleteActionCounts(
@@ -306,6 +361,7 @@ class ChannelExecutor:
             sensitive(message_id),
             indent=1,
             prefix="-",
+            extra=event,
         )
         self._log_reaction_detail(emoji_names)
 

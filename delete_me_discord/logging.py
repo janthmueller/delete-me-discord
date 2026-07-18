@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeAlias, cast
 
 
 PROGRESS_LEVEL = 15
@@ -17,6 +17,16 @@ _LEVEL_METHODS = {
     "detail": DETAIL_LEVEL,
     "diagnostic": DIAGNOSTIC_LEVEL,
 }
+
+StructuredLogValue: TypeAlias = str | int | float | bool | None
+_PRIVATE_STRUCTURED_FIELD_PARTS = frozenset({
+    "content",
+    "emoji",
+    "id",
+    "name",
+    "path",
+    "token",
+})
 
 
 class ApplicationLogger(Protocol):
@@ -75,6 +85,32 @@ def get_logger(name: str | None = None) -> ApplicationLogger:
     return cast(ApplicationLogger, logging.getLogger(name))
 
 
+def structured_event(
+    name: str,
+    /,
+    **data: StructuredLogValue,
+) -> dict[str, object]:
+    """Attach a stable, privacy-safe event to one ordinary log record."""
+    if not name:
+        raise ValueError("Structured log event names must not be empty.")
+    for key, value in data.items():
+        if not key or frozenset(key.lower().split("_")) & (
+            _PRIVATE_STRUCTURED_FIELD_PARTS
+        ):
+            raise ValueError(
+                "Structured log fields must not contain private identifiers."
+            )
+        if value is not None and not isinstance(
+            value,
+            (str, int, float, bool),
+        ):
+            raise TypeError("Structured log fields must contain scalar values.")
+    return {
+        "dmd_event": name,
+        "dmd_event_data": data,
+    }
+
+
 def format_timestamp(value: datetime) -> str:
     """Return a compact, consistent UTC timestamp for log output."""
     return value.astimezone(timezone.utc).strftime("[%y/%m/%d %H:%M:%S]")
@@ -89,7 +125,9 @@ __all__ = [
     "DIAGNOSTIC_LEVEL",
     "EVENT_LEVEL",
     "PROGRESS_LEVEL",
+    "StructuredLogValue",
     "get_logger",
     "format_timestamp",
     "install_logging_extensions",
+    "structured_event",
 ]

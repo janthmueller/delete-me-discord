@@ -84,7 +84,7 @@ def make_planner(
     )
 
 
-def test_delete_messages_preserve_n_mine():
+def test_delete_messages_preserve_n_mine(caplog):
     cleaner = make_cleaner(preserve_n=2, preserve_n_mode="mine")
     now = datetime.now(timezone.utc)
     messages = [
@@ -93,16 +93,40 @@ def test_delete_messages_preserve_n_mine():
         make_message("3", "me", now - timedelta(days=12)),
         make_message("4", "me", now - timedelta(days=13)),
     ]
-    preserved, stats, _ = cleaner.delete_messages_older_than(
-        messages=iter(messages),
-        cutoff_time=now,
-        delete_sleep_time_range=(0, 0),
-        dry_run=True,
-        delete_reactions=False,
-    )
+    with caplog.at_level(DETAIL_LEVEL):
+        preserved, stats, _ = cleaner.delete_messages_older_than(
+            messages=iter(messages),
+            cutoff_time=now,
+            delete_sleep_time_range=(0, 0),
+            dry_run=True,
+            delete_reactions=False,
+        )
     assert stats["preserved_deletable_count"] == 2
     assert stats["deleted_count"] == 2
     assert preserved == ["1", "2"]
+    events = [
+        (record.dmd_event, record.dmd_event_data)
+        for record in caplog.records
+        if hasattr(record, "dmd_event")
+    ]
+    assert events.count((
+        "cleanup.decision",
+        {
+            "mode": "dry-run",
+            "artifact": "message",
+            "decision": "keep",
+            "count": 1,
+        },
+    )) == 2
+    assert events.count((
+        "cleanup.action",
+        {
+            "mode": "dry-run",
+            "artifact": "message",
+            "action": "delete",
+            "count": 1,
+        },
+    )) == 2
 
 
 def test_delete_messages_preserve_n_all_counts_non_deletable():
@@ -144,6 +168,44 @@ def test_delete_messages_reaction_removal_counts():
         delete_reactions=True,
     )
     assert stats["reactions_removed_count"] == 2
+
+
+def test_preserved_reactions_emit_structured_keep_decision(caplog):
+    cleaner = make_cleaner(preserve_n=1, preserve_n_mode="mine")
+    now = datetime.now(timezone.utc)
+    messages = [
+        make_message(
+            "1",
+            "other",
+            now - timedelta(days=10),
+            deletable=False,
+            reactions=[{"me": True, "emoji": {"name": "x"}}],
+        ),
+        make_message("2", "me", now - timedelta(days=11)),
+    ]
+
+    with caplog.at_level(DETAIL_LEVEL):
+        _, stats, _ = cleaner.delete_messages_older_than(
+            messages=iter(messages),
+            cutoff_time=now,
+            delete_sleep_time_range=(0, 0),
+            dry_run=True,
+            delete_reactions=True,
+        )
+
+    assert stats["preserved_reactions_count"] == 1
+    event = next(
+        record
+        for record in caplog.records
+        if getattr(record, "dmd_event", None) == "cleanup.decision"
+        and record.dmd_event_data["artifact"] == "reaction"
+    )
+    assert event.dmd_event_data == {
+        "mode": "dry-run",
+        "artifact": "reaction",
+        "decision": "keep",
+        "count": 1,
+    }
 
 
 def test_message_delete_outcomes_are_counted_separately():
@@ -1181,6 +1243,24 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
     assert "scan time=00:00:04, est. execute time=00:00:01, est. total time=00:00:05" in caplog.text
     assert "Summary: messages 1 delete / 0 keep, reactions 1 delete / 0 keep" in caplog.text
     assert "scan time=00:00:06, est. execute time=00:00:01, est. total time=00:00:07" in caplog.text
+    run_summary = next(
+        record
+        for record in caplog.records
+        if getattr(record, "dmd_event", None) == "cleanup.summary"
+        and record.dmd_event_data["scope"] == "run"
+    )
+    assert run_summary.dmd_event_data == {
+        "scope": "run",
+        "mode": "dry-run",
+        "foreign_reactions_normal": 0,
+        "foreign_reactions_burst": 0,
+        "foreign_reactions_complete": True,
+        "messages_delete": 1,
+        "messages_keep": 0,
+        "reactions_delete": 1,
+        "reactions_keep": 0,
+        "owned_threads_delete": 0,
+    }
 
 
 def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monkeypatch, caplog):

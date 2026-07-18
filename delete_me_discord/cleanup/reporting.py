@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from ..discord.formatting import channel_str
 from ..discord.models import DiscordChannel
+from ..logging import StructuredLogValue, structured_event
 from .models import (
     ChannelPlan,
     CleanupRunOptions,
@@ -180,6 +181,97 @@ class CleanupReporter:
             )
         return summary
 
+    @staticmethod
+    def _summary_event(
+        stats: Mapping[str, int],
+        *,
+        scope: str,
+        delete_reactions: bool,
+        dry_run: bool,
+        buffered_messages: int | None = None,
+    ) -> dict[str, object]:
+        data: dict[str, StructuredLogValue] = {
+            "scope": scope,
+            "mode": "dry-run" if dry_run else "execute",
+            "foreign_reactions_normal": stats.get(
+                "foreign_reactions_normal_count",
+                0,
+            ),
+            "foreign_reactions_burst": stats.get(
+                "foreign_reactions_burst_count",
+                0,
+            ),
+            "foreign_reactions_complete": (
+                stats.get("foreign_reactions_unknown_count", 0) == 0
+            ),
+        }
+        if dry_run:
+            data.update({
+                "messages_delete": stats["deleted_count"],
+                "messages_keep": stats["preserved_deletable_count"],
+                "reactions_delete": (
+                    stats["reactions_removed_count"]
+                    if delete_reactions
+                    else 0
+                ),
+                "reactions_keep": (
+                    stats["preserved_reactions_count"]
+                    if delete_reactions
+                    else 0
+                ),
+            })
+        else:
+            data.update({
+                "messages_deleted": stats["deleted_count"],
+                "messages_absent": stats.get("absent_count", 0),
+                "messages_failed": stats.get("failed_count", 0),
+                "messages_kept": stats["preserved_deletable_count"],
+                "reactions_deleted": (
+                    stats["reactions_removed_count"]
+                    if delete_reactions
+                    else 0
+                ),
+                "reactions_absent": (
+                    stats.get("reactions_absent_count", 0)
+                    if delete_reactions
+                    else 0
+                ),
+                "reactions_failed": (
+                    stats.get("reactions_failed_count", 0)
+                    if delete_reactions
+                    else 0
+                ),
+                "reactions_kept": (
+                    stats["preserved_reactions_count"]
+                    if delete_reactions
+                    else 0
+                ),
+            })
+        if buffered_messages is not None:
+            data["buffered_messages"] = buffered_messages
+        if scope == "run":
+            if dry_run:
+                data["owned_threads_delete"] = stats.get(
+                    "threads_planned_count",
+                    0,
+                )
+            else:
+                data.update({
+                    "owned_threads_deleted": stats.get(
+                        "threads_deleted_count",
+                        0,
+                    ),
+                    "owned_threads_absent": stats.get(
+                        "threads_absent_count",
+                        0,
+                    ),
+                    "owned_threads_failed": stats.get(
+                        "threads_failed_count",
+                        0,
+                    ),
+                })
+        return structured_event("cleanup.summary", **data)
+
     def log_dry_run_channel_summary(
         self,
         stats: Mapping[str, int],
@@ -200,6 +292,17 @@ class CleanupReporter:
             ),
             indent=1,
             prefix="-",
+            extra=self._summary_event(
+                stats,
+                scope="channel",
+                delete_reactions=delete_reactions,
+                dry_run=True,
+                buffered_messages=(
+                    channel_plan.buffered_message_count
+                    if channel_plan is not None
+                    else None
+                ),
+            ),
         )
         self.logger.progress(
             "scan time=%s, est. execute time=%s, est. total time=%s",
@@ -228,6 +331,17 @@ class CleanupReporter:
             ),
             indent=1,
             prefix="-",
+            extra=self._summary_event(
+                stats,
+                scope="channel",
+                delete_reactions=delete_reactions,
+                dry_run=False,
+                buffered_messages=(
+                    channel_plan.buffered_message_count
+                    if channel_plan is not None
+                    else None
+                ),
+            ),
         )
         if channel_plan is not None:
             self.logger.progress(
@@ -283,7 +397,15 @@ class CleanupReporter:
                     ", foreign reactions affected "
                     f"{self.format_foreign_reaction_stats(stats)}"
                 )
-            self.logger.info(total_summary)
+            self.logger.info(
+                total_summary,
+                extra=self._summary_event(
+                    stats,
+                    scope="run",
+                    delete_reactions=options.delete_reactions,
+                    dry_run=True,
+                ),
+            )
             self.logger.info(
                 "scan time=%s, est. execute time=%s, est. total time=%s",
                 self.format_duration(run_elapsed),
@@ -312,7 +434,15 @@ class CleanupReporter:
                     f"{stats.threads_absent_count} absent / "
                     f"{stats.threads_failed_count} failed"
                 )
-            self.logger.info(total_summary)
+            self.logger.info(
+                total_summary,
+                extra=self._summary_event(
+                    stats,
+                    scope="run",
+                    delete_reactions=options.delete_reactions,
+                    dry_run=False,
+                ),
+            )
 
         archived_summary_parts = []
         if stats.archived_threads_skipped_count:

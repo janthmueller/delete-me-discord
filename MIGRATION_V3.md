@@ -789,6 +789,17 @@ container remained while all four threads returned to archived state. The
 restoration journal was empty after execution. `GUILD_MEDIA` stays an explicit
 unsupported result rather than a false pass.
 
+A separate read-only planner contract now validates detailed retention
+decisions without retaining DMD's human-readable logs. JSON log entries may
+carry stable `event` and scalar `data` fields that contain only action kinds,
+decision kinds, modes, and counts; they never contain Discord IDs, names,
+message content, emoji names, paths, or credentials. The live harness
+independently fetched one mixed-ownership thread, reproduced
+`--keep-last 4 --keep-last-scope mine`, and matched the structured channel/run
+plan exactly: nine message deletions, four message keeps, three reaction
+deletions, three reaction keeps, and one complete foreign normal-reaction
+impact. The operation used only reads and DMD dry-run behavior.
+
 A separate isolated archived-thread race matrix now provides live transition
 evidence. Its preview gate independently verified one target message, one
 foreign message, one target reaction, and one foreign reaction in each of six

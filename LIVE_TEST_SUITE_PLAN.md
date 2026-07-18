@@ -408,7 +408,9 @@ network access to Discord.
   thread cases; retain Media as explicitly unavailable with Discord code 50024
 - [x] Assert exact redacted DMD action counts across every available
   message-bearing channel and thread form
-- [ ] Assert detailed messages, reactions, impact, and keep decisions
+- [x] Assert detailed messages, reactions, impact, and keep decisions through
+  privacy-safe structured JSON events compared with independently observed
+  Discord state
 - [x] Run the suite across every supported message-bearing channel type;
   retain Media as an explicit unsupported capability
 
