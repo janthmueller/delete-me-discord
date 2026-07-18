@@ -4,6 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Mapping, Sequence, cast
 
@@ -12,6 +13,14 @@ from ..discord.models import DiscordChannel, UpdateOutcome
 from ..discord.errors import ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
 from ..privacy import sensitive
 from ..storage import atomic_write_json
+from .thread_recovery import (
+    ActiveThreadBaseline,
+    ArchiveRecoveryDecision,
+    ArchiveRecoveryReason,
+    ArchivedThreadActivation,
+    evaluate_activated_archive_recovery,
+    evaluate_active_archive_recovery,
+)
 
 
 ARCHIVED_THREAD_CLEANUP_MODES = ("skip", "temporary", "allow-active")
@@ -34,7 +43,8 @@ _RELEVANT_PERMISSION_MASK = (
     | MANAGE_THREADS_PERMISSION
     | SEND_MESSAGES_IN_THREADS_PERMISSION
 )
-_AUTO_ARCHIVE_EARLY_TOLERANCE_SECONDS = 30.0
+_DISCORD_EPOCH_MILLISECONDS = 1_420_070_400_000
+_PINNED_THREAD_FLAG = 1 << 1
 
 
 def _permission_value(value: Any) -> int | None:
@@ -135,23 +145,19 @@ class ArchivedThreadAssessment:
 
 
 @dataclass(frozen=True, slots=True)
-class ArchivedThreadActivation:
-    """Result of attempting to make one archived thread active."""
-
-    opened: bool
-    restore_expected: bool
-    journaled: bool = False
-    activated_at: float | None = None
-    auto_archive_duration_seconds: float | None = None
-    locked: bool | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class ArchivedThreadResumeResult:
     """State transition result after a delete finds the thread archived."""
 
     retry_action: bool
     activation: ArchivedThreadActivation
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveThreadResumeResult:
+    """Result of deciding whether to reopen an initially active thread."""
+
+    retry_action: bool
+    activation: ArchivedThreadActivation | None = None
 
 
 class ThreadRestoreOutcome(Enum):
@@ -354,6 +360,61 @@ class ArchivedThreadCoordinator:
             locked=self._locked_state(channel),
         )
 
+    def observe_active(self, channel: DiscordChannel) -> ActiveThreadBaseline:
+        """Capture evidence needed to distinguish automatic and external archives."""
+        return self._archive_snapshot(channel)
+
+    def resume_active_after_likely_auto_archive(
+        self,
+        channel: DiscordChannel,
+        baseline: ActiveThreadBaseline,
+        *,
+        guild: Mapping[str, Any] | None,
+        parent: DiscordChannel | None,
+        mode: str,
+    ) -> ActiveThreadResumeResult:
+        """Reopen an initially active thread only after a plausible inactivity timeout."""
+        current = self._refresh_archived_thread(channel)
+        if current is None:
+            return ActiveThreadResumeResult(False)
+
+        decision = evaluate_active_archive_recovery(
+            baseline,
+            self._archive_snapshot(current),
+        )
+        if not decision.should_reopen:
+            self._log_archive_recovery_stop(channel, decision)
+            return ActiveThreadResumeResult(False)
+
+        assessment = self.assess(
+            channel=current,
+            guild=guild,
+            parent=parent,
+            mode=mode,
+        )
+        if not assessment.should_scan:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because it cannot be safely reactivated: %s.",
+                channel_str(channel),
+                assessment.reason,
+            )
+            return ActiveThreadResumeResult(False)
+
+        self.logger.event(
+            "Thread %s reached its likely inactivity deadline; reopening it to resume cleanup.",
+            channel_str(channel),
+            indent=1,
+            prefix="-",
+        )
+        resumed = self.activate(current, assessment)
+        if not resumed.opened:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because automatic reactivation failed.",
+                channel_str(channel),
+            )
+            return ActiveThreadResumeResult(False)
+        return ActiveThreadResumeResult(True, resumed)
+
     def resume_after_likely_auto_archive(
         self,
         channel: DiscordChannel,
@@ -361,71 +422,21 @@ class ArchivedThreadCoordinator:
     ) -> ArchivedThreadResumeResult:
         """Reopen after a likely automatic timeout, without fighting other state changes."""
         thread_id = str(channel["id"])
-        get_channel = getattr(self.api, "get_channel", None)
-        if not callable(get_channel):
-            self.logger.warning(
-                "Stopping cleanup in thread %s because its archive state cannot be verified.",
-                channel_str(channel),
-            )
-            return ArchivedThreadResumeResult(False, activation)
-
-        try:
-            current = get_channel(thread_id)
-        except (ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus) as exc:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because its archive state could not be refreshed: %s",
-                channel_str(channel),
-                exc,
-            )
-            return ArchivedThreadResumeResult(False, activation)
-
-        if not isinstance(current, Mapping) or str(current.get("id")) != thread_id:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because Discord returned an invalid state payload.",
-                channel_str(channel),
-            )
-            return ArchivedThreadResumeResult(False, activation)
-
-        metadata = current.get("thread_metadata")
-        if not isinstance(metadata, Mapping) or metadata.get("archived") is not True:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because Discord no longer reports it as archived.",
-                channel_str(channel),
-            )
+        current = self._refresh_archived_thread(channel)
+        if current is None:
             return ArchivedThreadResumeResult(False, activation)
 
         closed_activation = self._observed_archived(activation, thread_id)
-        duration_seconds = activation.auto_archive_duration_seconds
         activated_at = activation.activated_at
-        current_channel = cast(DiscordChannel, current)
-        current_duration_seconds = self._auto_archive_duration_seconds(current_channel)
-        current_locked = self._locked_state(current_channel)
-        if duration_seconds is None or activated_at is None:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because its auto-archive deadline is unknown.",
-                channel_str(channel),
-            )
-            return ArchivedThreadResumeResult(False, closed_activation)
-        if current_duration_seconds != duration_seconds:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because its auto-archive duration changed during cleanup.",
-                channel_str(channel),
-            )
-            return ArchivedThreadResumeResult(False, closed_activation)
-        if activation.locked is None or current_locked != activation.locked:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because its lock state changed or could not be verified.",
-                channel_str(channel),
-            )
-            return ArchivedThreadResumeResult(False, closed_activation)
-
-        elapsed = max(0.0, self._clock() - activated_at)
-        if elapsed + _AUTO_ARCHIVE_EARLY_TOLERANCE_SECONDS < duration_seconds:
-            self.logger.warning(
-                "Stopping cleanup in thread %s because it archived %.0f seconds before its configured auto-archive deadline; treating this as an external state change.",
-                channel_str(channel),
-                duration_seconds - elapsed,
-            )
+        decision = evaluate_activated_archive_recovery(
+            activation,
+            self._archive_snapshot(current),
+            elapsed_seconds=(
+                None if activated_at is None else self._clock() - activated_at
+            ),
+        )
+        if not decision.should_reopen:
+            self._log_archive_recovery_stop(channel, decision)
             return ArchivedThreadResumeResult(False, closed_activation)
 
         self.logger.event(
@@ -435,7 +446,7 @@ class ArchivedThreadCoordinator:
             prefix="-",
         )
         resumed = self.activate(
-            current_channel,
+            current,
             ArchivedThreadAssessment(
                 should_scan=True,
                 restore_expected=activation.restore_expected,
@@ -567,6 +578,96 @@ class ArchivedThreadCoordinator:
         self._member_roles_by_guild[guild_id] = normalized
         return normalized
 
+    def _archive_snapshot(
+        self,
+        channel: Mapping[str, Any],
+    ) -> ActiveThreadBaseline:
+        return ActiveThreadBaseline(
+            archive_timestamp=self._archive_timestamp(channel),
+            last_message_timestamp=self._last_message_timestamp(channel),
+            auto_archive_duration_seconds=self._auto_archive_duration_seconds(
+                channel
+            ),
+            locked=self._locked_state(channel),
+            pinned=self._is_pinned(channel),
+        )
+
+    def _log_archive_recovery_stop(
+        self,
+        channel: DiscordChannel,
+        decision: ArchiveRecoveryDecision,
+    ) -> None:
+        reason = decision.reason
+        if reason == ArchiveRecoveryReason.DEADLINE_UNKNOWN:
+            explanation = "its auto-archive deadline is unknown"
+        elif reason == ArchiveRecoveryReason.DURATION_CHANGED:
+            explanation = "its auto-archive duration changed during cleanup"
+        elif reason == ArchiveRecoveryReason.LOCK_CHANGED:
+            explanation = "its lock state changed or could not be verified"
+        elif reason == ArchiveRecoveryReason.PIN_CHANGED:
+            explanation = "its pinned state changed or could not be verified"
+        elif reason == ArchiveRecoveryReason.PINNED:
+            explanation = "pinned forum or media threads do not auto-archive"
+        elif reason == ArchiveRecoveryReason.ACTIVITY_UNKNOWN:
+            explanation = "its activity or archive timestamp is unknown"
+        elif reason == ArchiveRecoveryReason.ARCHIVE_BEFORE_ACTIVITY:
+            explanation = (
+                "its archive timestamp predates its latest known activity"
+            )
+        elif reason == ArchiveRecoveryReason.EARLY_ARCHIVE:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because it archived %.0f seconds before its configured auto-archive deadline; treating this as an external state change.",
+                channel_str(channel),
+                decision.seconds_early or 0.0,
+            )
+            return
+        else:
+            explanation = "its archive transition could not be classified"
+        self.logger.warning(
+            "Stopping cleanup in thread %s because %s.",
+            channel_str(channel),
+            explanation,
+        )
+
+    def _refresh_archived_thread(
+        self,
+        channel: DiscordChannel,
+    ) -> DiscordChannel | None:
+        thread_id = str(channel["id"])
+        get_channel = getattr(self.api, "get_channel", None)
+        if not callable(get_channel):
+            self.logger.warning(
+                "Stopping cleanup in thread %s because its archive state cannot be verified.",
+                channel_str(channel),
+            )
+            return None
+
+        try:
+            current = get_channel(thread_id)
+        except (ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus) as exc:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because its archive state could not be refreshed: %s",
+                channel_str(channel),
+                exc,
+            )
+            return None
+
+        if not isinstance(current, Mapping) or str(current.get("id")) != thread_id:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because Discord returned an invalid state payload.",
+                channel_str(channel),
+            )
+            return None
+
+        metadata = current.get("thread_metadata")
+        if not isinstance(metadata, Mapping) or metadata.get("archived") is not True:
+            self.logger.warning(
+                "Stopping cleanup in thread %s because Discord no longer reports it as archived.",
+                channel_str(channel),
+            )
+            return None
+        return cast(DiscordChannel, current)
+
     def _log_restore_failure(
         self,
         channel: DiscordChannel,
@@ -615,6 +716,57 @@ class ArchivedThreadCoordinator:
         if duration <= 0:
             return None
         return float(duration) * 60.0
+
+    @staticmethod
+    def _archive_timestamp(channel: Mapping[str, Any]) -> datetime | None:
+        metadata = channel.get("thread_metadata")
+        if not isinstance(metadata, Mapping):
+            return None
+        value = metadata.get("archive_timestamp")
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _last_message_timestamp(
+        channel: Mapping[str, Any],
+    ) -> datetime | None:
+        value = channel.get("last_message_id")
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            return None
+        try:
+            snowflake = int(value)
+            if snowflake <= 0:
+                return None
+            timestamp_milliseconds = (
+                snowflake >> 22
+            ) + _DISCORD_EPOCH_MILLISECONDS
+            return datetime.fromtimestamp(
+                timestamp_milliseconds / 1000.0,
+                tz=timezone.utc,
+            )
+        except (OSError, OverflowError, ValueError):
+            return None
+
+    @staticmethod
+    def _is_pinned(channel: Mapping[str, Any]) -> bool | None:
+        flags = channel.get("flags", 0)
+        if isinstance(flags, bool):
+            return None
+        if isinstance(flags, str):
+            try:
+                flags = int(flags)
+            except ValueError:
+                return None
+        if not isinstance(flags, int):
+            return None
+        return bool(flags & _PINNED_THREAD_FLAG)
 
     @staticmethod
     def _locked_state(channel: Mapping[str, Any]) -> bool | None:

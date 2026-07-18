@@ -47,7 +47,9 @@ class DiscordChannel(DiscordChannelRequired, total=False):
     parent_id: str
     category_id: str
     owner_id: str
+    last_message_id: Optional[str]
     message_count: int
+    flags: int
     recipients: list[DiscordRecipient]
     thread_metadata: dict[str, Any]
     permission_overwrites: list[dict[str, Any]]

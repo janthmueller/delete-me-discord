@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Generator, Iterable, List, Optional, Set, Tuple, Union
 
-from ..discord.channel_types import is_archived_thread
+from ..discord.channel_types import is_archived_thread, is_thread_channel
 from ..discord.client import DiscordClient
 from ..discord.formatting import channel_str
 from ..discord.models import DiscordChannel, DiscordMessage
@@ -22,6 +22,7 @@ from ..scope import (
 )
 from .preserve_cache import PreserveCache
 from .thread_deletion import OwnedThreadDeletionCoordinator
+from .thread_session import ThreadRecoverySession
 from .threads import (
     ARCHIVED_THREAD_CLEANUP_MODES,
     ArchivedThreadAssessment,
@@ -440,6 +441,7 @@ class MessageCleaner:
             else None
         )
         archived_assessment: ArchivedThreadAssessment | None = None
+        thread_recovery: ThreadRecoverySession | None = None
         if is_archived_thread(channel):
             archived_assessment = archived_thread_coordinator.assess(
                 channel=channel,
@@ -460,6 +462,17 @@ class MessageCleaner:
                     archived_assessment.reason,
                 )
                 return run_stats
+        elif (
+            is_thread_channel(channel.get("type"))
+            and options.archived_thread_cleanup != "skip"
+        ):
+            thread_recovery = ThreadRecoverySession.from_active_thread(
+                archived_thread_coordinator,
+                channel,
+                guild=context.guild,
+                parent=context.parent,
+                mode=options.archived_thread_cleanup,
+            )
 
         force_buffer = (
             fallback_messages is not None
@@ -501,8 +514,6 @@ class MessageCleaner:
                     delete_sleep_time_range=options.delete_sleep_time_range,
                 )
 
-        activation = None
-        resume_archived_thread_callback: Callable[[], bool] | None = None
         archived_transition_action_count = 0
         if (
             archived_assessment is not None
@@ -548,23 +559,20 @@ class MessageCleaner:
                     )
                     return run_stats
                 run_stats.archived_threads_opened_count += 1
+                thread_recovery = ThreadRecoverySession.from_activation(
+                    archived_thread_coordinator,
+                    channel,
+                    activation,
+                    guild=context.guild,
+                    parent=context.parent,
+                    mode=options.archived_thread_cleanup,
+                )
 
-                def handle_archived_thread() -> bool:
-                    nonlocal activation
-                    if activation is None:
-                        return False
-                    result = (
-                        archived_thread_coordinator.resume_after_likely_auto_archive(
-                            channel,
-                            activation,
-                        )
-                    )
-                    activation = result.activation
-                    if result.retry_action:
-                        run_stats.archived_threads_auto_reopened_count += 1
-                    return result.retry_action
-
-                resume_archived_thread_callback = handle_archived_thread
+        resume_archived_thread_callback = (
+            thread_recovery.resume
+            if thread_recovery is not None and not options.dry_run
+            else None
+        )
 
         try:
             preserved_msg_ids, stats, action_elapsed = (
@@ -579,16 +587,16 @@ class MessageCleaner:
                 )
             )
         finally:
-            if activation is not None and activation.opened:
-                restore_outcome = archived_thread_coordinator.restore(
-                    channel,
-                    activation,
+            if thread_recovery is not None:
+                run_stats.archived_threads_auto_reopened_count += (
+                    thread_recovery.reopen_count
                 )
+                restore_outcome = thread_recovery.restore()
                 if restore_outcome == ThreadRestoreOutcome.RESTORED:
                     run_stats.archived_threads_restored_count += 1
                 elif restore_outcome == ThreadRestoreOutcome.ABSENT:
                     run_stats.archived_threads_absent_count += 1
-                else:
+                elif restore_outcome == ThreadRestoreOutcome.LEFT_ACTIVE:
                     run_stats.archived_threads_left_active_count += 1
 
         if self.preserve_cache:

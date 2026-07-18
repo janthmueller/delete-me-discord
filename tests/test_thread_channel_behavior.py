@@ -95,6 +95,12 @@ def make_thread_message(
     }
 
 
+def snowflake_at(value):
+    discord_epoch = datetime(2015, 1, 1, tzinfo=timezone.utc)
+    milliseconds = int((value - discord_epoch).total_seconds() * 1000)
+    return str(milliseconds << 22)
+
+
 class ThreadCleanupAPI:
     def __init__(
         self,
@@ -419,6 +425,76 @@ def archived_message(message_id, author_id, *, reactions=None):
         author_id,
         reactions=reactions,
     ) | {"channel_id": "archived-post"}
+
+
+def test_initially_active_thread_reopens_after_likely_auto_archive(
+    tmp_path,
+    caplog,
+):
+    caplog.set_level("INFO")
+    inventory = make_inventory()
+    channel = inventory.threads_by_guild["g1"][0]
+    status_changed_at = datetime(2026, 7, 18, 10, 0, tzinfo=timezone.utc)
+    last_message_at = status_changed_at + timedelta(minutes=30)
+    archived_at = last_message_at + timedelta(hours=1)
+    channel.update({
+        "owner_id": "me",
+        "last_message_id": snowflake_at(last_message_at),
+        "thread_metadata": {
+            "archived": False,
+            "locked": False,
+            "auto_archive_duration": 60,
+            "archive_timestamp": status_changed_at.isoformat(),
+        },
+    })
+    current_channel = {
+        **channel,
+        "thread_metadata": {
+            **channel["thread_metadata"],
+            "archived": True,
+            "archive_timestamp": archived_at.isoformat(),
+        },
+    }
+    api = ReArchivingCleanupAPI(
+        [make_thread_message("mine", "me")],
+        update_outcomes=(
+            UpdateOutcome.APPLIED,
+            UpdateOutcome.APPLIED,
+        ),
+        message_outcomes=(
+            DeleteOutcome.THREAD_ARCHIVED,
+            DeleteOutcome.DELETED,
+        ),
+        current_channel=current_channel,
+    )
+    journal = ThreadRestorationJournal(str(tmp_path / "journal.json"))
+    cleaner = MessageCleaner(
+        api=api,
+        user_id="me",
+        include_ids=["active-thread"],
+        scope_inventory=inventory,
+        thread_restoration_journal=journal,
+    )
+
+    deleted = cleaner.clean_messages(
+        archived_thread_cleanup="temporary",
+        fetch_sleep_time_range=(0, 0),
+        delete_sleep_time_range=(0, 0),
+    )
+
+    assert deleted == 1
+    assert api.deleted_messages == [
+        ("active-thread", "mine"),
+        ("active-thread", "mine"),
+    ]
+    assert api.get_channel_calls == ["active-thread"]
+    assert api.archive_calls == [
+        ("active-thread", False),
+        ("active-thread", True),
+    ]
+    assert journal.pending("me") == ()
+    assert "1 reopened after likely auto-archive" in caplog.text
+    assert "1 restored" in caplog.text
 
 
 def test_archived_thread_is_skipped_without_fetching_by_default(caplog):

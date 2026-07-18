@@ -166,14 +166,18 @@ Dry-run never changes thread state. Creator ownership or effective
 threads always require effective `MANAGE_THREADS`.
 
 Long-running plans can outlive Discord's auto-archive timer. A delete rejected
-with Discord code `50083` triggers one exact channel refresh. DMD reopens and
-retries once only when the thread remains archived, lock state and
-`auto_archive_duration` are unchanged, and elapsed monotonic time has reached
-the configured interval within a 30-second tolerance. The new activation
-resets the timer baseline, so another reopen is possible only after another
-full interval. Early archives, changed state, unverifiable state, and a second
-immediate `50083` stop the remaining thread actions instead of fighting an
-external archive.
+with Discord code `50083` triggers one exact channel refresh. For each detected
+likely automatic archive, DMD reopens and retries that blocked action once when
+the thread remains archived, lock/pin state and `auto_archive_duration` are
+unchanged, the thread is not pinned, and the best available activity baseline
+has reached the configured interval within a 30-second tolerance. For a thread
+DMD opened, that baseline is the local monotonic activation time. For an
+initially active thread, DMD compares the refreshed archive event timestamp
+with the latest initial status-change or initial/refreshed last-message
+timestamp. The new activation resets the timer baseline, so another reopen is
+possible only after another full interval. Early archives, changed state,
+missing activity evidence, malformed state, and a second immediate `50083`
+stop the remaining thread actions instead of fighting an external archive.
 
 ### Thread containers remain protected by default
 
@@ -464,10 +468,14 @@ entry left by an interrupted process. The journal is cleared only after the
 thread is archived again or Discord reports that it is absent.
 
 Message and reaction deletes preserve Discord code `50083` as a distinct
-internal outcome. The cleaner uses it to refresh thread state, retry a likely
-auto-archive once, or terminate the buffered plan with an exact count of
-remaining actions. A thread confirmed archived during that check is not sent a
-redundant final archive update.
+internal outcome. The cleaner uses it to refresh thread state, retry the blocked
+action once per detected likely auto-archive event, or terminate the buffered
+plan with an exact count of remaining actions. A thread confirmed archived
+during that check is not sent a redundant final archive update. The same
+recovery now applies when a thread started active: its initial
+`archive_timestamp`, initial and refreshed `last_message_id`, configured
+duration, lock state, and pin state provide a fail-closed inactivity-deadline
+check before any reactivation.
 
 Reaction ownership now distinguishes Discord's `me` and `me_burst` fields.
 Normal and Super Reactions are planned and deleted independently, including
@@ -790,8 +798,12 @@ cleanup by an account with `MANAGE_THREADS`. Real manager-driven early archive,
 lock-change, and second-archive transitions stopped cleanup without removing
 the target artifacts. All foreign artifacts remained, final archive and lock
 states matched policy, the retry stayed bounded, the dedicated restoration
-journal was empty, and the ledger relocked. This does not replace a future
-one-hour observation of Discord's natural auto-archive timer.
+journal was empty, and the ledger relocked. A later redacted read-only probe
+confirmed that both exact channel lookup and thread search provide
+`last_message_id`, `archive_timestamp`, `auto_archive_duration`, `archived`, and
+`locked` for the live fixture; its exact-channel `last_message_id` matched the
+newest fetched message. This validates the recovery input contract but does not
+replace a future one-hour observation of Discord's natural auto-archive timer.
 
 Discord may require an interactive CAPTCHA for user-account invite acceptance.
 The suite treats that as a manual security boundary rather than attempting to
@@ -1024,7 +1036,7 @@ The v3 release candidate is ready to merge only after:
 | Profiles and effective settings | `delete_me_discord/config/models.py`, `delete_me_discord/config/schema.py`, `delete_me_discord/config/profiles.py` |
 | Channel model and filters | `delete_me_discord/discord/channel_types.py`, `delete_me_discord/scope/filter.py` |
 | Scope IDs, rules, and inventory | `delete_me_discord/scope/resolver.py`, `delete_me_discord/scope/rules.py`, `delete_me_discord/scope/inventory.py` |
-| Thread API, archived-state policy, and rate scheduling | `delete_me_discord/discord/client.py`, `delete_me_discord/discord/transport.py`, `delete_me_discord/cleanup/threads.py`, `delete_me_discord/discord/rate_limits.py` |
+| Thread API, archived-state policy, and rate scheduling | `delete_me_discord/discord/client.py`, `delete_me_discord/discord/transport.py`, `delete_me_discord/cleanup/threads.py`, `delete_me_discord/cleanup/thread_recovery.py`, `delete_me_discord/cleanup/thread_session.py`, `delete_me_discord/discord/rate_limits.py` |
 | Listing and rendering | `delete_me_discord/discovery/service.py`, `delete_me_discord/discovery/renderers.py` |
 | Cleanup semantics | `delete_me_discord/cleanup/service.py`, `delete_me_discord/cleanup/planner.py`, `delete_me_discord/cleanup/executor.py`, `delete_me_discord/cleanup/thread_deletion.py`, `delete_me_discord/cleanup/models.py` |
 | Durable local state | `delete_me_discord/storage.py`, `delete_me_discord/auth/keyring.py`, `delete_me_discord/cleanup/preserve_cache.py` |

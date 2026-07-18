@@ -85,6 +85,8 @@ Starting with v3, the default scope includes guild text and announcement channel
 
 Archived threads are evaluated while archived and activated only when their cleanup plan contains work. DMD always attempts to restore the archived state afterward. By default it can continue when restoration rights cannot be established; use `--skip-unrestorable-threads` to require a reasonable restoration guarantee before cleanup.
 
+If an active thread reaches its Discord auto-archive deadline during a long cleanup, DMD refreshes its state and retries that blocked action once for the detected archive event when the duration, lock state, pin state, and latest known activity indicate a likely automatic archive. A later complete auto-archive interval can be handled again; an immediate second failure, ambiguous state, or externally changed state stops the remaining actions for that thread.
+
 `dmd clean` discovers and processes one guild and one thread parent at a time, including when exact include/exclude IDs are supplied. Explicit IDs are preflighted through the current guild/DM lists or an exact channel lookup before any mutation, and those top-level results are reused during traversal. Each parent's thread list is completed before that parent is mutated, then the parent and its threads are processed before discovery advances. `dmd list channels` remains eager because rendering the full tree requires the full inventory.
 
 Thread containers are never deleted by default. Creator-owned thread deletion is an explicit destructive option:

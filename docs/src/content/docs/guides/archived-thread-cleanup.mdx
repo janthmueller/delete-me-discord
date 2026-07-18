@@ -85,37 +85,54 @@ issuing one failing request per message.
 
 ## Long-running cleanup and auto-archive
 
-Activating a thread counts as activity and restarts Discord's configured
-auto-archive timer. A sufficiently large cleanup can nevertheless run longer
-than that timer. If Discord returns code `50083` while DMD is deleting a
-message or reaction, DMD refreshes the thread and applies a bounded state
-check.
+Discord supports auto-archive durations of 60, 1,440, 4,320, and 10,080
+minutes. The minimum is therefore one hour. Activity is a sent message,
+unarchiving the thread, or changing its auto-archive duration.
 
-DMD reopens the thread and retries the blocked action once only when all of
-these conditions hold:
+A sufficiently large cleanup can outlive that timer. If Discord returns code
+`50083` while DMD is deleting a message or reaction, DMD refreshes the exact
+thread and applies a bounded state check.
+
+For each detected likely automatic archive, DMD reopens the thread and retries
+that blocked action once when all of these conditions hold:
 
 - the thread is still archived;
 - its lock state is unchanged;
+- its pinned state is unchanged and it was not pinned;
 - its configured auto-archive duration is unchanged and known; and
-- the elapsed time since DMD last activated it has reached that duration,
-  allowing a 30-second scheduling tolerance.
+- the best available activity baseline has reached that duration, allowing a
+  30-second scheduling tolerance.
 
-The activation timestamp is reset after a successful reopen. This permits
-another bounded reopen if a very long cleanup reaches a later complete
-auto-archive interval, without creating an immediate retry loop.
+For a thread DMD activated from an archived state, the baseline is DMD's local
+monotonic activation time. For a thread that started active, DMD snapshots its
+initial `archive_timestamp` and derives a timestamp from `last_message_id`. On
+refresh it also considers a newer `last_message_id`; the latest of those
+signals is the activity baseline. The refreshed `archive_timestamp` is the
+archive event time, so it is compared with that baseline rather than used as
+the baseline itself.
+
+The activation timestamp is reset after a successful reopen. This permits one
+bounded retry for another archive event if a very long cleanup reaches a later
+complete auto-archive interval, without creating an immediate retry loop.
 
 An archive that occurs earlier than the expected deadline is treated as an
 external state change, which includes a user or moderator archiving the thread.
-A changed lock state, changed duration, malformed state response, failed state
-refresh, or second immediate `50083` also stops the remaining actions for that
-thread. DMD reports the interruption and does not keep reopening against that
-state. Successfully completed actions are not rolled back.
+A changed lock, duration, or pin state; missing activity evidence; malformed
+state response; failed state refresh; or second immediate `50083` also stops
+the remaining actions for that thread. DMD reports the interruption and does
+not keep reopening against that state. Successfully completed actions are not
+rolled back.
 
 This is deliberately a conservative heuristic. Discord does not identify the
 actor or reason that archived a thread in the failed delete response, so DMD
-cannot prove that an archive at the deadline was automatic.
+cannot prove that an archive at the deadline was automatic. Discord also
+documents that busy guilds can archive threads before their configured
+duration. DMD treats that case as an external archive and stops instead of
+forcing the thread open.
 
 See Discord's documentation for
+[thread fields and active/archived behavior](https://docs.discord.com/developers/topics/threads#active-archived-threads),
+[thread metadata](https://docs.discord.com/developers/resources/channel#thread-metadata-object),
 [thread editing and deletion](https://docs.discord.com/developers/topics/threads#editing-deleting-threads),
 [channel modification](https://docs.discord.com/developers/resources/channel#modify-channel),
 and [permission overwrites](https://docs.discord.com/developers/topics/permissions#permission-overwrites).

@@ -59,7 +59,9 @@ delete_me_discord/
 │   ├── service.py          # Run and per-channel orchestration
 │   ├── planner.py          # Pure retention and action decisions
 │   ├── executor.py         # Message and reaction execution
-│   ├── threads.py          # Archived state, permissions, and restoration
+│   ├── thread_recovery.py  # Pure archive-transition state and decisions
+│   ├── thread_session.py   # Per-channel recovery lifecycle
+│   ├── threads.py          # Discord transitions, permissions, and restoration
 │   ├── thread_deletion.py  # Creator-owned thread deletion policy
 │   ├── reporting.py        # Dry-run and execution summaries
 │   ├── models.py           # Plans, actions, options, and statistics
@@ -98,10 +100,12 @@ The first cleanup refactor has established:
 `cleanup/service.py` now owns the cleanup facade, scope iteration, message
 fetching and buffering, preserve-cache merging, and the per-channel
 transaction. Archived-thread activation and restoration are isolated in
-`cleanup/threads.py`, creator-owned thread deletion policy is isolated in
-`cleanup/thread_deletion.py`, and cache persistence is isolated in
-`cleanup/preserve_cache.py`. The former root cleanup implementation modules
-have been removed.
+`cleanup/threads.py`; pure archive classification lives in
+`cleanup/thread_recovery.py`, and `cleanup/thread_session.py` owns mutable
+recovery state for one channel transaction. Creator-owned thread deletion
+policy is isolated in `cleanup/thread_deletion.py`, and cache persistence is
+isolated in `cleanup/preserve_cache.py`. The former root cleanup implementation
+modules have been removed.
 
 Scope selector parsing, hierarchy rules, type/state filtering, explicit-ID
 resolution, and lazy/eager inventory traversal now live under `scope/`. The
@@ -144,6 +148,8 @@ and `utils` modules are absent rather than retained as compatibility shims.
 - [x] Separate run orchestration from per-channel processing.
 - [x] Move cleanup orchestration to `cleanup/service.py`.
 - [x] Move archived-thread activation and restoration to `cleanup/threads.py`.
+- [x] Separate pure archive decisions and per-channel recovery state into
+  `cleanup/thread_recovery.py` and `cleanup/thread_session.py`.
 - [x] Move owned-thread deletion coordination to
   `cleanup/thread_deletion.py`.
 - [x] Move preserve-cache behavior to `cleanup/preserve_cache.py`.

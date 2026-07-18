@@ -1,110 +1,24 @@
-import logging
 import stat
 
 import pytest
 
-from delete_me_discord.discord.models import UpdateOutcome
+from delete_me_discord.cleanup.thread_session import ThreadRecoverySession
 from delete_me_discord.cleanup.threads import (
-    ADMINISTRATOR_PERMISSION,
     MANAGE_THREADS_PERMISSION,
     ArchivedThreadAssessment,
-    ArchivedThreadCoordinator,
     ThreadRestorationJournal,
     ThreadRestoreOutcome,
-    effective_channel_permissions,
 )
 from delete_me_discord.discord.errors import ResourceUnavailable
-
-
-def resolve_permissions(
-    *,
-    base=0,
-    roles=(),
-    overwrites=None,
-    owner=False,
-):
-    return effective_channel_permissions(
-        guild_id="guild",
-        guild_owner=owner,
-        guild_permissions=str(base),
-        member_role_ids=roles,
-        user_id="me",
-        permission_overwrites=[] if overwrites is None else overwrites,
-    )
-
-
-def overwrite(target_id, target_type, *, allow=0, deny=0):
-    return {
-        "id": target_id,
-        "type": target_type,
-        "allow": str(allow),
-        "deny": str(deny),
-    }
-
-
-def test_guild_owner_and_administrator_bypass_channel_overwrites():
-    denied = [
-        overwrite("guild", 0, deny=MANAGE_THREADS_PERMISSION),
-        overwrite("me", 1, deny=MANAGE_THREADS_PERMISSION),
-    ]
-
-    owner_permissions = resolve_permissions(owner=True, overwrites=denied)
-    administrator_permissions = resolve_permissions(
-        base=ADMINISTRATOR_PERMISSION,
-        overwrites=denied,
-    )
-
-    assert owner_permissions & MANAGE_THREADS_PERMISSION
-    assert administrator_permissions & MANAGE_THREADS_PERMISSION
-
-
-def test_permission_overwrites_follow_everyone_role_member_precedence():
-    permissions = resolve_permissions(
-        base=MANAGE_THREADS_PERMISSION,
-        roles=("member-role",),
-        overwrites=[
-            overwrite("guild", 0, deny=MANAGE_THREADS_PERMISSION),
-            overwrite("member-role", 0, allow=MANAGE_THREADS_PERMISSION),
-            overwrite("me", 1, deny=MANAGE_THREADS_PERMISSION),
-        ],
-    )
-
-    assert permissions is not None
-    assert not permissions & MANAGE_THREADS_PERMISSION
-
-
-def test_member_allow_overrides_aggregated_role_deny():
-    permissions = resolve_permissions(
-        roles=("member-role",),
-        overwrites=[
-            overwrite("member-role", 0, deny=MANAGE_THREADS_PERMISSION),
-            overwrite("me", 1, allow=MANAGE_THREADS_PERMISSION),
-        ],
-    )
-
-    assert permissions is not None
-    assert permissions & MANAGE_THREADS_PERMISSION
-
-
-@pytest.mark.parametrize(
-    "overwrites",
-    [
-        None,
-        [{"id": "guild", "type": 0, "allow": "bad", "deny": "0"}],
-        [{"id": "guild", "type": 7, "allow": "0", "deny": "0"}],
-    ],
+from delete_me_discord.discord.models import UpdateOutcome
+from tests._thread_cleanup_support import (
+    CoordinatorAPI,
+    coordinator,
+    guild,
+    overwrite,
+    parent,
+    thread,
 )
-def test_permission_resolution_is_unknown_for_incomplete_payloads(overwrites):
-    value = effective_channel_permissions(
-        guild_id="guild",
-        guild_owner=False,
-        guild_permissions="0",
-        member_role_ids=(),
-        user_id="me",
-        permission_overwrites=overwrites,
-    )
-
-    assert value is None
 
 
 def test_restoration_journal_is_private_and_user_scoped(tmp_path):
@@ -122,75 +36,6 @@ def test_restoration_journal_is_private_and_user_scoped(tmp_path):
     journal.clear("me", "thread-1")
     assert journal.pending("me") == ()
     assert journal.pending("other") == ("thread-2",)
-
-
-class CoordinatorAPI:
-    def __init__(self, *, roles=(), update_outcomes=(), current_channel=None):
-        self.roles = list(roles)
-        self.update_outcomes = list(update_outcomes)
-        self.current_channel = current_channel
-        self.member_calls = []
-        self.archive_calls = []
-        self.get_channel_calls = []
-
-    def get_current_guild_member(self, guild_id):
-        self.member_calls.append(guild_id)
-        return {"roles": self.roles}
-
-    def set_thread_archived(self, thread_id, *, archived):
-        self.archive_calls.append((thread_id, archived))
-        return self.update_outcomes.pop(0)
-
-    def get_channel(self, thread_id):
-        self.get_channel_calls.append(thread_id)
-        if isinstance(self.current_channel, Exception):
-            raise self.current_channel
-        return self.current_channel
-
-
-def coordinator(api, journal=None, clock=None):
-    kwargs = {
-        "api": api,
-        "user_id": "me",
-        "journal": journal,
-        "logger": logging.getLogger("thread-cleanup-test"),
-    }
-    if clock is not None:
-        kwargs["clock"] = clock
-    return ArchivedThreadCoordinator(
-        **kwargs,
-    )
-
-
-def thread(*, owner_id="me", locked=False, auto_archive_duration=60):
-    metadata = {
-        "archived": True,
-        "locked": locked,
-    }
-    if auto_archive_duration is not None:
-        metadata["auto_archive_duration"] = auto_archive_duration
-    return {
-        "id": "thread",
-        "type": 11,
-        "owner_id": owner_id,
-        "thread_metadata": metadata,
-    }
-
-
-def guild(*, permissions=0, owner=False):
-    return {
-        "id": "guild",
-        "permissions": str(permissions),
-        "owner": owner,
-    }
-
-
-def parent(overwrites=None):
-    return {
-        "id": "parent",
-        "type": 0,
-        "permission_overwrites": [] if overwrites is None else overwrites,
-    }
 
 
 def test_temporary_mode_accepts_unlocked_creator_without_permission_lookup():
@@ -474,3 +319,65 @@ def test_failed_state_refresh_keeps_activation_recoverable(tmp_path):
     assert result.retry_action is False
     assert result.activation.opened is True
     assert journal.pending("me") == ("thread",)
+
+
+def test_recovery_session_stops_after_an_external_archive(tmp_path):
+    journal = ThreadRestorationJournal(str(tmp_path / "journal.json"))
+    channel = thread()
+    api = CoordinatorAPI(
+        update_outcomes=(UpdateOutcome.APPLIED,),
+        current_channel=channel,
+    )
+    clock_values = iter((100.0, 200.0))
+    manager = coordinator(api, journal, clock=clock_values.__next__)
+    activation = manager.activate(
+        channel,
+        ArchivedThreadAssessment(
+            should_scan=True,
+            restore_expected=True,
+            restoration_status="available",
+        ),
+    )
+    session = ThreadRecoverySession.from_activation(
+        manager,
+        channel,
+        activation,
+        guild=None,
+        parent=None,
+        mode="temporary",
+    )
+
+    assert session.resume() is False
+    assert session.resume() is False
+    assert api.get_channel_calls == ["thread"]
+    assert session.reopen_count == 0
+
+
+def test_recovery_session_restores_at_most_once(tmp_path):
+    journal = ThreadRestorationJournal(str(tmp_path / "journal.json"))
+    channel = thread()
+    api = CoordinatorAPI(
+        update_outcomes=(UpdateOutcome.APPLIED, UpdateOutcome.APPLIED),
+    )
+    manager = coordinator(api, journal)
+    activation = manager.activate(
+        channel,
+        ArchivedThreadAssessment(
+            should_scan=True,
+            restore_expected=True,
+            restoration_status="available",
+        ),
+    )
+    session = ThreadRecoverySession.from_activation(
+        manager,
+        channel,
+        activation,
+        guild=None,
+        parent=None,
+        mode="temporary",
+    )
+
+    assert session.restore() == ThreadRestoreOutcome.RESTORED
+    assert session.restore() is None
+    assert session.resume() is False
+    assert api.archive_calls == [("thread", False), ("thread", True)]
