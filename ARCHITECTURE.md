@@ -56,7 +56,8 @@ delete_me_discord/
 │   ├── service.py          # Run and per-channel orchestration
 │   ├── planner.py          # Pure retention and action decisions
 │   ├── executor.py         # Message and reaction execution
-│   ├── threads.py          # Thread activation, restoration, and deletion
+│   ├── threads.py          # Archived state, permissions, and restoration
+│   ├── thread_deletion.py  # Creator-owned thread deletion policy
 │   ├── reporting.py        # Dry-run and execution summaries
 │   ├── models.py           # Plans, actions, options, and statistics
 │   └── preserve_cache.py
@@ -92,11 +93,12 @@ The first cleanup refactor has established:
 - A separate per-channel cleanup transaction.
 
 `cleanup/service.py` now owns the cleanup facade, scope iteration, message
-fetching and buffering, preserve-cache merging, owned-thread deletion
-coordination, and the per-channel transaction. Archived-thread activation and
-restoration are isolated in `cleanup/threads.py`, and cache persistence is
-isolated in `cleanup/preserve_cache.py`. The former root cleanup implementation
-modules have been removed.
+fetching and buffering, preserve-cache merging, and the per-channel
+transaction. Archived-thread activation and restoration are isolated in
+`cleanup/threads.py`, creator-owned thread deletion policy is isolated in
+`cleanup/thread_deletion.py`, and cache persistence is isolated in
+`cleanup/preserve_cache.py`. The former root cleanup implementation modules
+have been removed.
 
 Scope selector parsing, hierarchy rules, type/state filtering, explicit-ID
 resolution, and lazy/eager inventory traversal now live under `scope/`. The
@@ -118,7 +120,8 @@ Discord implementation modules have been removed.
 - [x] Separate run orchestration from per-channel processing.
 - [x] Move cleanup orchestration to `cleanup/service.py`.
 - [x] Move archived-thread activation and restoration to `cleanup/threads.py`.
-- [ ] Move owned-thread deletion coordination to `cleanup/threads.py`.
+- [x] Move owned-thread deletion coordination to
+  `cleanup/thread_deletion.py`.
 - [x] Move preserve-cache behavior to `cleanup/preserve_cache.py`.
 - [x] Update callers and tests to import the cleanup package.
 - [x] Remove root `cleaner.py`.

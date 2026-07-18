@@ -1,11 +1,14 @@
 from collections.abc import Mapping
 from typing import Any, Optional
 
+from ..discord.models import DiscordChannel
+from ..utils import channel_str
 from .models import (
     ChannelPlan,
     CleanupRunOptions,
     CleanupRunStats,
     ForeignReactionImpact,
+    ThreadDeletionImpact,
 )
 
 
@@ -80,6 +83,28 @@ class CleanupReporter:
                 burst=stats["foreign_reactions_burst_count"],
                 complete=stats["foreign_reactions_unknown_count"] == 0,
             )
+        )
+
+    def log_thread_deletion_impact(
+        self,
+        channel: DiscordChannel,
+        impact: ThreadDeletionImpact,
+    ) -> None:
+        """Report the deletion cascade observed during an owned-thread scan."""
+        if impact.scan_complete:
+            message_impact = (
+                f"{impact.own_messages} yours / "
+                f"{impact.foreign_messages} other-or-unknown"
+            )
+        else:
+            message_impact = "unknown (incomplete thread scan)"
+        self.logger.progress(
+            "Impact at scan time for %s: messages %s; foreign reactions %s.",
+            channel_str(channel),
+            message_impact,
+            self.format_foreign_reaction_impact(impact.foreign_reactions),
+            indent=1,
+            prefix="-",
         )
 
     def log_fetch_summary(self, fetch_summary: Optional[dict]) -> None:

@@ -12,12 +12,15 @@ from .models import (
     MessageDecision,
     MessageFacts,
     OwnedReaction,
+    OwnedThreadDeletionOutcome,
     PlannedAction,
+    ThreadDeletionImpact,
 )
 from .planner import CleanupPlanner, CleanupPolicy
 from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH, PreserveCache
 from .reporting import CleanupReporter
 from .service import MessageCleaner
+from .thread_deletion import OwnedThreadDeletionCoordinator
 from .threads import (
     ARCHIVED_THREAD_CLEANUP_MODES,
     ADMINISTRATOR_PERMISSION,
@@ -51,8 +54,11 @@ __all__ = [
     "MessageCleaner",
     "MANAGE_THREADS_PERMISSION",
     "OwnedReaction",
+    "OwnedThreadDeletionCoordinator",
+    "OwnedThreadDeletionOutcome",
     "PlannedAction",
     "PreserveCache",
+    "ThreadDeletionImpact",
     "ThreadRestorationJournal",
     "ThreadRestoreOutcome",
     "effective_channel_permissions",

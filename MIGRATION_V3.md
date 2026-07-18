@@ -1026,7 +1026,7 @@ The v3 release candidate is ready to merge only after:
 | Scope IDs, rules, and inventory | `delete_me_discord/scope/resolver.py`, `delete_me_discord/scope/rules.py`, `delete_me_discord/scope/inventory.py` |
 | Thread API, archived-state policy, and rate scheduling | `delete_me_discord/discord/client.py`, `delete_me_discord/discord/transport.py`, `delete_me_discord/cleanup/threads.py`, `delete_me_discord/discord/rate_limits.py` |
 | Listing and rendering | `delete_me_discord/discovery/service.py`, `delete_me_discord/discovery/renderers.py` |
-| Cleanup semantics | `delete_me_discord/cleanup/service.py`, `delete_me_discord/cleanup/models.py` |
+| Cleanup semantics | `delete_me_discord/cleanup/service.py`, `delete_me_discord/cleanup/planner.py`, `delete_me_discord/cleanup/executor.py`, `delete_me_discord/cleanup/thread_deletion.py`, `delete_me_discord/cleanup/models.py` |
 | Durable local state | `delete_me_discord/storage.py`, `delete_me_discord/auth.py`, `delete_me_discord/cleanup/preserve_cache.py` |
 | Version and packaging | `delete_me_discord/_version.py`, `pyproject.toml`, `MANIFEST.in`, `delete_me_discord.spec`, `tools/verify_distribution.py` |
 | CI/CD | `.github/workflows/test.yml`, `.github/workflows/release.yml`, `.github/workflows/docs.yml`, `.github/workflows/pyinstaller.yml` |

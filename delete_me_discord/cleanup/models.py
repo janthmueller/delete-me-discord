@@ -44,6 +44,30 @@ class ForeignReactionImpact:
 
 
 @dataclass(frozen=True, slots=True)
+class ThreadDeletionImpact:
+    """First-class and dependent artifacts affected by one thread deletion."""
+
+    own_messages: int
+    foreign_messages: int
+    foreign_reactions: ForeignReactionImpact
+    scan_complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedThreadDeletionOutcome:
+    """Result of optionally replacing message cleanup with one thread deletion."""
+
+    terminal: bool = False
+    planned: bool = False
+    deleted: bool = False
+    absent: bool = False
+    failed: bool = False
+    scanned_messages: Optional[Tuple[DiscordMessage, ...]] = None
+    scan_elapsed: Optional[float] = None
+    impact: Optional[ThreadDeletionImpact] = None
+
+
+@dataclass(frozen=True, slots=True)
 class MessageFacts:
     """Facts derived from one message before preserve/delete policy is applied."""
 

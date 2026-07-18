@@ -3,16 +3,12 @@
 import logging
 import os
 import time
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Generator, Iterable, List, Optional, Set, Tuple, Union
 
-from ..discord.channel_types import (
-    is_archived_thread,
-    is_thread_channel,
-)
+from ..discord.channel_types import is_archived_thread
 from ..discord.client import DiscordClient
-from ..discord.models import DeleteOutcome, DiscordChannel, DiscordMessage
+from ..discord.models import DiscordChannel, DiscordMessage
 from ..discord.rate_limits import DELETE_POLICY, FETCH_POLICY
 from ..scope import (
     CleanupChannelContext,
@@ -24,6 +20,7 @@ from ..scope import (
     should_include_channel,
 )
 from .preserve_cache import PreserveCache
+from .thread_deletion import OwnedThreadDeletionCoordinator
 from .threads import (
     ARCHIVED_THREAD_CLEANUP_MODES,
     ArchivedThreadAssessment,
@@ -39,35 +36,9 @@ from .models import (
     ChannelPlan,
     CleanupRunOptions,
     CleanupRunStats,
-    ForeignReactionImpact,
 )
 from .planner import CleanupPlanner, CleanupPolicy
 from .reporting import CleanupReporter
-
-
-@dataclass(frozen=True, slots=True)
-class _OwnedThreadDeletionOutcome:
-    """Result of optionally replacing message cleanup with one thread deletion."""
-
-    terminal: bool = False
-    planned: bool = False
-    deleted: bool = False
-    absent: bool = False
-    failed: bool = False
-    cleanup_messages: Optional[List[DiscordMessage]] = None
-    scan_elapsed: Optional[float] = None
-    impact: Optional["_ThreadDeletionImpact"] = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ThreadDeletionImpact:
-    """First-class and dependent artifacts affected by one thread deletion."""
-
-    own_messages: int
-    foreign_messages: int
-    foreign_reactions: ForeignReactionImpact
-    scan_complete: bool
-
 
 class MessageCleaner:
     def __init__(
@@ -323,6 +294,12 @@ class MessageCleaner:
             logger=self.logger,
             clock=self._thread_state_clock,
         )
+        owned_thread_deletion_coordinator = OwnedThreadDeletionCoordinator(
+            api=self.api,
+            user_id=self.user_id,
+            logger=self.logger,
+            report_impact=self.reporter.log_thread_deletion_impact,
+        )
         if not dry_run:
             recovered_count, recovery_failed_count = (
                 archived_thread_coordinator.restore_pending()
@@ -388,6 +365,9 @@ class MessageCleaner:
                     context=context,
                     options=options,
                     archived_thread_coordinator=archived_thread_coordinator,
+                    owned_thread_deletion_coordinator=(
+                        owned_thread_deletion_coordinator
+                    ),
                 )
             )
         self.logger.progress("Channels processed: %s.", processed_channel_count)
@@ -405,18 +385,24 @@ class MessageCleaner:
         context: CleanupChannelContext,
         options: CleanupRunOptions,
         archived_thread_coordinator: ArchivedThreadCoordinator,
+        owned_thread_deletion_coordinator: OwnedThreadDeletionCoordinator,
     ) -> CleanupRunStats:
         """Process one channel as an isolated cleanup transaction."""
         run_stats = CleanupRunStats()
         channel_started_at = time.monotonic()
         self.logger.progress("Processing channel: %s.", channel_str(channel))
-        thread_outcome = self._prepare_owned_thread_deletion(
+        thread_outcome = owned_thread_deletion_coordinator.prepare(
             channel=channel,
             mode=options.delete_owned_threads,
             dry_run=options.dry_run,
-            fetch_sleep_time_range=options.fetch_sleep_time_range,
-            fetch_since=options.fetch_since,
-            max_messages=options.max_messages,
+            fetch_complete_history=lambda: list(
+                self.fetch_all_messages(
+                    channel=channel,
+                    fetch_sleep_time_range=options.fetch_sleep_time_range,
+                    fetch_since=None,
+                    max_messages=float("inf"),
+                )
+            ),
         )
         run_stats.threads_planned_count += int(thread_outcome.planned)
         run_stats.threads_deleted_count += int(thread_outcome.deleted)
@@ -443,6 +429,16 @@ class MessageCleaner:
                 self.preserve_cache.save()
             return run_stats
 
+        fallback_messages = (
+            self._messages_from_complete_thread_scan(
+                channel=channel,
+                messages=list(thread_outcome.scanned_messages),
+                fetch_since=options.fetch_since,
+                max_messages=options.max_messages,
+            )
+            if thread_outcome.scanned_messages is not None
+            else None
+        )
         archived_assessment: ArchivedThreadAssessment | None = None
         if is_archived_thread(channel):
             archived_assessment = archived_thread_coordinator.assess(
@@ -466,14 +462,12 @@ class MessageCleaner:
                 return run_stats
 
         force_buffer = (
-            thread_outcome.cleanup_messages is not None
+            fallback_messages is not None
             or archived_assessment is not None
         )
         if force_buffer:
-            if thread_outcome.cleanup_messages is not None:
-                messages: Iterable[DiscordMessage] = (
-                    thread_outcome.cleanup_messages
-                )
+            if fallback_messages is not None:
+                messages: Iterable[DiscordMessage] = fallback_messages
                 buffer_elapsed = thread_outcome.scan_elapsed
             else:
                 messages, buffer_elapsed = self._prepare_channel_messages(
@@ -658,234 +652,6 @@ class MessageCleaner:
             channel_plan=channel_plan,
         )
         return run_stats
-
-    def _prepare_owned_thread_deletion(
-        self,
-        channel: DiscordChannel,
-        mode: str,
-        dry_run: bool,
-        fetch_sleep_time_range: Tuple[float, float],
-        fetch_since: Optional[datetime],
-        max_messages: Union[int, float],
-    ) -> _OwnedThreadDeletionOutcome:
-        """Plan or execute deletion of one creator-owned thread, with a safe fallback."""
-        if mode == "none" or not is_thread_channel(channel.get("type")):
-            return _OwnedThreadDeletionOutcome()
-
-        owner_id = channel.get("owner_id")
-        if owner_id is None:
-            self.logger.diagnostic(
-                "Skipping owned thread deletion for %s because Discord omitted owner_id.",
-                channel_str(channel),
-            )
-            return _OwnedThreadDeletionOutcome()
-        if str(owner_id) != self.user_id:
-            self.logger.diagnostic(
-                "Skipping owned thread deletion for %s because it was created by another user.",
-                channel_str(channel),
-            )
-            return _OwnedThreadDeletionOutcome()
-
-        if mode == "all" and not dry_run:
-            return self._attempt_owned_thread_deletion(
-                channel=channel,
-                mode=mode,
-                dry_run=dry_run,
-            )
-
-        scan_started_at = time.monotonic()
-        if mode == "self-only":
-            self.logger.info(
-                "Scanning complete history before self-only deletion of %s.",
-                channel_str(channel),
-            )
-        else:
-            self.logger.info(
-                "Scanning complete history to report deletion impact for %s.",
-                channel_str(channel),
-            )
-        scanned_messages = list(
-            self.fetch_all_messages(
-                channel=channel,
-                fetch_sleep_time_range=fetch_sleep_time_range,
-                fetch_since=None,
-                max_messages=float("inf"),
-            )
-        )
-        scan_elapsed = time.monotonic() - scan_started_at
-
-        get_last_fetch_summary = getattr(self.api, "get_last_fetch_summary", None)
-        fetch_summary = get_last_fetch_summary(channel["id"]) if callable(get_last_fetch_summary) else None
-        message_count = channel.get("message_count")
-        scan_complete = (
-            isinstance(fetch_summary, dict)
-            and fetch_summary.get("complete") is True
-            and isinstance(message_count, int)
-            and not isinstance(message_count, bool)
-            and message_count >= 0
-            and len(scanned_messages) >= message_count
-        )
-        impact = self._build_thread_deletion_impact(
-            messages=scanned_messages,
-            scan_complete=scan_complete,
-        )
-        self._log_thread_deletion_impact(channel=channel, impact=impact)
-
-        if mode == "all":
-            return self._attempt_owned_thread_deletion(
-                channel=channel,
-                mode=mode,
-                dry_run=dry_run,
-                impact=impact,
-            )
-
-        cleanup_messages = self._messages_from_complete_thread_scan(
-            channel=channel,
-            messages=scanned_messages,
-            fetch_since=fetch_since,
-            max_messages=max_messages,
-        )
-        if not scan_complete:
-            self.logger.warning(
-                "Skipping self-only thread deletion for %s because a complete history scan could not be proven.",
-                channel_str(channel),
-            )
-            return _OwnedThreadDeletionOutcome(
-                cleanup_messages=cleanup_messages,
-                scan_elapsed=scan_elapsed,
-            )
-
-        foreign_message_count = impact.foreign_messages
-        if foreign_message_count:
-            self.logger.info(
-                "Skipping self-only thread deletion for %s because it contains %s message(s) "
-                "from other or unknown authors.",
-                channel_str(channel),
-                foreign_message_count,
-            )
-            return _OwnedThreadDeletionOutcome(
-                cleanup_messages=cleanup_messages,
-                scan_elapsed=scan_elapsed,
-            )
-
-        outcome = self._attempt_owned_thread_deletion(
-            channel=channel,
-            mode=mode,
-            dry_run=dry_run,
-            impact=impact,
-        )
-        if outcome.terminal:
-            return outcome
-        return _OwnedThreadDeletionOutcome(
-            failed=outcome.failed,
-            cleanup_messages=cleanup_messages,
-            scan_elapsed=scan_elapsed,
-        )
-
-    def _attempt_owned_thread_deletion(
-        self,
-        channel: DiscordChannel,
-        mode: str,
-        dry_run: bool,
-        impact: Optional[_ThreadDeletionImpact] = None,
-    ) -> _OwnedThreadDeletionOutcome:
-        impact_description = (
-            "including messages and reactions from other users"
-            if mode == "all"
-            else "after finding no messages from other authors in the completed scan"
-        )
-        if dry_run:
-            self.logger.event(
-                "Would delete owned thread %s, %s.",
-                channel_str(channel),
-                impact_description,
-                indent=1,
-                prefix="-",
-            )
-            return _OwnedThreadDeletionOutcome(
-                terminal=True,
-                planned=True,
-                impact=impact,
-            )
-
-        self.logger.event(
-            "Deleting owned thread %s, %s.",
-            channel_str(channel),
-            impact_description,
-            indent=1,
-            prefix="-",
-        )
-        delete_outcome = self.api.delete_thread(channel["id"])
-        if delete_outcome == DeleteOutcome.DELETED:
-            return _OwnedThreadDeletionOutcome(
-                terminal=True,
-                deleted=True,
-                impact=impact,
-            )
-        if delete_outcome == DeleteOutcome.ABSENT:
-            return _OwnedThreadDeletionOutcome(
-                terminal=True,
-                absent=True,
-            )
-
-        self.logger.warning(
-            "Owned thread deletion failed for %s; falling back to ordinary message and reaction cleanup.",
-            channel_str(channel),
-        )
-        return _OwnedThreadDeletionOutcome(failed=True)
-
-    def _build_thread_deletion_impact(
-        self,
-        messages: List[DiscordMessage],
-        scan_complete: bool,
-    ) -> _ThreadDeletionImpact:
-        """Summarize first-class messages and dependent foreign reactions."""
-        own_messages = sum(
-            message.get("author_id") == self.user_id for message in messages
-        )
-        foreign_reactions = ForeignReactionImpact()
-        for message in messages:
-            foreign_reactions = foreign_reactions.combined_with(
-                CleanupPlanner.foreign_reaction_impact(
-                    message.get("reactions") or []
-                )
-            )
-        if not scan_complete:
-            foreign_reactions = ForeignReactionImpact(
-                normal=foreign_reactions.normal,
-                burst=foreign_reactions.burst,
-                complete=False,
-            )
-        return _ThreadDeletionImpact(
-            own_messages=own_messages,
-            foreign_messages=len(messages) - own_messages,
-            foreign_reactions=foreign_reactions,
-            scan_complete=scan_complete,
-        )
-
-    def _log_thread_deletion_impact(
-        self,
-        channel: DiscordChannel,
-        impact: _ThreadDeletionImpact,
-    ) -> None:
-        """Report the exact deletion cascade when the completed scan permits it."""
-        if impact.scan_complete:
-            message_impact = (
-                f"{impact.own_messages} yours / "
-                f"{impact.foreign_messages} other-or-unknown"
-            )
-        else:
-            message_impact = "unknown (incomplete thread scan)"
-        self.logger.progress(
-            "Impact at scan time for %s: messages %s; foreign reactions %s.",
-            channel_str(channel),
-            message_impact,
-            self.reporter.format_foreign_reaction_impact(
-                impact.foreign_reactions
-            ),
-            indent=1,
-            prefix="-",
-        )
 
     def _messages_from_complete_thread_scan(
         self,
