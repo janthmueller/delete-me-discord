@@ -39,7 +39,7 @@ from delete_me_discord.scope_inventory import ScopeInventory  # noqa: E402
 from delete_me_discord.thread_cleanup import (  # noqa: E402
     ThreadRestorationJournal,
 )
-from delete_me_discord.type_enums import DELETABLE_MESSAGE_TYPES  # noqa: E402
+from delete_me_discord.type_enums import MessageType  # noqa: E402
 from tests.live.fixture_client import (  # noqa: E402
     DiscordFixtureClient,
     FixtureClientError,
@@ -3265,7 +3265,9 @@ def observe_destructive_contract_scope(
         subject_reactions = 0
         foreign_reactions = 0
         deletable_type_values = {
-            int(message_type) for message_type in DELETABLE_MESSAGE_TYPES
+            int(message_type)
+            for message_type in MessageType
+            if message_type.deletable
         }
         for message_id, payload in observed_payloads.items():
             author = payload.get("author")

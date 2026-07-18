@@ -829,7 +829,46 @@ coverage should first prove that dry-run finds the intended artifacts without
 mutation; a smaller but representative set should then perform real message,
 reaction, and owned-thread cleanup and verify Discord's resulting state.
 
-### Phase 2: optional QR account login
+### Phase 2: persisted cleanup plans
+
+Add a two-phase cleanup mode that records an exact non-mutating plan for later
+execution:
+
+```console
+dmd clean --plan cleanup-plan.json [normal scope and retention options]
+dmd clean --apply-plan cleanup-plan.json
+```
+
+`--plan` should use the same discovery and decision engine as `--dry-run`, but
+write a versioned machine-readable file instead of relying on human-readable
+terminal output. It must not mutate Discord. The plan should contain the
+authenticated user ID, creation time, effective cleanup settings, schema
+version, summary counts, and only the identifiers required for each selected
+message, normal reaction, Super Reaction, and thread context. It must never
+contain the token, message content, usernames, guild names, or channel names.
+Because Discord IDs and timestamps are still sensitive metadata, the file must
+be written atomically with owner-only permissions.
+
+`--apply-plan` should verify the schema and authenticated account, then execute
+only the recorded actions. It must not silently rediscover or append new
+targets. Already absent artifacts should remain successful idempotent outcomes;
+permission changes, inaccessible channels, malformed entries, and failed thread
+activation or restoration must be reported explicitly. Archived-thread actions
+should reuse the existing restoration coordinator and journal.
+
+The original retention and time-window rules should not be re-evaluated while
+applying a valid plan: the persisted plan is the reviewed decision made at
+creation time. Execution should instead display the plan age and warn when it
+may be stale. Tests must cover tampering, account mismatch, schema evolution,
+partial execution, replay, already absent artifacts, changed permissions,
+archived-thread transitions, atomic writes, and the absence of private content
+or credentials in both the file and logs.
+
+`--plan` and `--dry-run` should be mutually exclusive. `--apply-plan` should
+also reject discovery, scope, retention, and ordinary planning options whose
+meaning would be ambiguous once the target set has already been frozen.
+
+### Phase 3: optional QR account login
 
 Prototype `dmd login --qr` as a safer convenience layer over the existing token
 and keyring flow. The current token prompt, `DISCORD_TOKEN`, and system-keyring
@@ -875,7 +914,7 @@ are not v3 requirements. They would make DMD process primary account credentials
 through a private, CAPTCHA-sensitive protocol and remain post-v3 research unless
 a substantially safer supported flow becomes available.
 
-### Phase 3: search-backed own-message discovery
+### Phase 4: search-backed own-message discovery
 
 Add message search as an alternative discovery strategy when
 `--keep-reactions` is enabled. In that mode DMD only needs the authenticated
@@ -906,7 +945,7 @@ available until live tests establish search completeness across guilds, DMs,
 Group DMs, private threads, archived threads, indexing delays, and long
 histories. It may remain useful as a fallback even after search ships.
 
-### Phase 4: batched retention and reaction traversal
+### Phase 5: batched retention and reaction traversal
 
 Reaction cleanup still needs channel history traversal. Incremental retention
 also has a concrete inefficiency today: every preserved cached ID that is not in
@@ -934,13 +973,15 @@ The v3 release candidate is ready to merge only after:
 1. the normal cross-platform `Test` workflow passes on the final branch SHA
 2. the live suite passes its dry-run, destructive, permission, and recovery
    scenarios against isolated Discord fixtures
-3. QR authentication preserves token redaction, keyring-only storage, CAPTCHA
+3. persisted cleanup plans preserve planner equivalence, privacy, account
+   binding, idempotent replay, and archived-thread recovery, if included in v3
+4. QR authentication preserves token redaction, keyring-only storage, CAPTCHA
    failure, and existing token-login behavior, if it is included in v3
-4. search-backed discovery has plan-equivalence coverage and a traversal
+5. search-backed discovery has plan-equivalence coverage and a traversal
    fallback, if it is included in v3
-5. batched cache/history fetching preserves existing retention semantics, if it
+6. batched cache/history fetching preserves existing retention semantics, if it
    is included in v3
-6. the migration guide, user documentation, artifact audit, and release notes
+7. the migration guide, user documentation, artifact audit, and release notes
    describe the final behavior rather than planned behavior
 
 ## Operational constraints

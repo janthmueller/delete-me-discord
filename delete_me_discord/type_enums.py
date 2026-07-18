@@ -110,9 +110,3 @@ class MessageType(IntEnum):
 
     def __str__(self):
         return f"{self.name} (Value: {self.value}, Deletable: {self.deletable})"
-
-DELETABLE_MESSAGE_TYPES = [message_type for message_type in MessageType if message_type.deletable]
-
-if __name__ == "__main__":
-    for message_type in MessageType:
-        print(message_type)

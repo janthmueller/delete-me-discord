@@ -11,22 +11,20 @@ from .channel_types import (
     is_archived_thread,
     is_thread_channel,
 )
-from .models import (
+from .cleanup import (
     ActionKind,
+    ChannelCleanupStats,
     ChannelPlan,
-    DeleteOutcome,
-    DiscordChannel,
-    DiscordEmoji,
-    DiscordMessage,
-    DiscordReaction,
+    ChannelExecutor,
+    CleanupPlanner,
+    CleanupPolicy,
+    CleanupReporter,
+    CleanupRunOptions,
+    CleanupRunStats,
     ForeignReactionImpact,
-    MessageDecision,
-    MessageFacts,
-    OwnedReaction,
-    PlannedAction,
 )
+from .models import DeleteOutcome, DiscordChannel, DiscordMessage
 from .utils import channel_str, format_timestamp
-from .privacy import sensitive
 from .preserve_cache import PreserveCache
 from .rate_limits import DELETE_POLICY, FETCH_POLICY
 from .scope_filter import ScopeFilter
@@ -44,9 +42,6 @@ from .thread_cleanup import (
     ThreadRestorationJournal,
     ThreadRestoreOutcome,
 )
-from .type_enums import ReactionType
-
-
 @dataclass(frozen=True, slots=True)
 class _OwnedThreadDeletionOutcome:
     """Result of optionally replacing message cleanup with one thread deletion."""
@@ -69,28 +64,6 @@ class _ThreadDeletionImpact:
     foreign_messages: int
     foreign_reactions: ForeignReactionImpact
     scan_complete: bool
-
-
-@dataclass(slots=True)
-class _DeleteActionCounts:
-    """Counts for a group of concrete delete outcomes."""
-
-    deleted: int = 0
-    absent: int = 0
-    failed: int = 0
-    processed: int = 0
-    thread_archived: bool = False
-
-    def record(self, outcome: DeleteOutcome) -> None:
-        self.processed += 1
-        if outcome == DeleteOutcome.DELETED:
-            self.deleted += 1
-        elif outcome == DeleteOutcome.ABSENT:
-            self.absent += 1
-        else:
-            self.failed += 1
-            if outcome == DeleteOutcome.THREAD_ARCHIVED:
-                self.thread_archived = True
 
 
 class MessageCleaner:
@@ -127,15 +100,16 @@ class MessageCleaner:
             ValueError: If user_id cannot be resolved from arguments, environment variables, or the API token.
         """
         self.api = api
-        self.user_id = user_id or os.getenv("DISCORD_USER_ID")
-        if not self.user_id:
+        resolved_user_id = user_id or os.getenv("DISCORD_USER_ID")
+        if not resolved_user_id:
             try:
                 current_user = self.api.get_current_user()
-                self.user_id = current_user.get("id")
+                resolved_user_id = current_user.get("id")
             except Exception:
-                self.user_id = None
-        if not self.user_id:
+                resolved_user_id = None
+        if not isinstance(resolved_user_id, str) or not resolved_user_id:
             raise ValueError("User ID not provided. Set DISCORD_USER_ID or ensure the token can fetch /users/@me.")
+        self.user_id = resolved_user_id
 
         self.scope_rules = ScopeRules.from_values(include_ids, exclude_ids)
         self.preserve_last = preserve_last
@@ -144,6 +118,7 @@ class MessageCleaner:
             raise ValueError("preserve_n_mode must be 'mine' or 'all'.")
         self.preserve_n_mode = preserve_n_mode
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.reporter = CleanupReporter(self.logger)
         self.preserve_cache = preserve_cache
         self.scope_inventory = scope_inventory
         self.scope_seed = scope_seed
@@ -262,7 +237,7 @@ class MessageCleaner:
         delete_reactions: bool = False,
         channel_plan: Optional[ChannelPlan] = None,
         resume_archived_thread: Optional[Callable[[], bool]] = None,
-    ) -> Tuple[List[str], dict[str, int], float]:
+    ) -> Tuple[List[str], ChannelCleanupStats, float]:
         """
         Execute planned actions for one channel and collect per-channel stats.
 
@@ -277,158 +252,25 @@ class MessageCleaner:
                 after Discord reports it archived, when the coordinator permits it.
 
         Returns:
-            Tuple[List[str], dict[str, int], float]: Preserved message IDs, statistics, and action-phase elapsed time.
+            Tuple[List[str], ChannelCleanupStats, float]: Preserved message IDs,
+                statistics, and action-phase elapsed time.
         """
-        preserved_msg_ids = (
-            [
-                decision.facts.message["message_id"]
-                for decision in channel_plan.decisions
-                if (
-                    (
-                        decision.preserve_message
-                        and decision.facts.is_deletable
-                    )
-                    or decision.preserve_reaction_count > 0
-                )
-            ]
-            if channel_plan is not None
-            else []
-        )
-        self._configure_request_policy(DELETE_POLICY, delete_sleep_time_range)
-        stats = {
-            "message_count": 0,
-            "deleted_count": 0,
-            "absent_count": 0,
-            "failed_count": 0,
-            "preserved_deletable_count": 0,
-            "reactions_removed_count": 0,
-            "reactions_absent_count": 0,
-            "reactions_failed_count": 0,
-            "preserved_reactions_count": 0,
-            "foreign_reactions_normal_count": 0,
-            "foreign_reactions_burst_count": 0,
-            "foreign_reactions_unknown_count": 0,
-            "actions_not_attempted_count": 0,
-            "thread_state_interrupted_count": 0,
-        }
-        decisions: Iterable[MessageDecision]
-        if channel_plan is not None:
-            decisions = channel_plan.decisions
-            stats["message_count"] = channel_plan.buffered_message_count
-            stats["preserved_deletable_count"] = sum(
-                decision.preserve_message and decision.facts.is_deletable
-                for decision in channel_plan.decisions
-            )
-            stats["preserved_reactions_count"] = sum(
-                decision.preserve_reaction_count
-                for decision in channel_plan.decisions
-            )
-        else:
-            decisions = self._iter_message_decisions(
-                messages=messages,
+        result = ChannelExecutor(
+            api=self.api,
+            logger=self.logger,
+            configure_request_policy=self._configure_request_policy,
+        ).execute(
+            messages=messages,
+            planner=self._planner(
                 cutoff_time=cutoff_time,
                 delete_reactions=delete_reactions,
-            )
-        action_start = time.monotonic()
-        processed_action_count = 0
-        interrupted_channel_id: str | None = None
-        for decision in decisions:
-            if channel_plan is None:
-                stats["message_count"] += 1
-            facts = decision.facts
-            message = facts.message
-            message_id = message["message_id"]
-            message_time = facts.message_time
-
-            if decision.preserve_message and facts.is_deletable:
-                self.logger.debug(
-                    "Preserving deletable message %s sent at %s UTC.",
-                    sensitive(message_id),
-                    format_timestamp(message_time),
-                )
-                if channel_plan is None:
-                    stats["preserved_deletable_count"] += 1
-                    preserved_msg_ids.append(message_id)
-                continue
-
-            if decision.preserve_reaction_count > 0:
-                if channel_plan is None:
-                    stats["preserved_reactions_count"] += (
-                        decision.preserve_reaction_count
-                    )
-                    preserved_msg_ids.append(message_id)
-                continue
-
-            reaction_actions: List[PlannedAction] = []
-            for action in decision.actions:
-                if action.kind == ActionKind.DELETE_REACTION:
-                    reaction_actions.append(action)
-                    continue
-                executed = self._execute_action(
-                    action=action,
-                    dry_run=dry_run,
-                    facts=facts,
-                )
-                if (
-                    executed == DeleteOutcome.THREAD_ARCHIVED
-                    and resume_archived_thread is not None
-                    and resume_archived_thread()
-                ):
-                    executed = self._execute_action(
-                        action=action,
-                        dry_run=dry_run,
-                        facts=facts,
-                    )
-                processed_action_count += 1
-                if action.kind == ActionKind.DELETE_MESSAGE:
-                    if dry_run or executed == DeleteOutcome.DELETED:
-                        stats["deleted_count"] += 1
-                        self._accumulate_foreign_reaction_impact(
-                            stats,
-                            facts.foreign_reaction_impact,
-                        )
-                    elif executed == DeleteOutcome.ABSENT:
-                        stats["absent_count"] += 1
-                    else:
-                        stats["failed_count"] += 1
-                if executed == DeleteOutcome.THREAD_ARCHIVED:
-                    interrupted_channel_id = action.channel_id
-                    break
-            if interrupted_channel_id is not None:
-                break
-            if reaction_actions:
-                reaction_outcomes = self._execute_reaction_actions(
-                    actions=reaction_actions,
-                    dry_run=dry_run,
-                    resume_archived_thread=resume_archived_thread,
-                )
-                processed_action_count += reaction_outcomes.processed
-                stats["reactions_removed_count"] += reaction_outcomes.deleted
-                stats["reactions_absent_count"] += reaction_outcomes.absent
-                stats["reactions_failed_count"] += reaction_outcomes.failed
-                if reaction_outcomes.thread_archived:
-                    interrupted_channel_id = reaction_actions[0].channel_id
-                    break
-        if interrupted_channel_id is not None:
-            stats["thread_state_interrupted_count"] = 1
-            if channel_plan is not None:
-                stats["actions_not_attempted_count"] = max(
-                    0,
-                    channel_plan.action_count - processed_action_count,
-                )
-                self.logger.warning(
-                    "Thread %s archived during cleanup; %s remaining planned action(s) were not attempted.",
-                    sensitive(interrupted_channel_id),
-                    stats["actions_not_attempted_count"],
-                )
-            else:
-                self.logger.warning(
-                    "Thread %s archived during cleanup; remaining actions were not attempted.",
-                    sensitive(interrupted_channel_id),
-                )
-        action_elapsed = time.monotonic() - action_start
-
-        return preserved_msg_ids, stats, action_elapsed
+            ),
+            delete_sleep_time_range=delete_sleep_time_range,
+            dry_run=dry_run,
+            channel_plan=channel_plan,
+            resume_archived_thread=resume_archived_thread,
+        )
+        return result.as_legacy_tuple()
 
     def clean_messages(
         self,
@@ -489,37 +331,21 @@ class MessageCleaner:
                     recovery_failed_count,
                 )
         run_started_at = time.monotonic()
-        total_stats = {
-            "deleted_count": 0,
-            "absent_count": 0,
-            "failed_count": 0,
-            "preserved_deletable_count": 0,
-            "reactions_removed_count": 0,
-            "reactions_absent_count": 0,
-            "reactions_failed_count": 0,
-            "preserved_reactions_count": 0,
-            "threads_deleted_count": 0,
-            "threads_absent_count": 0,
-            "threads_failed_count": 0,
-            "threads_planned_count": 0,
-            "foreign_messages_affected_count": 0,
-            "foreign_messages_unknown_count": 0,
-            "foreign_reactions_normal_count": 0,
-            "foreign_reactions_burst_count": 0,
-            "foreign_reactions_unknown_count": 0,
-            "archived_threads_skipped_count": 0,
-            "archived_threads_planned_count": 0,
-            "archived_threads_opened_count": 0,
-            "archived_threads_open_failed_count": 0,
-            "archived_threads_restored_count": 0,
-            "archived_threads_absent_count": 0,
-            "archived_threads_left_active_count": 0,
-            "archived_threads_auto_reopened_count": 0,
-            "archived_threads_interrupted_count": 0,
-            "archived_thread_actions_not_attempted_count": 0,
-        }
+        total_stats = CleanupRunStats()
 
         cutoff_time = datetime.now(timezone.utc) - self.preserve_last
+        options = CleanupRunOptions(
+            cutoff_time=cutoff_time,
+            dry_run=dry_run,
+            fetch_sleep_time_range=fetch_sleep_time_range,
+            delete_sleep_time_range=delete_sleep_time_range,
+            fetch_since=fetch_since,
+            max_messages=max_messages,
+            buffer_channel_messages=buffer_channel_messages,
+            delete_reactions=delete_reactions,
+            delete_owned_threads=delete_owned_threads,
+            archived_thread_cleanup=archived_thread_cleanup,
+        )
         if self.preserve_last > timedelta(0):
             self.logger.info("Deleting messages older than %s UTC.", format_timestamp(cutoff_time))
         if fetch_since:
@@ -549,377 +375,279 @@ class MessageCleaner:
             if context is None or context.channel is not channel:
                 context = CleanupChannelContext(channel=channel)
             processed_channel_count += 1
-            channel_started_at = time.monotonic()
-            self.logger.progress("Processing channel: %s.", channel_str(channel))
-            thread_outcome = self._prepare_owned_thread_deletion(
-                channel=channel,
-                mode=delete_owned_threads,
-                dry_run=dry_run,
-                fetch_sleep_time_range=fetch_sleep_time_range,
-                fetch_since=fetch_since,
-                max_messages=max_messages,
-            )
-            total_stats["threads_planned_count"] += int(thread_outcome.planned)
-            total_stats["threads_deleted_count"] += int(thread_outcome.deleted)
-            total_stats["threads_absent_count"] += int(thread_outcome.absent)
-            total_stats["threads_failed_count"] += int(thread_outcome.failed)
-            if thread_outcome.terminal:
-                if thread_outcome.impact is not None and (
-                    thread_outcome.planned or thread_outcome.deleted
-                ):
-                    if thread_outcome.impact.scan_complete:
-                        total_stats["foreign_messages_affected_count"] += (
-                            thread_outcome.impact.foreign_messages
-                        )
-                    else:
-                        total_stats["foreign_messages_unknown_count"] += 1
-                    self._accumulate_foreign_reaction_impact(
-                        total_stats,
-                        thread_outcome.impact.foreign_reactions,
-                    )
-                if self.preserve_cache:
-                    self.preserve_cache.set_ids(channel_id=channel["id"], message_ids=[])
-                    self.preserve_cache.save()
-                continue
-
-            archived_assessment: ArchivedThreadAssessment | None = None
-            if is_archived_thread(channel):
-                archived_assessment = archived_thread_coordinator.assess(
+            total_stats.merge(
+                self._process_channel(
                     channel=channel,
-                    guild=context.guild,
-                    parent=context.parent,
-                    mode=archived_thread_cleanup,
+                    context=context,
+                    options=options,
+                    archived_thread_coordinator=archived_thread_coordinator,
                 )
-                if not archived_assessment.should_scan:
-                    total_stats["archived_threads_skipped_count"] += 1
-                    log = (
-                        self.logger.diagnostic
-                        if archived_thread_cleanup == "skip"
-                        else self.logger.info
-                    )
-                    log(
-                        "Skipping archived thread %s without scanning messages: %s.",
-                        channel_str(channel),
-                        archived_assessment.reason,
-                    )
-                    continue
-
-            force_buffer = (
-                thread_outcome.cleanup_messages is not None
-                or archived_assessment is not None
             )
-            if force_buffer:
-                if thread_outcome.cleanup_messages is not None:
-                    messages: Iterable[DiscordMessage] = thread_outcome.cleanup_messages
-                    buffer_elapsed = thread_outcome.scan_elapsed
-                else:
-                    messages, buffer_elapsed = self._prepare_channel_messages(
-                        channel=channel,
-                        fetch_sleep_time_range=fetch_sleep_time_range,
-                        fetch_since=fetch_since,
-                        max_messages=max_messages,
-                        buffer_channel_messages=True,
-                        dry_run=dry_run,
+        self.logger.progress("Channels processed: %s.", processed_channel_count)
+        run_elapsed = time.monotonic() - run_started_at
+        self.reporter.log_run_summary(
+            stats=total_stats,
+            options=options,
+            run_elapsed=run_elapsed,
+        )
+        return total_stats.deleted_count
+
+    def _process_channel(
+        self,
+        channel: DiscordChannel,
+        context: CleanupChannelContext,
+        options: CleanupRunOptions,
+        archived_thread_coordinator: ArchivedThreadCoordinator,
+    ) -> CleanupRunStats:
+        """Process one channel as an isolated cleanup transaction."""
+        run_stats = CleanupRunStats()
+        channel_started_at = time.monotonic()
+        self.logger.progress("Processing channel: %s.", channel_str(channel))
+        thread_outcome = self._prepare_owned_thread_deletion(
+            channel=channel,
+            mode=options.delete_owned_threads,
+            dry_run=options.dry_run,
+            fetch_sleep_time_range=options.fetch_sleep_time_range,
+            fetch_since=options.fetch_since,
+            max_messages=options.max_messages,
+        )
+        run_stats.threads_planned_count += int(thread_outcome.planned)
+        run_stats.threads_deleted_count += int(thread_outcome.deleted)
+        run_stats.threads_absent_count += int(thread_outcome.absent)
+        run_stats.threads_failed_count += int(thread_outcome.failed)
+        if thread_outcome.terminal:
+            if thread_outcome.impact is not None and (
+                thread_outcome.planned or thread_outcome.deleted
+            ):
+                if thread_outcome.impact.scan_complete:
+                    run_stats.foreign_messages_affected_count += (
+                        thread_outcome.impact.foreign_messages
                     )
+                else:
+                    run_stats.foreign_messages_unknown_count += 1
+                run_stats.add_foreign_reaction_impact(
+                    thread_outcome.impact.foreign_reactions,
+                )
+            if self.preserve_cache:
+                self.preserve_cache.set_ids(
+                    channel_id=channel["id"],
+                    message_ids=[],
+                )
+                self.preserve_cache.save()
+            return run_stats
+
+        archived_assessment: ArchivedThreadAssessment | None = None
+        if is_archived_thread(channel):
+            archived_assessment = archived_thread_coordinator.assess(
+                channel=channel,
+                guild=context.guild,
+                parent=context.parent,
+                mode=options.archived_thread_cleanup,
+            )
+            if not archived_assessment.should_scan:
+                run_stats.archived_threads_skipped_count += 1
+                log = (
+                    self.logger.diagnostic
+                    if options.archived_thread_cleanup == "skip"
+                    else self.logger.info
+                )
+                log(
+                    "Skipping archived thread %s without scanning messages: %s.",
+                    channel_str(channel),
+                    archived_assessment.reason,
+                )
+                return run_stats
+
+        force_buffer = (
+            thread_outcome.cleanup_messages is not None
+            or archived_assessment is not None
+        )
+        if force_buffer:
+            if thread_outcome.cleanup_messages is not None:
+                messages: Iterable[DiscordMessage] = (
+                    thread_outcome.cleanup_messages
+                )
+                buffer_elapsed = thread_outcome.scan_elapsed
             else:
                 messages, buffer_elapsed = self._prepare_channel_messages(
                     channel=channel,
-                    fetch_sleep_time_range=fetch_sleep_time_range,
-                    fetch_since=fetch_since,
-                    max_messages=max_messages,
-                    buffer_channel_messages=buffer_channel_messages,
-                    dry_run=dry_run,
+                    fetch_sleep_time_range=options.fetch_sleep_time_range,
+                    fetch_since=options.fetch_since,
+                    max_messages=options.max_messages,
+                    buffer_channel_messages=True,
+                    dry_run=options.dry_run,
                 )
-            channel_delete_reactions = delete_reactions
-            channel_plan = None
-            if buffer_channel_messages or force_buffer:
-                channel_plan = self._build_channel_plan(
-                    messages=messages,
-                    cutoff_time=cutoff_time,
-                    delete_reactions=channel_delete_reactions,
-                )
-                if not dry_run:
-                    self._log_buffered_channel_pre_execution(
-                        buffer_elapsed=buffer_elapsed or 0.0,
-                        channel_plan=channel_plan,
-                        delete_sleep_time_range=delete_sleep_time_range,
-                    )
-            activation = None
-            resume_archived_thread_callback: Callable[[], bool] | None = None
-            archived_transition_action_count = 0
-            if (
-                archived_assessment is not None
-                and channel_plan is not None
-                and channel_plan.action_count > 0
-            ):
-                total_stats["archived_threads_planned_count"] += 1
-                archived_transition_action_count = 2
-                if dry_run:
-                    restoration = (
-                        "and would restore it to archived state"
-                        if archived_assessment.restore_expected
-                        else "and restoration is not guaranteed; it may remain active"
-                    )
-                    self.logger.progress(
-                        "Would attempt to unarchive thread %s for planned cleanup %s.",
-                        channel_str(channel),
-                        restoration,
-                        indent=1,
-                        prefix="-",
-                    )
-                else:
-                    activation = archived_thread_coordinator.activate(
-                        channel,
-                        archived_assessment,
-                    )
-                    if not activation.opened:
-                        total_stats["archived_threads_open_failed_count"] += 1
-                        message_actions = sum(
-                            action.kind == ActionKind.DELETE_MESSAGE
-                            for action in channel_plan.actions
-                        )
-                        reaction_actions = sum(
-                            action.kind == ActionKind.DELETE_REACTION
-                            for action in channel_plan.actions
-                        )
-                        self.logger.warning(
-                            "Skipping planned cleanup in archived thread %s because it could not be "
-                            "unarchived (%s message deletion(s), %s reaction removal(s) not attempted).",
-                            channel_str(channel),
-                            message_actions,
-                            reaction_actions,
-                        )
-                        continue
-                    total_stats["archived_threads_opened_count"] += 1
+        else:
+            messages, buffer_elapsed = self._prepare_channel_messages(
+                channel=channel,
+                fetch_sleep_time_range=options.fetch_sleep_time_range,
+                fetch_since=options.fetch_since,
+                max_messages=options.max_messages,
+                buffer_channel_messages=options.buffer_channel_messages,
+                dry_run=options.dry_run,
+            )
 
-                    def handle_archived_thread() -> bool:
-                        nonlocal activation
-                        if activation is None:
-                            return False
-                        result = (
-                            archived_thread_coordinator.resume_after_likely_auto_archive(
-                                channel,
-                                activation,
-                            )
-                        )
-                        activation = result.activation
-                        if result.retry_action:
-                            total_stats["archived_threads_auto_reopened_count"] += 1
-                        return result.retry_action
-
-                    resume_archived_thread_callback = handle_archived_thread
-
-            try:
-                preserved_msg_ids, stats, action_elapsed = self.delete_messages_older_than(
-                    messages=messages,
-                    cutoff_time=cutoff_time,
-                    delete_sleep_time_range=delete_sleep_time_range,
-                    dry_run=dry_run,
+        channel_plan = None
+        if options.buffer_channel_messages or force_buffer:
+            channel_plan = self._planner(
+                cutoff_time=options.cutoff_time,
+                delete_reactions=options.delete_reactions,
+            ).build_channel_plan(messages)
+            if not options.dry_run:
+                self.reporter.log_buffered_channel_pre_execution(
+                    buffer_elapsed=buffer_elapsed or 0.0,
                     channel_plan=channel_plan,
-                    delete_reactions=channel_delete_reactions,
+                    delete_sleep_time_range=options.delete_sleep_time_range,
+                )
+
+        activation = None
+        resume_archived_thread_callback: Callable[[], bool] | None = None
+        archived_transition_action_count = 0
+        if (
+            archived_assessment is not None
+            and channel_plan is not None
+            and channel_plan.action_count > 0
+        ):
+            run_stats.archived_threads_planned_count += 1
+            archived_transition_action_count = 2
+            if options.dry_run:
+                restoration = (
+                    "and would restore it to archived state"
+                    if archived_assessment.restore_expected
+                    else "and restoration is not guaranteed; it may remain active"
+                )
+                self.logger.progress(
+                    "Would attempt to unarchive thread %s for planned cleanup %s.",
+                    channel_str(channel),
+                    restoration,
+                    indent=1,
+                    prefix="-",
+                )
+            else:
+                activation = archived_thread_coordinator.activate(
+                    channel,
+                    archived_assessment,
+                )
+                if not activation.opened:
+                    run_stats.archived_threads_open_failed_count += 1
+                    message_actions = sum(
+                        action.kind == ActionKind.DELETE_MESSAGE
+                        for action in channel_plan.actions
+                    )
+                    reaction_actions = sum(
+                        action.kind == ActionKind.DELETE_REACTION
+                        for action in channel_plan.actions
+                    )
+                    self.logger.warning(
+                        "Skipping planned cleanup in archived thread %s because it could not be "
+                        "unarchived (%s message deletion(s), %s reaction removal(s) not attempted).",
+                        channel_str(channel),
+                        message_actions,
+                        reaction_actions,
+                    )
+                    return run_stats
+                run_stats.archived_threads_opened_count += 1
+
+                def handle_archived_thread() -> bool:
+                    nonlocal activation
+                    if activation is None:
+                        return False
+                    result = (
+                        archived_thread_coordinator.resume_after_likely_auto_archive(
+                            channel,
+                            activation,
+                        )
+                    )
+                    activation = result.activation
+                    if result.retry_action:
+                        run_stats.archived_threads_auto_reopened_count += 1
+                    return result.retry_action
+
+                resume_archived_thread_callback = handle_archived_thread
+
+        try:
+            preserved_msg_ids, stats, action_elapsed = (
+                self.delete_messages_older_than(
+                    messages=messages,
+                    cutoff_time=options.cutoff_time,
+                    delete_sleep_time_range=options.delete_sleep_time_range,
+                    dry_run=options.dry_run,
+                    channel_plan=channel_plan,
+                    delete_reactions=options.delete_reactions,
                     resume_archived_thread=resume_archived_thread_callback,
                 )
-            finally:
-                if activation is not None and activation.opened:
-                    restore_outcome = archived_thread_coordinator.restore(
-                        channel,
-                        activation,
-                    )
-                    if restore_outcome == ThreadRestoreOutcome.RESTORED:
-                        total_stats["archived_threads_restored_count"] += 1
-                    elif restore_outcome == ThreadRestoreOutcome.ABSENT:
-                        total_stats["archived_threads_absent_count"] += 1
-                    else:
-                        total_stats["archived_threads_left_active_count"] += 1
-            if self.preserve_cache:
-                self.preserve_cache.set_ids(channel_id=channel["id"], message_ids=preserved_msg_ids)
-                self.preserve_cache.save()
+            )
+        finally:
+            if activation is not None and activation.opened:
+                restore_outcome = archived_thread_coordinator.restore(
+                    channel,
+                    activation,
+                )
+                if restore_outcome == ThreadRestoreOutcome.RESTORED:
+                    run_stats.archived_threads_restored_count += 1
+                elif restore_outcome == ThreadRestoreOutcome.ABSENT:
+                    run_stats.archived_threads_absent_count += 1
+                else:
+                    run_stats.archived_threads_left_active_count += 1
 
-            total_stats["deleted_count"] += stats["deleted_count"]
-            total_stats["absent_count"] += stats.get("absent_count", 0)
-            total_stats["failed_count"] += stats.get("failed_count", 0)
-            total_stats["preserved_deletable_count"] += stats["preserved_deletable_count"]
-            total_stats["reactions_removed_count"] += stats["reactions_removed_count"]
-            total_stats["reactions_absent_count"] += stats.get(
-                "reactions_absent_count",
-                0,
+        if self.preserve_cache:
+            self.preserve_cache.set_ids(
+                channel_id=channel["id"],
+                message_ids=preserved_msg_ids,
             )
-            total_stats["reactions_failed_count"] += stats.get(
-                "reactions_failed_count",
-                0,
-            )
-            total_stats["preserved_reactions_count"] += stats["preserved_reactions_count"]
-            total_stats["foreign_reactions_normal_count"] += stats.get(
-                "foreign_reactions_normal_count",
-                0,
-            )
-            total_stats["foreign_reactions_burst_count"] += stats.get(
-                "foreign_reactions_burst_count",
-                0,
-            )
-            total_stats["foreign_reactions_unknown_count"] += stats.get(
-                "foreign_reactions_unknown_count",
-                0,
-            )
-            total_stats["archived_threads_interrupted_count"] += stats.get(
-                "thread_state_interrupted_count",
-                0,
-            )
-            total_stats["archived_thread_actions_not_attempted_count"] += stats.get(
-                "actions_not_attempted_count",
-                0,
-            )
-            channel_elapsed = time.monotonic() - channel_started_at
-            get_last_fetch_summary = getattr(self.api, "get_last_fetch_summary", None)
-            fetch_summary = get_last_fetch_summary(channel["id"]) if callable(get_last_fetch_summary) else None
-            if dry_run:
-                channel_execute_estimate = self._format_duration(
-                    self._estimate_action_count_duration(
-                        stats["deleted_count"]
-                        + stats["reactions_removed_count"]
-                        + archived_transition_action_count,
-                        delete_sleep_time_range,
-                    )
-                )
-                channel_total_estimate = self._format_duration(
-                    channel_elapsed + self._estimate_action_count_duration(
-                        stats["deleted_count"]
-                        + stats["reactions_removed_count"]
-                        + archived_transition_action_count,
-                        delete_sleep_time_range,
-                    )
-                )
-                self._log_dry_run_channel_summary(
-                    stats=stats,
-                    fetch_summary=fetch_summary,
-                    channel_elapsed=channel_elapsed,
-                    channel_execute_estimate=channel_execute_estimate,
-                    channel_total_estimate=channel_total_estimate,
-                    delete_reactions=delete_reactions,
-                    channel_plan=channel_plan,
-                )
-                continue
+            self.preserve_cache.save()
 
-            self._log_executed_channel_summary(
+        run_stats.add_channel_stats(stats)
+        channel_elapsed = time.monotonic() - channel_started_at
+        get_last_fetch_summary = getattr(
+            self.api,
+            "get_last_fetch_summary",
+            None,
+        )
+        fetch_summary = (
+            get_last_fetch_summary(channel["id"])
+            if callable(get_last_fetch_summary)
+            else None
+        )
+        if options.dry_run:
+            action_count = (
+                stats.deleted_count
+                + stats.reactions_removed_count
+                + archived_transition_action_count
+            )
+            channel_execute_estimate = self.reporter.format_duration(
+                self.reporter.estimate_action_count_duration(
+                    action_count,
+                    options.delete_sleep_time_range,
+                )
+            )
+            channel_total_estimate = self.reporter.format_duration(
+                channel_elapsed
+                + self.reporter.estimate_action_count_duration(
+                    action_count,
+                    options.delete_sleep_time_range,
+                )
+            )
+            self.reporter.log_dry_run_channel_summary(
                 stats=stats,
                 fetch_summary=fetch_summary,
                 channel_elapsed=channel_elapsed,
-                action_elapsed=action_elapsed,
-                delete_reactions=delete_reactions,
+                channel_execute_estimate=channel_execute_estimate,
+                channel_total_estimate=channel_total_estimate,
+                delete_reactions=options.delete_reactions,
                 channel_plan=channel_plan,
             )
+            return run_stats
 
-        self.logger.progress("Channels processed: %s.", processed_channel_count)
-        run_elapsed = time.monotonic() - run_started_at
-        if dry_run:
-            execute_estimate_seconds = self._estimate_action_count_duration(
-                total_stats["deleted_count"]
-                + total_stats["reactions_removed_count"]
-                + total_stats["threads_planned_count"]
-                + 2 * total_stats["archived_threads_planned_count"],
-                delete_sleep_time_range,
-            )
-            total_summary = (
-                f"Summary: messages {total_stats['deleted_count']} delete / "
-                f"{total_stats['preserved_deletable_count']} keep"
-            )
-            if delete_reactions:
-                total_summary += (
-                    f", reactions {total_stats['reactions_removed_count']} delete / "
-                    f"{total_stats['preserved_reactions_count']} keep"
-                )
-            if delete_owned_threads != "none":
-                total_summary += f", owned threads {total_stats['threads_planned_count']} delete"
-            if total_stats["threads_planned_count"]:
-                if total_stats["foreign_messages_unknown_count"]:
-                    total_summary += ", foreign messages affected unknown"
-                else:
-                    total_summary += (
-                        ", foreign messages affected "
-                        f"{total_stats['foreign_messages_affected_count']}"
-                    )
-            if total_stats["deleted_count"] or total_stats["threads_planned_count"]:
-                total_summary += (
-                    ", foreign reactions affected "
-                    f"{self._format_foreign_reaction_stats(total_stats)}"
-                )
-            self.logger.info(total_summary)
-            self.logger.info(
-                "scan time=%s, est. execute time=%s, est. total time=%s",
-                self._format_duration(run_elapsed),
-                self._format_duration(execute_estimate_seconds),
-                self._format_duration(run_elapsed + execute_estimate_seconds),
-            )
-        else:
-            total_summary = (
-                f"Summary: messages {total_stats['deleted_count']} deleted / "
-                f"{total_stats['absent_count']} absent / "
-                f"{total_stats['failed_count']} failed / "
-                f"{total_stats['preserved_deletable_count']} kept"
-            )
-            if delete_reactions:
-                total_summary += (
-                    f", reactions {total_stats['reactions_removed_count']} deleted / "
-                    f"{total_stats['reactions_absent_count']} absent / "
-                    f"{total_stats['reactions_failed_count']} failed / "
-                    f"{total_stats['preserved_reactions_count']} kept"
-                )
-            if delete_owned_threads != "none":
-                total_summary += (
-                    f", owned threads {total_stats['threads_deleted_count']} deleted / "
-                    f"{total_stats['threads_absent_count']} absent / "
-                    f"{total_stats['threads_failed_count']} failed"
-                )
-            self.logger.info(total_summary)
-
-        archived_summary_parts = []
-        if total_stats["archived_threads_skipped_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_skipped_count']} skipped without content scan"
-            )
-        if total_stats["archived_threads_planned_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_planned_count']} with cleanup actions"
-            )
-        if total_stats["archived_threads_opened_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_opened_count']} unarchived"
-            )
-        if total_stats["archived_threads_restored_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_restored_count']} restored"
-            )
-        if total_stats["archived_threads_absent_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_absent_count']} absent during restoration"
-            )
-        if total_stats["archived_threads_open_failed_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_open_failed_count']} unarchive failed"
-            )
-        if total_stats["archived_threads_left_active_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_left_active_count']} left active"
-            )
-        if total_stats["archived_threads_auto_reopened_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_auto_reopened_count']} reopened after likely auto-archive"
-            )
-        if total_stats["archived_threads_interrupted_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_threads_interrupted_count']} interrupted by archive state changes"
-            )
-        if total_stats["archived_thread_actions_not_attempted_count"]:
-            archived_summary_parts.append(
-                f"{total_stats['archived_thread_actions_not_attempted_count']} actions not attempted"
-            )
-        if archived_summary_parts:
-            self.logger.info(
-                "Archived threads: %s.",
-                " / ".join(archived_summary_parts),
-            )
-
-        return total_stats["deleted_count"]
+        self.reporter.log_executed_channel_summary(
+            stats=stats,
+            fetch_summary=fetch_summary,
+            channel_elapsed=channel_elapsed,
+            action_elapsed=action_elapsed,
+            delete_reactions=options.delete_reactions,
+            channel_plan=channel_plan,
+        )
+        return run_stats
 
     def _prepare_owned_thread_deletion(
         self,
@@ -1108,7 +836,9 @@ class MessageCleaner:
         foreign_reactions = ForeignReactionImpact()
         for message in messages:
             foreign_reactions = foreign_reactions.combined_with(
-                self._foreign_reaction_impact(message.get("reactions") or [])
+                CleanupPlanner.foreign_reaction_impact(
+                    message.get("reactions") or []
+                )
             )
         if not scan_complete:
             foreign_reactions = ForeignReactionImpact(
@@ -1140,7 +870,9 @@ class MessageCleaner:
             "Impact at scan time for %s: messages %s; foreign reactions %s.",
             channel_str(channel),
             message_impact,
-            self._format_foreign_reaction_impact(impact.foreign_reactions),
+            self.reporter.format_foreign_reaction_impact(
+                impact.foreign_reactions
+            ),
             indent=1,
             prefix="-",
         )
@@ -1212,542 +944,21 @@ class MessageCleaner:
         started_at = time.monotonic()
         return list(messages), time.monotonic() - started_at
 
-    def _build_channel_plan(
+    def _planner(
         self,
-        messages: Iterable[DiscordMessage],
         cutoff_time: datetime,
         delete_reactions: bool,
-    ) -> ChannelPlan:
-        """Build a full per-channel plan from buffered messages."""
-        return ChannelPlan(
-            decisions=tuple(
-                self._iter_message_decisions(
-                    messages=messages,
-                    cutoff_time=cutoff_time,
-                    delete_reactions=delete_reactions,
-                )
-            )
-        )
-
-    def _iter_message_decisions(
-        self,
-        messages: Iterable[DiscordMessage],
-        cutoff_time: datetime,
-        delete_reactions: bool,
-    ) -> Iterable[MessageDecision]:
-        """Yield one decision per message in newest-to-oldest order."""
-        preserve_n_count = 0
-        preserve_count_active = self.preserve_n > 0
-
-        for message in messages:
-            facts = self._build_message_facts(message=message, delete_reactions=delete_reactions)
-            if preserve_count_active and (self.preserve_n_mode == "all" or facts.is_deletable):
-                preserve_n_count += 1
-
-            in_preserve_n_count_window = preserve_count_active and preserve_n_count <= self.preserve_n
-            in_preserve_window = in_preserve_n_count_window or facts.message_time >= cutoff_time
-            yield self._build_message_decision(
-                facts=facts,
-                in_preserve_window=in_preserve_window,
-            )
-
-    def _build_message_facts(
-        self,
-        message: DiscordMessage,
-        delete_reactions: bool,
-    ) -> MessageFacts:
-        """Derive normalized facts from one fetched message."""
-        message_time = datetime.fromisoformat(message["timestamp"].replace('Z', '+00:00'))
-        is_author = message["author_id"] == self.user_id
-        is_deletable = is_author and bool(getattr(message["type"], "deletable", False))
-        reactions = message.get("reactions") or []
-        my_reactions: list[OwnedReaction] = []
-        if delete_reactions:
-            for reaction in reactions:
-                emoji = reaction.get("emoji") or {}
-                if reaction.get("me"):
-                    my_reactions.append(
-                        OwnedReaction(emoji=emoji, reaction_type=ReactionType.NORMAL)
-                    )
-                if reaction.get("me_burst"):
-                    my_reactions.append(
-                        OwnedReaction(emoji=emoji, reaction_type=ReactionType.BURST)
-                    )
-        return MessageFacts(
-            message=message,
-            message_time=message_time,
-            is_author=is_author,
-            is_deletable=is_deletable,
-            my_reactions=tuple(my_reactions),
-            foreign_reaction_impact=self._foreign_reaction_impact(reactions),
-        )
-
-    @staticmethod
-    def _foreign_reaction_impact(
-        reactions: Iterable[DiscordReaction],
-    ) -> ForeignReactionImpact:
-        """Derive exact foreign reaction instances from Discord count details."""
-        impact = ForeignReactionImpact()
-        for reaction in reactions:
-            details = reaction.get("count_details")
-            me = reaction.get("me")
-            me_burst = reaction.get("me_burst")
-            if (
-                not isinstance(details, dict)
-                or not isinstance(me, bool)
-                or not isinstance(me_burst, bool)
-            ):
-                impact = impact.combined_with(ForeignReactionImpact(complete=False))
-                continue
-
-            normal = details.get("normal")
-            burst = details.get("burst")
-            if (
-                not isinstance(normal, int)
-                or isinstance(normal, bool)
-                or normal < int(me)
-                or not isinstance(burst, int)
-                or isinstance(burst, bool)
-                or burst < int(me_burst)
-            ):
-                impact = impact.combined_with(ForeignReactionImpact(complete=False))
-                continue
-
-            total = reaction.get("count")
-            if (
-                not isinstance(total, int)
-                or isinstance(total, bool)
-                or total != normal + burst
-            ):
-                impact = impact.combined_with(ForeignReactionImpact(complete=False))
-                continue
-
-            impact = impact.combined_with(
-                ForeignReactionImpact(
-                    normal=normal - int(me),
-                    burst=burst - int(me_burst),
-                )
-            )
-        return impact
-
-    def _build_message_decision(
-        self,
-        facts: MessageFacts,
-        in_preserve_window: bool,
-    ) -> MessageDecision:
-        """Convert message facts plus preserve-window state into a decision and actions."""
-        actions: List[PlannedAction] = []
-        preserve_message = in_preserve_window and facts.is_deletable
-        preserve_reactions = in_preserve_window and (not facts.is_deletable) and bool(facts.my_reactions)
-
-        if not in_preserve_window:
-            if facts.is_deletable:
-                actions.append(
-                    PlannedAction(
-                        kind=ActionKind.DELETE_MESSAGE,
-                        channel_id=facts.message["channel_id"],
-                        message_id=facts.message["message_id"],
-                        message_time=facts.message_time,
-                    )
-                )
-            else:
-                for reaction in facts.my_reactions:
-                    actions.append(
-                        PlannedAction(
-                            kind=ActionKind.DELETE_REACTION,
-                            channel_id=facts.message["channel_id"],
-                            message_id=facts.message["message_id"],
-                            message_time=facts.message_time,
-                            emoji=reaction.emoji,
-                            reaction_type=reaction.reaction_type,
-                        )
-                    )
-
-        return MessageDecision(
-            facts=facts,
-            preserve_message=preserve_message,
-            preserve_reactions=preserve_reactions,
-            actions=tuple(actions),
-        )
-
-    def _log_buffered_channel_pre_execution(
-        self,
-        buffer_elapsed: float,
-        channel_plan: ChannelPlan,
-        delete_sleep_time_range: Tuple[float, float],
-    ) -> None:
-        """Log one concise pre-execution summary line for buffered real runs."""
-        self.logger.progress(
-            "Buffered messages=%s, scan time=%s, est. execute time=%s.",
-            channel_plan.buffered_message_count,
-            self._format_duration(buffer_elapsed),
-            self._format_duration(self._estimate_action_duration(channel_plan, delete_sleep_time_range)),
-            indent=1,
-            prefix="-",
-        )
-
-    def _estimate_action_duration(
-        self,
-        channel_plan: ChannelPlan,
-        delete_sleep_time_range: Tuple[float, float],
-    ) -> float:
-        """Estimate execution time from planned action count and configured sleep range."""
-        return self._estimate_action_count_duration(channel_plan.action_count, delete_sleep_time_range)
-
-    def _estimate_action_count_duration(
-        self,
-        action_count: int,
-        delete_sleep_time_range: Tuple[float, float],
-    ) -> float:
-        """Estimate pacing time between a sequence of planned actions."""
-        average_sleep = sum(delete_sleep_time_range) / 2
-        return max(0, action_count - 1) * average_sleep
-
-    def _format_duration(self, seconds: float) -> str:
-        """Format a duration in seconds as HH:MM:SS."""
-        whole_seconds = max(0, int(round(seconds)))
-        hours, remainder = divmod(whole_seconds, 3600)
-        minutes, secs = divmod(remainder, 60)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-    @staticmethod
-    def _accumulate_foreign_reaction_impact(
-        stats: dict[str, int],
-        impact: ForeignReactionImpact,
-    ) -> None:
-        """Add one exact-or-unknown impact result to a statistics mapping."""
-        stats["foreign_reactions_normal_count"] += impact.normal
-        stats["foreign_reactions_burst_count"] += impact.burst
-        stats["foreign_reactions_unknown_count"] += int(not impact.complete)
-
-    @staticmethod
-    def _format_foreign_reaction_impact(impact: ForeignReactionImpact) -> str:
-        """Render an exact normal/Super split or an explicit unknown result."""
-        if not impact.complete:
-            return "unknown"
-        return f"{impact.normal} normal / {impact.burst} super"
-
-    def _format_foreign_reaction_stats(self, stats: dict[str, int]) -> str:
-        """Render aggregate impact statistics using the same exactness contract."""
-        return self._format_foreign_reaction_impact(
-            ForeignReactionImpact(
-                normal=stats["foreign_reactions_normal_count"],
-                burst=stats["foreign_reactions_burst_count"],
-                complete=stats["foreign_reactions_unknown_count"] == 0,
-            )
-        )
-
-    def _log_fetch_summary(self, fetch_summary: Optional[dict]) -> None:
-        """Log per-channel fetch diagnostics in a compact, consistent block."""
-        if not fetch_summary:
-            return
-
-        if fetch_summary.get("wait_count"):
-            self.logger.diagnostic(
-                "Waited %.2fs between fetch batches.",
-                fetch_summary["waited_seconds"],
-                indent=1,
-                prefix="-",
-            )
-
-        self.logger.diagnostic(
-            "Fetched %s messages (%s).",
-            fetch_summary["fetched_count"],
-            fetch_summary["stop_reason"],
-            indent=1,
-            prefix="-",
-        )
-
-    def _format_channel_summary(
-        self,
-        stats: dict[str, int],
-        delete_reactions: bool,
-        dry_run: bool,
-        channel_plan: Optional[ChannelPlan] = None,
-    ) -> str:
-        """Build the human-facing per-channel summary line."""
-        if dry_run:
-            summary = (
-                f"Summary: messages {stats['deleted_count']} delete / "
-                f"{stats['preserved_deletable_count']} keep"
-            )
-            reaction_summary = (
-                f", reactions {stats['reactions_removed_count']} delete / "
-                f"{stats['preserved_reactions_count']} keep"
-            )
-        else:
-            summary = (
-                f"Summary: messages {stats['deleted_count']} deleted / "
-                f"{stats.get('absent_count', 0)} absent / "
-                f"{stats.get('failed_count', 0)} failed / "
-                f"{stats['preserved_deletable_count']} kept"
-            )
-            reaction_summary = (
-                f", reactions {stats['reactions_removed_count']} deleted / "
-                f"{stats.get('reactions_absent_count', 0)} absent / "
-                f"{stats.get('reactions_failed_count', 0)} failed / "
-                f"{stats['preserved_reactions_count']} kept"
-            )
-
-        if delete_reactions:
-            summary += reaction_summary
-        elif dry_run:
-            summary += ", reactions 0 delete / 0 keep"
-        else:
-            summary += ", reactions 0 deleted / 0 absent / 0 failed / 0 kept"
-
-        if dry_run and channel_plan is not None:
-            summary += f", buffered messages={channel_plan.buffered_message_count}"
-        if stats.get("actions_not_attempted_count", 0):
-            summary += (
-                f", actions {stats['actions_not_attempted_count']} not attempted "
-                "after thread state changed"
-            )
-        if dry_run and stats["deleted_count"]:
-            summary += (
-                ", foreign reactions affected "
-                f"{self._format_foreign_reaction_stats(stats)}"
-            )
-        return summary
-
-    def _log_dry_run_channel_summary(
-        self,
-        stats: dict[str, int],
-        fetch_summary: Optional[dict],
-        channel_elapsed: float,
-        channel_execute_estimate: str,
-        channel_total_estimate: str,
-        delete_reactions: bool,
-        channel_plan: Optional[ChannelPlan] = None,
-    ) -> None:
-        """Log dry-run output for one channel."""
-        self._log_fetch_summary(fetch_summary)
-        self.logger.progress(
-            self._format_channel_summary(
-                stats=stats,
+    ) -> CleanupPlanner:
+        """Create the pure planner for one cleanup policy evaluation."""
+        return CleanupPlanner(
+            user_id=self.user_id,
+            policy=CleanupPolicy(
+                cutoff_time=cutoff_time,
+                preserve_n=self.preserve_n,
+                preserve_n_mode=self.preserve_n_mode,
                 delete_reactions=delete_reactions,
-                dry_run=True,
-                channel_plan=channel_plan,
             ),
-            indent=1,
-            prefix="-",
         )
-        self.logger.progress(
-            "scan time=%s, est. execute time=%s, est. total time=%s",
-            self._format_duration(channel_elapsed),
-            channel_execute_estimate,
-            channel_total_estimate,
-            indent=2,
-        )
-
-    def _log_executed_channel_summary(
-        self,
-        stats: dict[str, int],
-        fetch_summary: Optional[dict],
-        channel_elapsed: float,
-        action_elapsed: float,
-        delete_reactions: bool,
-        channel_plan: Optional[ChannelPlan] = None,
-    ) -> None:
-        """Log executed-run output for one channel."""
-        self._log_fetch_summary(fetch_summary)
-        self.logger.progress(
-            self._format_channel_summary(
-                stats=stats,
-                delete_reactions=delete_reactions,
-                dry_run=False,
-                channel_plan=channel_plan,
-            ),
-            indent=1,
-            prefix="-",
-        )
-        if channel_plan is not None:
-            self.logger.progress(
-                "execute time=%s, total time=%s",
-                self._format_duration(action_elapsed),
-                self._format_duration(channel_elapsed),
-                indent=2,
-            )
-        else:
-            self.logger.progress("total time=%s", self._format_duration(channel_elapsed), indent=2)
-
-    def _execute_action(
-        self,
-        action: PlannedAction,
-        dry_run: bool,
-        facts: Optional[MessageFacts] = None,
-    ) -> Optional[DeleteOutcome]:
-        """Execute a single planned action or simulate it in dry-run mode."""
-        if action.kind == ActionKind.DELETE_MESSAGE:
-            if dry_run:
-                self.logger.event(
-                    "Would delete message %s.",
-                    sensitive(action.message_id),
-                    indent=1,
-                    prefix="-",
-                )
-                self._log_message_detail(facts)
-                return None
-
-            self.logger.event(
-                "Deleting message %s.",
-                sensitive(action.message_id),
-                indent=1,
-                prefix="-",
-            )
-            self._log_message_detail(facts)
-            outcome = self.api.delete_message(
-                channel_id=action.channel_id,
-                message_id=action.message_id,
-            )
-            if outcome == DeleteOutcome.FAILED:
-                self.logger.warning(
-                    "Failed to delete message %s in channel %s.",
-                    sensitive(action.message_id),
-                    sensitive(action.channel_id),
-                )
-            return outcome
-
-        emoji: DiscordEmoji = action.emoji or {}
-        emoji_name = emoji.get("name") or "unknown"
-        reaction_label = self._reaction_action_label(action)
-        if dry_run:
-            self.logger.event(
-                "Would delete %s from message %s.",
-                reaction_label,
-                sensitive(action.message_id),
-                indent=1,
-                prefix="-",
-            )
-            self._log_reaction_detail(emoji_name)
-            return None
-
-        self.logger.event(
-            "Deleting %s from message %s.",
-            reaction_label,
-            sensitive(action.message_id),
-            indent=1,
-            prefix="-",
-        )
-        self._log_reaction_detail(emoji_name)
-        outcome = self.api.delete_own_reaction(
-            channel_id=action.channel_id,
-            message_id=action.message_id,
-            emoji=emoji,
-            reaction_type=action.reaction_type,
-        )
-        if outcome == DeleteOutcome.FAILED:
-            self.logger.warning(
-                "Failed to delete reaction %s on message %s in channel %s.",
-                sensitive(emoji_name, full=True),
-                sensitive(action.message_id),
-                sensitive(action.channel_id),
-            )
-        return outcome
-
-    def _execute_reaction_actions(
-        self,
-        actions: List[PlannedAction],
-        dry_run: bool,
-        resume_archived_thread: Optional[Callable[[], bool]] = None,
-    ) -> _DeleteActionCounts:
-        """Execute one or more reaction deletions for the same message as one visible event block."""
-        if not actions:
-            return _DeleteActionCounts()
-
-        message_id = actions[0].message_id
-        emoji_names = [self._reaction_detail(action) for action in actions]
-        reaction_count = len(actions)
-        reaction_label = (
-            self._reaction_action_label(actions[0])
-            if reaction_count == 1
-            else f"{reaction_count} reactions"
-        )
-
-        if dry_run:
-            self.logger.event(
-                "Would delete %s from message %s.",
-                reaction_label,
-                sensitive(message_id),
-                indent=1,
-                prefix="-",
-            )
-            self._log_reaction_detail(emoji_names)
-            return _DeleteActionCounts(
-                deleted=reaction_count,
-                processed=reaction_count,
-            )
-
-        self.logger.event(
-            "Deleting %s from message %s.",
-            reaction_label,
-            sensitive(message_id),
-            indent=1,
-            prefix="-",
-        )
-        self._log_reaction_detail(emoji_names)
-
-        outcomes = _DeleteActionCounts()
-        for action in actions:
-            emoji: DiscordEmoji = action.emoji or {}
-            emoji_name = emoji.get("name") or "unknown"
-            outcome = self.api.delete_own_reaction(
-                channel_id=action.channel_id,
-                message_id=action.message_id,
-                emoji=emoji,
-                reaction_type=action.reaction_type,
-            )
-            if (
-                outcome == DeleteOutcome.THREAD_ARCHIVED
-                and resume_archived_thread is not None
-                and resume_archived_thread()
-            ):
-                outcome = self.api.delete_own_reaction(
-                    channel_id=action.channel_id,
-                    message_id=action.message_id,
-                    emoji=emoji,
-                    reaction_type=action.reaction_type,
-                )
-            outcomes.record(outcome)
-            if outcome == DeleteOutcome.FAILED:
-                self.logger.warning(
-                    "Failed to delete reaction %s on message %s in channel %s.",
-                    sensitive(emoji_name, full=True),
-                    sensitive(action.message_id),
-                    sensitive(action.channel_id),
-                )
-            if outcome == DeleteOutcome.THREAD_ARCHIVED:
-                break
-
-        return outcomes
-
-    @staticmethod
-    def _reaction_action_label(action: PlannedAction) -> str:
-        return "Super Reaction" if action.reaction_type == ReactionType.BURST else "reaction"
-
-    @staticmethod
-    def _reaction_detail(action: PlannedAction) -> str:
-        name = (action.emoji or {}).get("name") or "unknown"
-        return f"{name} (super)" if action.reaction_type == ReactionType.BURST else name
-
-    def _log_message_detail(self, facts: Optional[MessageFacts]) -> None:
-        if not facts:
-            return
-        content = (facts.message.get("content") or "").strip()
-        if content:
-            normalized = " ".join(content.split())
-            if len(normalized) > 120:
-                normalized = f"{normalized[:117]}..."
-            self.logger.detail("Content: %s", sensitive(normalized, full=True), indent=2, no_wrap=True)
-
-    def _log_reaction_detail(self, emoji_names: Union[str, List[str]]) -> None:
-        if isinstance(emoji_names, str):
-            names = [emoji_names]
-        else:
-            names = emoji_names
-        rendered = ", ".join(str(sensitive(name, full=True)) for name in names)
-        label = "Reaction" if len(names) == 1 else "Reactions"
-        self.logger.detail(f"{label}: %s", rendered, indent=2, no_wrap=True)
 
     def _merge_cached_messages(
         self,

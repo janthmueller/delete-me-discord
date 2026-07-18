@@ -11,7 +11,15 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 from delete_me_discord.cleaner import MessageCleaner
-from delete_me_discord.models import ActionKind, DeleteOutcome, PlannedAction
+from delete_me_discord.cleanup import (
+    ActionKind,
+    ChannelCleanupStats,
+    ChannelExecutor,
+    CleanupPlanner,
+    CleanupPolicy,
+    PlannedAction,
+)
+from delete_me_discord.models import DeleteOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
 from delete_me_discord.scope_filter import ScopeFilter
 from delete_me_discord.scope_inventory import ScopeInventory
@@ -56,6 +64,24 @@ def make_cleaner(preserve_n, preserve_n_mode):
         preserve_last=timedelta(weeks=2),
         preserve_n=preserve_n,
         preserve_n_mode=preserve_n_mode,
+    )
+
+
+def make_planner(
+    *,
+    cutoff_time=None,
+    preserve_n=0,
+    preserve_n_mode="all",
+    delete_reactions=False,
+):
+    return CleanupPlanner(
+        user_id="me",
+        policy=CleanupPolicy(
+            cutoff_time=cutoff_time or datetime.now(timezone.utc),
+            preserve_n=preserve_n,
+            preserve_n_mode=preserve_n_mode,
+            delete_reactions=delete_reactions,
+        ),
     )
 
 
@@ -376,7 +402,6 @@ def test_delete_messages_removes_normal_and_super_reaction_variants():
 
 
 def test_super_reaction_is_discovered_without_normal_reaction_ownership():
-    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
     message = make_message(
         "1",
         "other",
@@ -391,14 +416,14 @@ def test_super_reaction_is_discovered_without_normal_reaction_ownership():
         ],
     )
 
-    facts = cleaner._build_message_facts(message, delete_reactions=True)
+    facts = make_planner(delete_reactions=True).build_message_facts(message)
 
     assert len(facts.my_reactions) == 1
     assert facts.my_reactions[0].reaction_type == ReactionType.BURST
 
 
 def test_foreign_reaction_impact_is_exactly_derived_by_type():
-    impact = MessageCleaner._foreign_reaction_impact(
+    impact = CleanupPlanner.foreign_reaction_impact(
         [
             {
                 "count": 4,
@@ -456,7 +481,7 @@ def test_foreign_reaction_impact_is_exactly_derived_by_type():
     ],
 )
 def test_foreign_reaction_impact_is_unknown_for_incomplete_payload(reaction):
-    impact = MessageCleaner._foreign_reaction_impact([reaction])
+    impact = CleanupPlanner.foreign_reaction_impact([reaction])
 
     assert impact.complete is False
 
@@ -492,7 +517,7 @@ def test_message_dry_run_reports_foreign_reactions_removed_by_parent_delete():
     assert stats["foreign_reactions_burst_count"] == 1
     assert stats["foreign_reactions_unknown_count"] == 0
     assert "foreign reactions affected 2 normal / 1 super" in (
-        cleaner._format_channel_summary(
+        cleaner.reporter.format_channel_summary(
             stats=stats,
             delete_reactions=False,
             dry_run=True,
@@ -520,7 +545,7 @@ def test_message_dry_run_reports_unknown_foreign_reactions_without_counts():
     )
 
     assert stats["foreign_reactions_unknown_count"] == 1
-    assert "foreign reactions affected unknown" in cleaner._format_channel_summary(
+    assert "foreign reactions affected unknown" in cleaner.reporter.format_channel_summary(
         stats=stats,
         delete_reactions=False,
         dry_run=True,
@@ -584,11 +609,10 @@ def test_clean_messages_merges_cached_ids(monkeypatch):
 
 
 def test_unknown_message_type_is_not_deleted():
-    cleaner = MessageCleaner(api=DummyAPI(), user_id="me")
     message = make_message("1", "me", datetime.now(timezone.utc))
     message["type"] = 999
 
-    facts = cleaner._build_message_facts(message=message, delete_reactions=False)
+    facts = make_planner().build_message_facts(message)
 
     assert facts.is_author is True
     assert facts.is_deletable is False
@@ -765,7 +789,11 @@ def test_delete_reaction_logs_redact_emoji_name_and_ids(caplog):
     set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
     try:
         with caplog.at_level("DEBUG"):
-            executed = cleaner._execute_action(
+            executed = ChannelExecutor(
+                api=cleaner.api,
+                logger=cleaner.logger,
+                configure_request_policy=cleaner._configure_request_policy,
+            ).execute_action(
                 action=action,
                 dry_run=True,
             )
@@ -1032,13 +1060,16 @@ def test_clean_messages_non_dry_run_summary(monkeypatch):
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter([]))
 
     def fake_delete_messages_older_than(**kwargs):
-        return [], {
-            "message_count": 0,
-            "deleted_count": 1,
-            "preserved_deletable_count": 2,
-            "reactions_removed_count": 3,
-            "preserved_reactions_count": 4,
-        }, 0.0
+        return (
+            [],
+            ChannelCleanupStats(
+                deleted_count=1,
+                preserved_deletable_count=2,
+                reactions_removed_count=3,
+                preserved_reactions_count=4,
+            ),
+            0.0,
+        )
 
     monkeypatch.setattr(cleaner, "delete_messages_older_than", lambda **kwargs: fake_delete_messages_older_than(**kwargs))
     total = cleaner.clean_messages(
@@ -1086,13 +1117,7 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
         "delete_messages_older_than",
         lambda **kwargs: (
             [],
-            {
-                "message_count": 0,
-                "deleted_count": 0,
-                "preserved_deletable_count": 0,
-                "reactions_removed_count": 0,
-                "preserved_reactions_count": 0,
-            },
+            ChannelCleanupStats(),
             0.0,
         ),
     )
@@ -1181,32 +1206,17 @@ def test_clean_messages_buffered_dry_run_folds_buffered_count_into_summary(monke
 
 
 def test_delete_reactions_skips_non_owner():
-    class RecordingAPI:
-        def __init__(self):
-            self.called = False
-
-        def delete_message(self, channel_id, message_id):
-            return DeleteOutcome.DELETED
-
-        def delete_own_reaction(
-            self,
-            channel_id,
-            message_id,
-            emoji,
-            reaction_type=ReactionType.NORMAL,
-        ):
-            self.called = True
-            return DeleteOutcome.DELETED
-
-    cleaner = MessageCleaner(api=RecordingAPI(), user_id="me")
     message = make_message("1", "other", datetime.now(timezone.utc), deletable=False, reactions=[{"me": False, "emoji": {"name": "x"}}])
-    facts = cleaner._build_message_facts(message=message, delete_reactions=True)
-    decision = cleaner._build_message_decision(facts=facts, in_preserve_window=False)
+    planner = make_planner(delete_reactions=True)
+    facts = planner.build_message_facts(message)
+    decision = planner.build_message_decision(
+        facts=facts,
+        in_preserve_window=False,
+    )
     assert decision.actions == ()
 
 
 def test_build_channel_plan_creates_message_and_reaction_actions():
-    cleaner = MessageCleaner(api=DummyAPI(), user_id="me", preserve_n=0, preserve_n_mode="mine")
     now = datetime.now(timezone.utc)
     messages = [
         make_message("1", "me", now - timedelta(days=20)),
@@ -1222,11 +1232,11 @@ def test_build_channel_plan_creates_message_and_reaction_actions():
         ),
     ]
 
-    plan = cleaner._build_channel_plan(
-        messages=messages,
+    plan = make_planner(
         cutoff_time=now,
+        preserve_n_mode="mine",
         delete_reactions=True,
-    )
+    ).build_channel_plan(messages)
 
     assert plan.buffered_message_count == 2
     assert plan.action_count == 3
