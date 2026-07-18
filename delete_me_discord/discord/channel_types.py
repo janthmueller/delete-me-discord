@@ -1,3 +1,5 @@
+"""Discord channel types and channel capability groupings."""
+
 from enum import IntEnum
 from typing import Any, Mapping
 

@@ -4,10 +4,11 @@ import logging
 import os
 from typing import Optional, Tuple
 
-from .api import DiscordAPI
+from .discord.client import DiscordClient
 from .privacy import sensitive, sensitive_name
 from .storage import atomic_write_json
-from .utils import AuthenticationError, parse_random_range
+from .discord.errors import AuthenticationError
+from .utils import parse_random_range
 
 
 DEFAULT_CONFIG_PATH = os.path.join(
@@ -262,9 +263,9 @@ def _validate_token(token: str, *, args=None) -> dict:
         raise SystemExit(1) from exc
 
 
-def _build_auth_api(token: str, args=None) -> DiscordAPI:
+def _build_auth_api(token: str, args=None) -> DiscordClient:
     retry_time_buffer = getattr(args, "retry_time_buffer", ["0.1", "0.3"])
-    return DiscordAPI(
+    return DiscordClient(
         token=token,
         max_retries=getattr(args, "max_retries", 5),
         retry_time_buffer=parse_random_range(retry_time_buffer, "retry-time-buffer"),

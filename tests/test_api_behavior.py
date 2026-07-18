@@ -10,17 +10,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.api import DiscordAPI
-from delete_me_discord.models import DeleteOutcome
-from delete_me_discord.rate_limits import DiscordRequestScheduler
-from delete_me_discord.type_enums import ReactionType
-from delete_me_discord.utils import (
-    DIAGNOSTIC_LEVEL,
+from delete_me_discord.discord.client import DiscordClient
+from delete_me_discord.discord.models import DeleteOutcome
+from delete_me_discord.discord.rate_limits import DiscordRequestScheduler
+from delete_me_discord.discord.type_enums import ReactionType
+from delete_me_discord.discord.errors import (
     AuthenticationError,
     ReachedMaxRetries,
     ResourceUnavailable,
     UnexpectedStatus,
 )
+from delete_me_discord.discord.transport import DiscordTransport
+from delete_me_discord.utils import DIAGNOSTIC_LEVEL
 
 
 class FakeResponse:
@@ -58,10 +59,42 @@ def scheduler_for(clock):
     )
 
 
+def test_client_uses_injected_transport_without_resolving_a_token(monkeypatch):
+    transport = DiscordTransport(token="transport-token")
+    closed = []
+    monkeypatch.setattr(
+        transport,
+        "request",
+        lambda url, description, **_: [{"url": url, "description": description}],
+    )
+    monkeypatch.setattr(transport, "close", lambda: closed.append(True))
+    client = DiscordClient(transport=transport)
+
+    assert client.get_guilds() == [
+        {
+            "url": f"{client.BASE_URL}/users/@me/guilds",
+            "description": "fetch guilds",
+        }
+    ]
+    client.close()
+    assert closed == [True]
+
+
+def test_transport_rejects_unsupported_http_method():
+    transport = DiscordTransport(token="token")
+
+    with pytest.raises(ValueError, match="Unsupported Discord HTTP method"):
+        transport.request(
+            "http://example.com",
+            description="post data",
+            method="post",
+        )
+
+
 def test_request_retries_on_rate_limit_then_success(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=2,
         retry_time_buffer=(0, 0),
@@ -75,9 +108,9 @@ def test_request_retries_on_rate_limit_then_success(monkeypatch, caplog):
     def fake_request(*args, **kwargs):
         return responses.pop(0)
 
-    monkeypatch.setattr(api.session, "request", fake_request)
+    monkeypatch.setattr(api.transport.session, "request", fake_request)
 
-    data = api._request("http://example.com", description="test", method="get")
+    data = api.transport.request("http://example.com", description="test", method="get")
     assert data == [{"ok": True}]
     assert clock.sleeps == [2.0]
     assert "Discord retry 2.00 seconds + 0.00 seconds safety" in caplog.text
@@ -88,7 +121,7 @@ def test_request_retries_on_rate_limit_then_success(monkeypatch, caplog):
 def test_request_retries_network_error_with_route_backoff(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=1,
         request_scheduler=scheduler_for(clock),
@@ -103,9 +136,9 @@ def test_request_retries_network_error_with_route_backoff(monkeypatch, caplog):
             raise result
         return result
 
-    monkeypatch.setattr(api.session, "request", fake_request)
+    monkeypatch.setattr(api.transport.session, "request", fake_request)
 
-    assert api._request("http://example.com", description="test") == [{"ok": True}]
+    assert api.transport.request("http://example.com", description="test") == [{"ok": True}]
     assert clock.sleeps == [1.0]
     assert "Network error" in caplog.text
     assert all(record.levelno == DIAGNOSTIC_LEVEL for record in caplog.records)
@@ -114,7 +147,7 @@ def test_request_retries_network_error_with_route_backoff(monkeypatch, caplog):
 def test_request_retries_server_error_using_retry_after_header(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=1,
         request_scheduler=scheduler_for(clock),
@@ -125,9 +158,9 @@ def test_request_retries_server_error_using_retry_after_header(monkeypatch, capl
             FakeResponse(200, []),
         ]
     )
-    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: next(responses))
 
-    assert api._request("http://example.com", description="test") == []
+    assert api.transport.request("http://example.com", description="test") == []
     assert clock.sleeps == [2.5]
     assert "Retryable HTTP 503" in caplog.text
     assert all(record.levelno == DIAGNOSTIC_LEVEL for record in caplog.records)
@@ -136,15 +169,15 @@ def test_request_retries_server_error_using_retry_after_header(monkeypatch, capl
 def test_request_retries_http_408_with_full_jitter(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=1,
         request_scheduler=scheduler_for(clock),
     )
     responses = iter([FakeResponse(408, {}), FakeResponse(200, [])])
-    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: next(responses))
 
-    assert api._request("http://example.com", description="test") == []
+    assert api.transport.request("http://example.com", description="test") == []
     assert clock.sleeps == [1.0]
     assert "Retryable HTTP 408" in caplog.text
 
@@ -153,7 +186,7 @@ def test_delete_reports_absent_when_retry_finds_prior_attempt_already_applied(
     monkeypatch,
 ):
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=1,
         request_scheduler=scheduler_for(clock),
@@ -169,7 +202,7 @@ def test_delete_reports_absent_when_retry_finds_prior_attempt_already_applied(
             raise result
         return result
 
-    monkeypatch.setattr(api.session, "request", fake_request)
+    monkeypatch.setattr(api.transport.session, "request", fake_request)
 
     assert api.delete_message("c1", "m1") == DeleteOutcome.ABSENT
     assert clock.sleeps == [2.0]
@@ -181,7 +214,7 @@ def test_request_uses_exponential_full_jitter_for_hintless_server_errors(
 ):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=2,
         request_scheduler=scheduler_for(clock),
@@ -191,9 +224,9 @@ def test_request_uses_exponential_full_jitter_for_hintless_server_errors(
         FakeResponse(502, {}),
         FakeResponse(200, []),
     ])
-    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: next(responses))
 
-    assert api._request("http://example.com", description="test") == []
+    assert api.transport.request("http://example.com", description="test") == []
     assert clock.sleeps == [1.0, 2.0]
     assert "Retryable HTTP 500" in caplog.text
     assert "Retryable HTTP 502" in caplog.text
@@ -205,7 +238,7 @@ def test_request_uses_exponential_full_jitter_for_hintless_rate_limits(
 ):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=2,
         request_scheduler=scheduler_for(clock),
@@ -215,9 +248,9 @@ def test_request_uses_exponential_full_jitter_for_hintless_rate_limits(
         FakeResponse(429, {}),
         FakeResponse(200, []),
     ])
-    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: next(responses))
 
-    assert api._request("http://example.com", description="test") == []
+    assert api.transport.request("http://example.com", description="test") == []
     assert clock.sleeps == [1.0, 2.0]
     assert caplog.text.count("without a usable Discord retry delay") == 2
     assert caplog.text.count("Full-jitter fallback") == 2
@@ -226,7 +259,7 @@ def test_request_uses_exponential_full_jitter_for_hintless_rate_limits(
 def test_request_retries_while_discord_builds_search_index(monkeypatch, caplog):
     caplog.set_level(DIAGNOSTIC_LEVEL)
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=1,
         retry_time_buffer=(0, 0),
@@ -245,9 +278,9 @@ def test_request_retries_while_discord_builds_search_index(monkeypatch, caplog):
             FakeResponse(200, {"threads": [], "has_more": False}),
         ]
     )
-    monkeypatch.setattr(api.session, "request", lambda **_: next(responses))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: next(responses))
 
-    assert api._request("http://example.com", description="search threads") == [
+    assert api.transport.request("http://example.com", description="search threads") == [
         {"threads": [], "has_more": False}
     ]
     assert clock.sleeps == [2.0]
@@ -256,28 +289,28 @@ def test_request_retries_while_discord_builds_search_index(monkeypatch, caplog):
 
 
 def test_request_passes_connect_and_read_timeout(monkeypatch):
-    api = DiscordAPI(token="token", request_timeout=(2.5, 8.0))
+    api = DiscordClient(token="token", request_timeout=(2.5, 8.0))
     captured = {}
 
     def fake_request(**kwargs):
         captured.update(kwargs)
         return FakeResponse(200, [])
 
-    monkeypatch.setattr(api.session, "request", fake_request)
+    monkeypatch.setattr(api.transport.session, "request", fake_request)
 
-    api._request("http://example.com", description="test")
+    api.transport.request("http://example.com", description="test")
 
     assert captured["timeout"] == (2.5, 8.0)
 
 
 def test_delete_pacing_happens_before_the_next_delete(monkeypatch):
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         request_scheduler=scheduler_for(clock),
     )
     api.configure_request_policy("delete", (1.25, 1.25))
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(204))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(204))
 
     assert api.delete_message("c1", "m1") == DeleteOutcome.DELETED
     assert clock.sleeps == []
@@ -288,13 +321,13 @@ def test_delete_pacing_happens_before_the_next_delete(monkeypatch):
 
 def test_explicit_policy_override_wins_over_cleaner_configuration(monkeypatch):
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         request_intervals={"delete": (3.0, 3.0)},
         request_scheduler=scheduler_for(clock),
     )
     api.configure_request_policy("delete", (1.0, 1.0))
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(204))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(204))
 
     assert api.delete_message("c1", "m1") == DeleteOutcome.DELETED
     assert api.delete_message("c2", "m2") == DeleteOutcome.DELETED
@@ -304,47 +337,47 @@ def test_explicit_policy_override_wins_over_cleaner_configuration(monkeypatch):
 
 def test_request_does_not_sleep_when_no_retries_remain(monkeypatch):
     clock = FakeClock()
-    api = DiscordAPI(
+    api = DiscordClient(
         token="token",
         max_retries=0,
         retry_time_buffer=(0, 0),
         request_scheduler=scheduler_for(clock),
     )
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(500, {}))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(500, {}))
 
     with pytest.raises(ReachedMaxRetries):
-        api._request("http://example.com", description="test")
+        api.transport.request("http://example.com", description="test")
 
     assert clock.sleeps == []
 
 
 def test_request_raises_on_unauthorized_and_unavailable(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
 
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(401, {}))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(401, {}))
     with pytest.raises(AuthenticationError):
-        api._request("http://example.com", description="test", method="get")
+        api.transport.request("http://example.com", description="test", method="get")
 
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(403, {}))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(403, {}))
     with pytest.raises(ResourceUnavailable):
-        api._request("http://example.com", description="test", method="get")
+        api.transport.request("http://example.com", description="test", method="get")
 
 
 def test_request_unexpected_status_for_delete(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(200, {}))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(200, {}))
     with pytest.raises(UnexpectedStatus):
-        api._request("http://example.com", description="delete", method="delete")
+        api.transport.request("http://example.com", description="delete", method="delete")
 
 
 def test_delete_own_reaction_requires_emoji_identifier(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")))
     assert api.delete_own_reaction("c1", "m1", emoji={}) == DeleteOutcome.FAILED
 
 
 def test_delete_own_reaction_encodes_identifier(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
     captured = {}
 
     def fake_request(url, description, method="get", params=None, pacing_policy="read"):
@@ -353,7 +386,7 @@ def test_delete_own_reaction_encodes_identifier(monkeypatch):
         captured["pacing_policy"] = pacing_policy
         return []
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
     assert (
         api.delete_own_reaction("c1", "m1", emoji={"name": "smile", "id": "123"})
         == DeleteOutcome.DELETED
@@ -364,10 +397,10 @@ def test_delete_own_reaction_encodes_identifier(monkeypatch):
 
 
 def test_delete_own_reaction_rejects_unknown_type(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
     monkeypatch.setattr(
-        api,
-        "_request",
+        api.transport,
+        "request",
         lambda *_, **__: (_ for _ in ()).throw(AssertionError("should not call")),
     )
 
@@ -387,7 +420,7 @@ def test_delete_own_reaction_rejects_unknown_type(monkeypatch):
 
 
 def test_delete_own_reaction_accepts_integer_burst_type(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
     captured = {}
 
     def fake_request(url, **kwargs):
@@ -395,7 +428,7 @@ def test_delete_own_reaction_accepts_integer_burst_type(monkeypatch):
         captured["params"] = kwargs["params"]
         return []
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
 
     assert (
         api.delete_own_reaction("c1", "m1", {"name": "x"}, ReactionType.BURST)
@@ -406,39 +439,39 @@ def test_delete_own_reaction_accepts_integer_burst_type(monkeypatch):
 
 
 def test_request_reaches_max_retries_on_network_error(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
 
     def boom(*args, **kwargs):
         raise requests.RequestException("offline")
 
-    monkeypatch.setattr(api.session, "request", boom)
+    monkeypatch.setattr(api.transport.session, "request", boom)
 
     with pytest.raises(ReachedMaxRetries):
-        api._request("http://example.com", description="test", method="get")
+        api.transport.request("http://example.com", description="test", method="get")
 
 
 def test_request_reaches_max_retries_on_500(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api.session, "request", lambda **_: FakeResponse(500, {"retry_after": 0}))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: FakeResponse(500, {"retry_after": 0}))
     with pytest.raises(ReachedMaxRetries):
-        api._request("http://example.com", description="test", method="get")
+        api.transport.request("http://example.com", description="test", method="get")
 
 
 def test_api_requires_token(monkeypatch):
     monkeypatch.delenv("DISCORD_TOKEN", raising=False)
     with pytest.raises(ValueError, match="Set the DISCORD_TOKEN environment variable"):
-        DiscordAPI(token=None)
+        DiscordClient(token=None)
 
 
 def test_api_simple_routes_use_request(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
     calls = []
 
     def fake_request(url, description, method="get", params=None):
         calls.append((url, description, method))
         return [{"id": "me"}]
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
     api.get_guilds()
     api.get_guild_channels("g1")
     api.get_root_channels()
@@ -451,7 +484,7 @@ def test_api_simple_routes_use_request(monkeypatch):
 
 
 def test_get_guild_channels_multiple_skips_unavailable(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
 
     def fake_get_guild_channels(guild_id):
         if guild_id == "bad":
@@ -464,14 +497,14 @@ def test_get_guild_channels_multiple_skips_unavailable(monkeypatch):
 
 
 def test_delete_message_handles_unavailable(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
     assert api.delete_message("c1", "m1") == DeleteOutcome.FAILED
 
 
 def test_delete_own_reaction_handles_unavailable(monkeypatch):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
     assert (
         api.delete_own_reaction("c1", "m1", emoji={"name": "x"})
         == DeleteOutcome.FAILED
@@ -479,5 +512,5 @@ def test_delete_own_reaction_handles_unavailable(monkeypatch):
 
 
 def test_format_emoji_identifier_name_only():
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
     assert api._format_emoji_identifier({"name": "wave"}) == "wave"

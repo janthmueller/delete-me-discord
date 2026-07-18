@@ -4,8 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, ClassVar, Optional, Tuple
 
-from ..models import DiscordEmoji, DiscordMessage
-from ..type_enums import ReactionType
+from ..discord.models import DiscordEmoji, DiscordMessage
+from ..discord.type_enums import ReactionType
 
 
 class ActionKind(Enum):

@@ -15,10 +15,26 @@ from .models import (
     PlannedAction,
 )
 from .planner import CleanupPlanner, CleanupPolicy
+from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH, PreserveCache
 from .reporting import CleanupReporter
+from .service import MessageCleaner
+from .threads import (
+    ARCHIVED_THREAD_CLEANUP_MODES,
+    ADMINISTRATOR_PERMISSION,
+    MANAGE_THREADS_PERMISSION,
+    ArchivedThreadAssessment,
+    ArchivedThreadCoordinator,
+    ThreadRestorationJournal,
+    ThreadRestoreOutcome,
+    effective_channel_permissions,
+)
 
 __all__ = [
     "ActionKind",
+    "ADMINISTRATOR_PERMISSION",
+    "ARCHIVED_THREAD_CLEANUP_MODES",
+    "ArchivedThreadAssessment",
+    "ArchivedThreadCoordinator",
     "ChannelCleanupStats",
     "ChannelExecutionResult",
     "ChannelPlan",
@@ -28,9 +44,16 @@ __all__ = [
     "CleanupReporter",
     "CleanupRunStats",
     "CleanupRunOptions",
+    "DEFAULT_PRESERVE_CACHE_PATH",
     "ForeignReactionImpact",
     "MessageDecision",
     "MessageFacts",
+    "MessageCleaner",
+    "MANAGE_THREADS_PERMISSION",
     "OwnedReaction",
     "PlannedAction",
+    "PreserveCache",
+    "ThreadRestorationJournal",
+    "ThreadRestoreOutcome",
+    "effective_channel_permissions",
 ]

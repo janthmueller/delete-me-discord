@@ -14,8 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
 import delete_me_discord
 from delete_me_discord.privacy import RedactionConfig
 from delete_me_discord.privacy import set_redaction_config
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.utils import ResourceUnavailable
+from delete_me_discord.scope import ScopeFilter
+from delete_me_discord.discord.errors import ResourceUnavailable
 
 
 def _base_clean_args(tmp_path, **overrides):
@@ -130,9 +130,9 @@ def test_main_cache_clear_exits_early(tmp_path, monkeypatch):
 
     class BoomAPI:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("DiscordAPI should not be created for cache clear.")
+            raise AssertionError("DiscordClient should not be created for cache clear.")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", BoomAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", BoomAPI)
     delete_me_discord.main()
     assert not cache_path.exists()
 
@@ -174,7 +174,7 @@ def test_main_list_guilds_runs_discovery(tmp_path, monkeypatch):
         assert kwargs["include_ids"] == ["1111111111110001"]
         assert kwargs["exclude_ids"] == ["2222222222220002"]
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "run_discovery_commands", fake_discovery)
     delete_me_discord.main()
     assert called["discovery"] is True
@@ -206,7 +206,7 @@ def test_main_list_channels_applies_requested_scope_filter(tmp_path, monkeypatch
     def fake_discovery(**kwargs):
         captured["inventory"] = kwargs["inventory"]
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
     monkeypatch.setattr(delete_me_discord, "run_discovery_commands", fake_discovery)
 
@@ -236,7 +236,7 @@ def test_main_list_channels_discovers_archived_threads_by_default(
             scope_filter=kwargs["scope_filter"],
         )
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord.ScopeInventory, "fetch", fake_fetch)
     monkeypatch.setattr(delete_me_discord, "run_discovery_commands", lambda **_: None)
 
@@ -292,9 +292,9 @@ def test_main_lists_static_scope_filter_values(
 
     class BoomAPI:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Static filter lists must not create DiscordAPI.")
+            raise AssertionError("Static filter lists must not create DiscordClient.")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", BoomAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", BoomAPI)
 
     delete_me_discord.main()
 
@@ -370,7 +370,7 @@ def test_main_profile_add_validates_scope_ids_before_writing(tmp_path, monkeypat
         def get_guild_channels(self, guild_id):
             return []
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
 
     delete_me_discord.main()
     data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
@@ -419,7 +419,7 @@ def test_main_profile_add_validates_thread_id_without_global_discovery(tmp_path,
 
     monkeypatch.setattr(delete_me_discord, "parse_args", lambda *_: args)
     monkeypatch.setattr(delete_me_discord, "setup_logging", lambda **_: None)
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
 
     delete_me_discord.main()
 
@@ -490,7 +490,7 @@ def test_main_profile_update_validates_scope_ids_before_writing(tmp_path, monkey
         def get_guild_channels(self, guild_id):
             return []
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
 
     delete_me_discord.main()
     data = json.loads(Path(args.config_path).read_text(encoding="utf-8"))
@@ -525,7 +525,7 @@ def test_main_profile_update_checks_existing_scope_ids_before_writing(tmp_path, 
         def get_guild_channels(self, guild_id):
             return []
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
 
     with pytest.raises(SystemExit) as exc:
         delete_me_discord.main()
@@ -652,7 +652,7 @@ def test_main_creates_cache_and_runs_cleaner(tmp_path, monkeypatch):
         def clean_messages(self, **kwargs):
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "PreserveCache", FakeCache)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
@@ -707,7 +707,7 @@ def test_main_profile_overrides_defaults(tmp_path, monkeypatch):
             run_kwargs.update(kwargs)
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "PreserveCache", lambda path: type("Cache", (), {"path": path, "save": lambda self: None})())
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
@@ -750,7 +750,7 @@ def test_main_cli_explicit_value_overrides_profile(tmp_path, monkeypatch):
         def clean_messages(self, **kwargs):
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord.main()
@@ -784,7 +784,7 @@ def test_main_passes_buffer_per_channel(tmp_path, monkeypatch):
             cleaner_kwargs["run"] = kwargs
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord.main()
@@ -820,7 +820,7 @@ def test_main_rejects_owned_thread_deletion_when_threads_are_excluded(
         def __init__(self, **kwargs):
             raise AssertionError("cleaner should not be created")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", BoomCleaner)
 
     with pytest.raises(SystemExit) as exc:
@@ -842,9 +842,9 @@ def test_main_exits_on_negative_keep_last(tmp_path, monkeypatch):
 
     class BoomAPI:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("DiscordAPI should not be created for invalid keep_last.")
+            raise AssertionError("DiscordClient should not be created for invalid keep_last.")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", BoomAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", BoomAPI)
     with pytest.raises(SystemExit) as exc:
         delete_me_discord.main()
     assert exc.value.code == 1
@@ -864,7 +864,7 @@ def test_main_authentication_failure_exits(tmp_path, monkeypatch):
         def get_current_user(self):
             raise delete_me_discord.AuthenticationError("bad token")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     with pytest.raises(SystemExit) as exc:
         delete_me_discord.main()
     assert exc.value.code == 1
@@ -925,7 +925,7 @@ def test_run_clean_logs_redacted_authenticated_user(tmp_path, monkeypatch, caplo
             def clean_messages(self, **kwargs):
                 return 0
 
-        monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+        monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
         monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
         with caplog.at_level("INFO"):
@@ -971,7 +971,7 @@ def test_run_clean_validates_scope_ids_before_cleaner_creation(tmp_path, monkeyp
         def clean_messages(self, **kwargs):
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord._run_clean(args)
@@ -1010,7 +1010,7 @@ def test_run_clean_rejects_unknown_exact_exclusion_before_cleaner_creation(
         def __init__(self, **kwargs):
             raise AssertionError("Cleanup must not start for an unknown exact ID.")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", BoomCleaner)
 
     with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc:
@@ -1043,7 +1043,7 @@ def test_run_clean_passes_scope_filter_to_cleaner(tmp_path, monkeypatch):
         def clean_messages(self, **kwargs):
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord._run_clean(args)
@@ -1104,7 +1104,7 @@ def test_run_clean_archived_thread_default_and_strict_policy(
             captured["cleanup_mode"] = kwargs["archived_thread_cleanup"]
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord._run_clean(args)
@@ -1138,7 +1138,7 @@ def test_archived_selector_uses_permissive_cleanup_by_default(
             captured["cleanup_mode"] = kwargs["archived_thread_cleanup"]
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord._run_clean(args)
@@ -1154,9 +1154,9 @@ def test_run_clean_exits_early_without_any_token(tmp_path, monkeypatch):
 
     class BoomAPI:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("DiscordAPI should not be created without a token.")
+            raise AssertionError("DiscordClient should not be created without a token.")
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", BoomAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", BoomAPI)
 
     with pytest.raises(SystemExit) as exc:
         delete_me_discord._run_clean(args)
@@ -1184,7 +1184,7 @@ def test_run_clean_passes_resolved_token_to_api(tmp_path, monkeypatch):
         def clean_messages(self, **kwargs):
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord._run_clean(args)
@@ -1219,7 +1219,7 @@ def test_main_user_id_missing_exits(tmp_path, monkeypatch):
         def get_current_user(self):
             return {"username": "no-id"}
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     with pytest.raises(SystemExit) as exc:
         delete_me_discord.main()
     assert exc.value.code == 1
@@ -1250,7 +1250,7 @@ def test_main_passes_fetch_since(tmp_path, monkeypatch):
             fetch_since_value["value"] = kwargs.get("fetch_since")
             return 0
 
-    monkeypatch.setattr(delete_me_discord, "DiscordAPI", FakeAPI)
+    monkeypatch.setattr(delete_me_discord, "DiscordClient", FakeAPI)
     monkeypatch.setattr(delete_me_discord, "MessageCleaner", FakeCleaner)
 
     delete_me_discord.main()

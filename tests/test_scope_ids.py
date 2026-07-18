@@ -1,7 +1,7 @@
 import pytest
 
-from delete_me_discord.scope_ids import preflight_scope_ids
-from delete_me_discord.utils import ResourceUnavailable
+from delete_me_discord.scope import preflight_scope_ids
+from delete_me_discord.discord.errors import ResourceUnavailable
 
 
 GUILD_A = "100000000000000001"

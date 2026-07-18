@@ -1,6 +1,6 @@
 import pytest
 
-from delete_me_discord.channel_types import (
+from delete_me_discord.discord.channel_types import (
     FILTERABLE_CHANNEL_TYPE_NAMES,
     GUILD_CLEANUP_CHANNEL_TYPES,
     GUILD_MESSAGE_CHANNEL_TYPES,

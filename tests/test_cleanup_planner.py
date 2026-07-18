@@ -9,7 +9,7 @@ from delete_me_discord.cleanup import (
     CleanupPolicy,
     CleanupRunStats,
 )
-from delete_me_discord.type_enums import ReactionType
+from delete_me_discord.discord.type_enums import ReactionType
 
 
 class MessageType:

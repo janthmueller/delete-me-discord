@@ -5,7 +5,6 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from .api import DiscordAPI
 from .app_config import (
     EffectiveCleanSettings,
     add_profile,
@@ -20,18 +19,15 @@ from .app_config import (
     validate_profile_unset_fields,
 )
 from .auth import resolve_token, run_auth_command
-from .cleaner import MessageCleaner
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, is_archived_thread
+from .cleanup import MessageCleaner, PreserveCache, ThreadRestorationJournal
+from .discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, is_archived_thread
+from .discord.client import DiscordClient
 from .discovery import run_discovery_commands
 from .options import parse_args
-from .preserve_cache import PreserveCache
 from .privacy import sensitive, sensitive_name
-from .scope_filter import ScopeFilter
-from .scope_filter import THREAD_STATES
-from .scope_inventory import ScopeInventory
-from .scope_ids import preflight_scope_ids
-from .thread_cleanup import ThreadRestorationJournal
-from .utils import AuthenticationError, parse_random_range, setup_logging
+from .scope import ScopeFilter, ScopeInventory, THREAD_STATES, preflight_scope_ids
+from .discord.errors import AuthenticationError
+from .utils import parse_random_range, setup_logging
 from ._version import __version__
 
 
@@ -52,13 +48,13 @@ def _build_api_from_token_config(
     max_retries: int,
     retry_time_buffer,
     request_intervals=None,
-) -> DiscordAPI:
+) -> DiscordClient:
     token, _token_source = resolve_token(token_arg, config_path)
     if not token:
         logging.error("Discord token not provided. Run dmd login, set DISCORD_TOKEN, or use --token.")
         raise SystemExit(1)
 
-    return DiscordAPI(
+    return DiscordClient(
         token=token,
         max_retries=max_retries,
         retry_time_buffer=retry_time_buffer,
@@ -66,7 +62,7 @@ def _build_api_from_token_config(
     )
 
 
-def _build_api(args) -> DiscordAPI:
+def _build_api(args) -> DiscordClient:
     return _build_api_from_token_config(
         token_arg=args.token,
         config_path=args.config_path,
@@ -76,7 +72,7 @@ def _build_api(args) -> DiscordAPI:
     )
 
 
-def _build_api_from_settings(settings: EffectiveCleanSettings) -> DiscordAPI:
+def _build_api_from_settings(settings: EffectiveCleanSettings) -> DiscordClient:
     return _build_api_from_token_config(
         token_arg=settings.token,
         config_path=settings.config_path,

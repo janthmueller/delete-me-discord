@@ -1,3 +1,5 @@
+"""Normalized Discord payloads and endpoint operation outcomes."""
+
 from enum import Enum
 from typing import Any, Optional, TypedDict
 
@@ -32,11 +34,14 @@ class DiscordRecipient(TypedDict, total=False):
     username: str
 
 
-class DiscordChannel(TypedDict, total=False):
-    """Subset of Discord channel fields used by discovery and cleaning."""
-
+class DiscordChannelRequired(TypedDict):
     id: str
     type: int
+
+
+class DiscordChannel(DiscordChannelRequired, total=False):
+    """Normalized Discord channel shape used by discovery and cleaning."""
+
     name: str
     guild_id: str
     parent_id: str
@@ -49,7 +54,7 @@ class DiscordChannel(TypedDict, total=False):
 
 
 class DiscordMessage(TypedDict):
-    """Normalized message shape returned by DiscordAPI.fetch_messages."""
+    """Normalized message shape returned by DiscordClient.fetch_messages."""
 
     message_id: str
     timestamp: str

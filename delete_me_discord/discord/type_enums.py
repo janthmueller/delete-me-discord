@@ -1,3 +1,5 @@
+"""Discord message and reaction type enumerations."""
+
 import logging
 from enum import IntEnum
 
@@ -12,6 +14,8 @@ logger = logging.getLogger("MessageType")
 # Added from https://docs.discord.food/resources/message
 # https://discordhttp.alexflipnote.dev/api/enums.html#discord_http.enums.MessageType.custom_gift
 class MessageType(IntEnum):
+    _deletable: bool
+
     DEFAULT = 0, True
     RECIPIENT_ADD = 1, False
     RECIPIENT_REMOVE = 2, False
@@ -82,14 +86,14 @@ class MessageType(IntEnum):
     FRIEND_REQUEST_ACCEPTED = 67, True
     MEDIA_MENTION_MESSAGE = 68, True
 
-    def __new__(cls, value: int, deletable: bool):
+    def __new__(cls, value: int, deletable: bool) -> "MessageType":
         obj = int.__new__(cls, value)
         obj._value_ = value
         obj._deletable = deletable
         return obj
 
     @classmethod
-    def _missing_(cls, value):
+    def _missing_(cls, value: object) -> "MessageType | None":
         """Represent unknown numeric types conservatively instead of aborting a clean."""
         if not isinstance(value, int):
             return None
@@ -105,8 +109,8 @@ class MessageType(IntEnum):
         return message_type
 
     @property
-    def deletable(self):
+    def deletable(self) -> bool:
         return self._deletable
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.name} (Value: {self.value}, Deletable: {self.deletable})"

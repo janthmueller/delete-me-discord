@@ -1,11 +1,10 @@
-# delete_me_discord/preserve_cache.py
-
 import json
 import logging
 import os
-from typing import Dict, List, Any
-from .privacy import sensitive
-from .storage import atomic_write_json
+from typing import Any, Dict, List
+
+from ..privacy import sensitive
+from ..storage import atomic_write_json
 
 DEFAULT_PRESERVE_CACHE_PATH = os.path.join(
     os.path.expanduser("~"),
@@ -28,7 +27,7 @@ class PreserveCache:
         path: str = DEFAULT_PRESERVE_CACHE_PATH,
     ):
         self.path = path or DEFAULT_PRESERVE_CACHE_PATH
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger: Any = logging.getLogger(self.__class__.__name__)
         self.data: Dict[str, Any] = {
             "schema_version": self.SCHEMA_VERSION,
             "channels": {},

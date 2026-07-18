@@ -2,23 +2,27 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from delete_me_discord.channel_types import (
+from delete_me_discord.discord.channel_types import (
     MESSAGE_CHANNEL_TYPES,
     ROOT_MESSAGE_CHANNEL_TYPES,
     THREAD_CHANNEL_TYPES,
     ChannelType,
 )
-from delete_me_discord.cleaner import MessageCleaner
+from delete_me_discord.cleanup import MessageCleaner
 from delete_me_discord.discovery import collect_channels_from_inventory
-from delete_me_discord.models import DeleteOutcome, UpdateOutcome
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.scope_inventory import ScopeInventory
-from delete_me_discord.type_enums import MessageType, ReactionType
-from delete_me_discord.thread_cleanup import (
+from delete_me_discord.discord.models import DeleteOutcome, UpdateOutcome
+from delete_me_discord.scope import (
+    ScopeFilter,
+    ScopeInventory,
+    ScopeRules,
+    should_include_channel,
+)
+from delete_me_discord.discord.type_enums import MessageType, ReactionType
+from delete_me_discord.cleanup.threads import (
     MANAGE_THREADS_PERMISSION,
     ThreadRestorationJournal,
 )
-from delete_me_discord.utils import PROGRESS_LEVEL, should_include_channel
+from delete_me_discord.utils import PROGRESS_LEVEL
 
 
 def make_inventory() -> ScopeInventory:
@@ -168,11 +172,26 @@ def test_scope_filtering_uses_channel_parent_category_and_guild_specificity():
         "category_id": "category",
     }
 
-    assert should_include_channel(thread, {"category"}, {"guild"})
-    assert not should_include_channel(thread, {"category"}, {"forum"})
-    assert should_include_channel(thread, {"forum"}, {"category"})
-    assert should_include_channel(thread, {"thread"}, {"forum", "category", "guild"})
-    assert not should_include_channel(thread, {"forum", "category", "guild"}, {"thread"})
+    assert should_include_channel(
+        thread,
+        ScopeRules.from_values({"category"}, {"guild"}),
+    )
+    assert not should_include_channel(
+        thread,
+        ScopeRules.from_values({"category"}, {"forum"}),
+    )
+    assert should_include_channel(
+        thread,
+        ScopeRules.from_values({"forum"}, {"category"}),
+    )
+    assert should_include_channel(
+        thread,
+        ScopeRules.from_values({"thread"}, {"forum", "category", "guild"}),
+    )
+    assert not should_include_channel(
+        thread,
+        ScopeRules.from_values({"forum", "category", "guild"}, {"thread"}),
+    )
 
 
 def test_channel_type_exclusion_wins_over_explicit_thread_id():
@@ -188,8 +207,7 @@ def test_channel_type_exclusion_wins_over_explicit_thread_id():
 
     assert not should_include_channel(
         thread,
-        {"thread"},
-        set(),
+        ScopeRules.from_values({"thread"}),
         scope_filter=scope_filter,
     )
 

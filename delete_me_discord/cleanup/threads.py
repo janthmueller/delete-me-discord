@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, cast
 
-from .models import DiscordChannel, UpdateOutcome
-from .privacy import sensitive
-from .storage import atomic_write_json
-from .utils import ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus, channel_str
+from ..discord.models import DiscordChannel, UpdateOutcome
+from ..discord.errors import ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
+from ..privacy import sensitive
+from ..storage import atomic_write_json
+from ..utils import channel_str
 
 
 ARCHIVED_THREAD_CLEANUP_MODES = ("skip", "temporary", "allow-active")
@@ -85,7 +85,12 @@ def effective_channel_permissions(
         overwrite_type = overwrite.get("type")
         allow = _permission_value(overwrite.get("allow"))
         deny = _permission_value(overwrite.get("deny"))
-        if overwrite_id is None or allow is None or deny is None:
+        if (
+            overwrite_id is None
+            or overwrite_type is None
+            or allow is None
+            or deny is None
+        ):
             return None
         try:
             overwrite_type = int(overwrite_type)
@@ -231,7 +236,7 @@ class ArchivedThreadCoordinator:
         api: Any,
         user_id: str,
         journal: ThreadRestorationJournal | None,
-        logger: logging.Logger,
+        logger: Any,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.api = api
@@ -392,8 +397,9 @@ class ArchivedThreadCoordinator:
         closed_activation = self._observed_archived(activation, thread_id)
         duration_seconds = activation.auto_archive_duration_seconds
         activated_at = activation.activated_at
-        current_duration_seconds = self._auto_archive_duration_seconds(current)
-        current_locked = self._locked_state(current)
+        current_channel = cast(DiscordChannel, current)
+        current_duration_seconds = self._auto_archive_duration_seconds(current_channel)
+        current_locked = self._locked_state(current_channel)
         if duration_seconds is None or activated_at is None:
             self.logger.warning(
                 "Stopping cleanup in thread %s because its auto-archive deadline is unknown.",
@@ -429,7 +435,7 @@ class ArchivedThreadCoordinator:
             prefix="-",
         )
         resumed = self.activate(
-            current,
+            current_channel,
             ArchivedThreadAssessment(
                 should_scan=True,
                 restore_expected=activation.restore_expected,

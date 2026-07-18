@@ -1,11 +1,10 @@
-# delete_me_discord/api.py
+"""Discord endpoint operations over a reusable HTTP transport."""
 
-import os
-from datetime import datetime
-from typing import Any, Dict, Generator, List, Mapping, Optional, Set, Tuple, Union
 import logging
-import requests
 import urllib.parse
+from datetime import datetime
+from typing import Any, Dict, Generator, List, Mapping, Optional, Tuple, Union, cast
+
 from .models import (
     DeleteOutcome,
     DiscordChannel,
@@ -16,17 +15,18 @@ from .models import (
 from .rate_limits import (
     DELETE_POLICY,
     FETCH_POLICY,
-    READ_POLICY,
     THREAD_SEARCH_POLICY,
     DiscordRequestScheduler,
     WaitSnapshot,
 )
 from .type_enums import MessageType, ReactionType
-from .utils import AuthenticationError, format_timestamp, ReachedMaxRetries, ResourceUnavailable, UnexpectedStatus
-from .privacy import sensitive
+from .errors import ResourceUnavailable, UnexpectedStatus
+from .transport import DiscordTransport
+from ..utils import format_timestamp
+from ..privacy import sensitive
 
 
-class DiscordAPI:
+class DiscordClient:
     BASE_URL = "https://discord.com/api/v10"
     # By default we skip over unavailable resources (403/404) and malformed reactions,
     # logging a warning instead of aborting the entire run. This keeps long jobs moving
@@ -40,9 +40,10 @@ class DiscordAPI:
         request_timeout: Tuple[float, float] = (10.0, 30.0),
         request_intervals: Optional[Mapping[str, Tuple[float, float]]] = None,
         request_scheduler: Optional[DiscordRequestScheduler] = None,
+        transport: Optional[DiscordTransport] = None,
     ):
         """
-        Initializes the DiscordAPI instance.
+        Initialize endpoint operations over a Discord transport.
 
         Args:
             token (Optional[str]): Discord authentication token.
@@ -55,30 +56,15 @@ class DiscordAPI:
         Raises:
             ValueError: If the Discord token is not provided.
         """
-        self._token = token or os.getenv("DISCORD_TOKEN")
-        if not self._token:
-            raise ValueError("Discord token not provided. Set the DISCORD_TOKEN environment variable.")
-
-        self.max_retries = max_retries
-        self.retry_time_buffer = retry_time_buffer
-        self.request_timeout = request_timeout
-        self._request_interval_overrides = set(request_intervals or {})
-        if request_scheduler is None:
-            self.request_scheduler = DiscordRequestScheduler(
-                retry_jitter=retry_time_buffer,
-                policy_intervals=request_intervals,
-            )
-        else:
-            self.request_scheduler = request_scheduler
-            for name, interval in (request_intervals or {}).items():
-                self.request_scheduler.configure_policy(name, interval)
-        self.headers = {
-            "Authorization": self._token,
-            "Content-Type": "application/json"
-        }
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.transport = transport or DiscordTransport(
+            token=token,
+            max_retries=max_retries,
+            retry_time_buffer=retry_time_buffer,
+            request_timeout=request_timeout,
+            request_intervals=request_intervals,
+            request_scheduler=request_scheduler,
+        )
+        self.logger: Any = logging.getLogger(self.__class__.__name__)
         self._last_fetch_summaries: Dict[str, Dict[str, Any]] = {}
 
     def configure_request_policy(
@@ -87,13 +73,15 @@ class DiscordAPI:
         interval: Tuple[float, float],
     ) -> None:
         """Set the minimum interval applied before consecutive requests in a policy."""
-        if name in self._request_interval_overrides:
-            return
-        self.request_scheduler.configure_policy(name, interval)
+        self.transport.configure_policy(name, interval)
 
     def request_wait_snapshot(self, policy: str) -> WaitSnapshot:
         """Return cumulative scheduler waits for one request policy."""
-        return self.request_scheduler.wait_snapshot(policy)
+        return self.transport.wait_snapshot(policy)
+
+    def close(self) -> None:
+        """Close the underlying Discord transport."""
+        self.transport.close()
 
     def get_guilds(self) -> List[Dict[str, Any]]:
         """
@@ -106,7 +94,7 @@ class DiscordAPI:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
         """
         url = f"{self.BASE_URL}/users/@me/guilds"
-        return self._request(url, description="fetch guilds")
+        return self.transport.request(url, description="fetch guilds")
 
     def get_guild_channels(self, guild_id: str) -> List[DiscordChannel]:
         """
@@ -122,12 +110,18 @@ class DiscordAPI:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
         """
         url = f"{self.BASE_URL}/guilds/{guild_id}/channels"
-        return self._request(url, description=f"fetch channels for guild {sensitive(guild_id)}")
+        return cast(
+            List[DiscordChannel],
+            self.transport.request(
+                url,
+                description=f"fetch channels for guild {sensitive(guild_id)}",
+            ),
+        )
 
     def get_channel(self, channel_id: str) -> DiscordChannel:
         """Fetch one guild channel, category, thread, or private channel by exact ID."""
         url = f"{self.BASE_URL}/channels/{channel_id}"
-        payload = self._request(
+        payload = self.transport.request(
             url,
             description=f"fetch channel {sensitive(channel_id)}",
         )
@@ -135,7 +129,7 @@ class DiscordAPI:
             raise UnexpectedStatus(
                 f"Malformed channel response while attempting to fetch channel {sensitive(channel_id)}."
             )
-        return payload[0]
+        return cast(DiscordChannel, payload[0])
 
     def get_guild_channels_multiple(self, guild_ids: List[str]) -> List[DiscordChannel]:
         """
@@ -178,7 +172,7 @@ class DiscordAPI:
         previous_cursor = None
 
         while True:
-            response = self._request(
+            response = self.transport.request(
                 url,
                 description=description,
                 params=params,
@@ -232,7 +226,10 @@ class DiscordAPI:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
         """
         url = f"{self.BASE_URL}/users/@me/channels"
-        return self._request(url, description="fetch root channels")
+        return cast(
+            List[DiscordChannel],
+            self.transport.request(url, description="fetch root channels"),
+        )
 
     def get_current_user(self) -> Dict[str, Any]:
         """
@@ -245,12 +242,12 @@ class DiscordAPI:
             AuthenticationError, ResourceUnavailable, ReachedMaxRetries, UnexpectedStatus
         """
         url = f"{self.BASE_URL}/users/@me"
-        return self._request(url, description="fetch current user")[0]
+        return self.transport.request(url, description="fetch current user")[0]
 
     def get_current_guild_member(self, guild_id: str) -> Dict[str, Any]:
         """Fetch the authenticated user's member object for one guild."""
         url = f"{self.BASE_URL}/users/@me/guilds/{guild_id}/member"
-        payload = self._request(
+        payload = self.transport.request(
             url,
             description=f"fetch current member for guild {sensitive(guild_id)}",
         )
@@ -294,7 +291,7 @@ class DiscordAPI:
                 params["before"] = last_message_id
 
             try:
-                response = self._request(
+                response = self.transport.request(
                     url,
                     description=f"fetch messages in channel {sensitive(channel_id)}",
                     params=params,
@@ -360,7 +357,7 @@ class DiscordAPI:
         """
         url = f"{self.BASE_URL}/channels/{channel_id}/messages"
         try:
-            response = self._request(
+            response = self.transport.request(
                 url,
                 description=f"fetch message {sensitive(message_id)} in channel {sensitive(channel_id)}",
                 method="get",
@@ -409,7 +406,7 @@ class DiscordAPI:
         """
         delete_url = f"{self.BASE_URL}/channels/{channel_id}/messages/{message_id}"
         try:
-            self._request(
+            self.transport.request(
                 delete_url,
                 description=f"delete message {sensitive(message_id)} in channel {sensitive(channel_id)}",
                 method="delete",
@@ -454,7 +451,7 @@ class DiscordAPI:
         """Delete one thread channel when Discord grants the required permission."""
         delete_url = f"{self.BASE_URL}/channels/{thread_id}"
         try:
-            self._request(
+            self.transport.request(
                 delete_url,
                 description=f"delete thread {sensitive(thread_id)}",
                 method="delete",
@@ -496,7 +493,7 @@ class DiscordAPI:
         update_url = f"{self.BASE_URL}/channels/{thread_id}"
         state = "archived" if archived else "active"
         try:
-            self._request(
+            self.transport.request(
                 update_url,
                 description=(
                     f"set thread {sensitive(thread_id)} to {state} state"
@@ -573,7 +570,7 @@ class DiscordAPI:
             delete_url = f"{delete_url}/{int(normalized_reaction_type)}"
             params = {"burst": True}
         try:
-            self._request(
+            self.transport.request(
                 delete_url,
                 description=(
                     f"delete reaction {sensitive(emoji_identifier, full=True)} from message {sensitive(message_id)} "
@@ -640,208 +637,3 @@ class DiscordAPI:
         if emoji_id:
             return f"{'null' if name is None else name}:{emoji_id}"
         return name
-
-    @staticmethod
-    def _retry_backoff(attempt: int) -> float:
-        return min(2 ** max(0, attempt - 1), 30)
-
-    def _request(
-        self,
-        url: str,
-        description: str,
-        method: str = "get",
-        params: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
-        pacing_policy: str = READ_POLICY,
-        expected_statuses: Optional[Set[int]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Internal method to handle GET/DELETE requests with retry logic.
-
-        Args:
-            url (str): The endpoint URL.
-            description (str): Description of the request for logging.
-            method (str): HTTP method to use ("get", "delete", or "patch").
-            params (Optional[Dict[str, Any]]): Query parameters for the request.
-            json_body (Optional[Dict[str, Any]]): JSON request body.
-            pacing_policy (str): Application pacing policy for the request.
-            expected_statuses (Optional[Set[int]]): Successful statuses for this request.
-
-        Returns:
-            List[Dict[str, Any]]: The JSON response data (empty list for successful DELETE).
-
-        Raises:
-            AuthenticationError: When the request is unauthorized (401).
-            ResourceUnavailable: When the resource returns 403/404.
-            UnexpectedStatus: For non-handled HTTP status codes.
-            ReachedMaxRetries: When the request exceeds max retries.
-        """
-        assert method in {"get", "delete", "patch"}
-        success_codes = expected_statuses or {
-            "get": {200},
-            "delete": {204},
-            "patch": {200},
-        }[method]
-        attempts = 0
-        while attempts <= self.max_retries:
-            request_context = self.request_scheduler.acquire(
-                method,
-                url,
-                policy=pacing_policy,
-            )
-            if request_context.waited_seconds > 0:
-                self.logger.diagnostic(
-                    "Waited %.2f seconds before attempting to %s (%s).",
-                    request_context.waited_seconds,
-                    description,
-                    ", ".join(request_context.wait_reasons),
-                )
-            try:
-                request_kwargs: Dict[str, Any] = {
-                    "method": method,
-                    "url": url,
-                    "params": params,
-                    "timeout": self.request_timeout,
-                }
-                if json_body is not None:
-                    request_kwargs["json"] = json_body
-                response = self.session.request(
-                    **request_kwargs,
-                )
-            except requests.RequestException as exc:
-                attempts += 1
-                retry_after = self.request_scheduler.fallback_retry_delay(
-                    self._retry_backoff(attempts)
-                )
-                self.request_scheduler.defer_route(
-                    request_context,
-                    retry_after,
-                    record_attempt=True,
-                )
-                if attempts > self.max_retries:
-                    break
-                self.logger.diagnostic(
-                    "Network error while attempting to %s (%s). Retry scheduled in %.2f seconds.",
-                    description,
-                    exc,
-                    retry_after,
-                )
-                continue
-
-            rate_limit = self.request_scheduler.observe(
-                request_context,
-                response,
-                retry_fallback=self._retry_backoff(attempts + 1),
-            )
-            if response.status_code in {200, 204}:  # success
-                if response.status_code not in success_codes:
-                    raise UnexpectedStatus(
-                        f"Unexpected status {response.status_code} for {method.upper()} while attempting to {description}.",
-                        status_code=response.status_code,
-                    )
-                # DELETE 204 typically has no body; normalize to an empty list.
-                if response.status_code == 204:
-                    return []
-                data = response.json()
-                if not isinstance(data, list):
-                    data = [data]
-                return data
-            if response.status_code == 429:
-                attempts += 1
-                if attempts > self.max_retries:
-                    break
-                rate_limit_scope = rate_limit.scope or (
-                    "bucket" if rate_limit.bucket_id is not None else "route"
-                )
-                if rate_limit.used_fallback:
-                    self.logger.diagnostic(
-                        "Rate limited while attempting to %s without a usable Discord retry delay. "
-                        "Full-jitter fallback scheduled in %.2f seconds "
-                        "(scope=%s, policy=%s).",
-                        description,
-                        rate_limit.retry_after,
-                        rate_limit_scope,
-                        request_context.policy,
-                    )
-                else:
-                    self.logger.diagnostic(
-                        "Rate limited while attempting to %s. Discord retry %.2f seconds + "
-                        "%.2f seconds safety; retry scheduled in %.2f seconds "
-                        "(scope=%s, policy=%s).",
-                        description,
-                        rate_limit.server_retry_after,
-                        rate_limit.safety_jitter,
-                        rate_limit.retry_after,
-                        rate_limit_scope,
-                        request_context.policy,
-                    )
-                if rate_limit.learned_family_interval > 0:
-                    self.logger.diagnostic(
-                        "Learned %.2f-second minimum interval for %s %s across major resources.",
-                        rate_limit.learned_family_interval,
-                        request_context.family.method,
-                        request_context.family.template,
-                    )
-                continue
-            if response.status_code == 202:
-                try:
-                    payload = response.json()
-                except (TypeError, ValueError):
-                    payload = None
-                if isinstance(payload, dict) and payload.get("code") == 110000:
-                    attempts += 1
-                    retry_after = self.request_scheduler.retry_delay_for_response(
-                        response,
-                        fallback=self._retry_backoff(attempts),
-                    )
-                    self.request_scheduler.defer_route(request_context, retry_after)
-                    if attempts > self.max_retries:
-                        break
-                    self.logger.diagnostic(
-                        "Discord is indexing data while attempting to %s. "
-                        "Retry scheduled in %.2f seconds.",
-                        description,
-                        retry_after,
-                    )
-                    continue
-            if response.status_code == 408 or 500 <= response.status_code < 600:
-                attempts += 1
-                retry_after = self.request_scheduler.retry_delay_for_response(
-                    response,
-                    fallback=self._retry_backoff(attempts),
-                )
-                self.request_scheduler.defer_route(request_context, retry_after)
-                if attempts > self.max_retries:
-                    break
-                self.logger.diagnostic(
-                    "Retryable HTTP %s while attempting to %s. Retry scheduled in %.2f seconds.",
-                    response.status_code,
-                    description,
-                    retry_after,
-                )
-                continue
-            if response.status_code == 401:  # unauthorized
-                raise AuthenticationError(f"Unauthorized while attempting to {description}. Status Code: 401")
-            if response.status_code in {403, 404}:  # unavailable
-                raise ResourceUnavailable(
-                    f"Resource unavailable while attempting to {description}. "
-                    f"Status Code: {response.status_code}",
-                    status_code=response.status_code,
-                )
-            try:
-                error_payload = response.json()
-            except (TypeError, ValueError):
-                error_payload = None
-            discord_code = (
-                error_payload.get("code")
-                if isinstance(error_payload, dict)
-                and isinstance(error_payload.get("code"), int)
-                else None
-            )
-            raise UnexpectedStatus(
-                f"Unhandled status code {response.status_code} while attempting to {description}.",
-                status_code=response.status_code,
-                discord_code=discord_code,
-            )
-
-        raise ReachedMaxRetries(f"Max retries exceeded while attempting to {description}.")

@@ -1,47 +1,50 @@
-# delete_me_discord/cleaner.py
+"""Cleanup run service and channel orchestration."""
+
+import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
-from typing import Callable, Iterable, List, Generator, Tuple, Optional, Union, Set
-import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Generator, Iterable, List, Optional, Set, Tuple, Union
 
-from .api import DiscordAPI
-from .channel_types import (
+from ..discord.channel_types import (
     is_archived_thread,
     is_thread_channel,
 )
-from .cleanup import (
-    ActionKind,
-    ChannelCleanupStats,
-    ChannelPlan,
-    ChannelExecutor,
-    CleanupPlanner,
-    CleanupPolicy,
-    CleanupReporter,
-    CleanupRunOptions,
-    CleanupRunStats,
-    ForeignReactionImpact,
-)
-from .models import DeleteOutcome, DiscordChannel, DiscordMessage
-from .utils import channel_str, format_timestamp
-from .preserve_cache import PreserveCache
-from .rate_limits import DELETE_POLICY, FETCH_POLICY
-from .scope_filter import ScopeFilter
-from .scope_inventory import (
+from ..discord.client import DiscordClient
+from ..discord.models import DeleteOutcome, DiscordChannel, DiscordMessage
+from ..discord.rate_limits import DELETE_POLICY, FETCH_POLICY
+from ..scope import (
     CleanupChannelContext,
+    ScopeFilter,
     ScopeDiscoverySeed,
     ScopeInventory,
+    ScopeRules,
     iter_cleanup_channel_contexts,
+    should_include_channel,
 )
-from .scope_rules import ScopeRules
-from .thread_cleanup import (
+from .preserve_cache import PreserveCache
+from .threads import (
     ARCHIVED_THREAD_CLEANUP_MODES,
     ArchivedThreadAssessment,
     ArchivedThreadCoordinator,
     ThreadRestorationJournal,
     ThreadRestoreOutcome,
 )
+from ..utils import channel_str, format_timestamp
+from .executor import ChannelExecutor
+from .models import (
+    ActionKind,
+    ChannelCleanupStats,
+    ChannelPlan,
+    CleanupRunOptions,
+    CleanupRunStats,
+    ForeignReactionImpact,
+)
+from .planner import CleanupPlanner, CleanupPolicy
+from .reporting import CleanupReporter
+
+
 @dataclass(frozen=True, slots=True)
 class _OwnedThreadDeletionOutcome:
     """Result of optionally replacing message cleanup with one thread deletion."""
@@ -69,7 +72,7 @@ class _ThreadDeletionImpact:
 class MessageCleaner:
     def __init__(
         self,
-        api: DiscordAPI,
+        api: DiscordClient,
         user_id: Optional[str] = None,
         include_ids: Optional[List[str]] = None,
         exclude_ids: Optional[List[str]] = None,
@@ -86,7 +89,7 @@ class MessageCleaner:
         Initializes the MessageCleaner.
 
         Args:
-            api (DiscordAPI): An instance of DiscordAPI.
+            api (DiscordClient): An instance of DiscordClient.
             user_id (Optional[str]): The user ID whose messages will be targeted. If not provided and not set in the environment, it will be fetched via the API token.
             include_ids (Optional[List[str]]): IDs to include.
             exclude_ids (Optional[List[str]]): IDs to exclude.
@@ -117,7 +120,7 @@ class MessageCleaner:
         if preserve_n_mode not in {"mine", "all"}:
             raise ValueError("preserve_n_mode must be 'mine' or 'all'.")
         self.preserve_n_mode = preserve_n_mode
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger: Any = logging.getLogger(self.__class__.__name__)
         self.reporter = CleanupReporter(self.logger)
         self.preserve_cache = preserve_cache
         self.scope_inventory = scope_inventory
@@ -190,7 +193,11 @@ class MessageCleaner:
         Returns:
             bool: True if the channel should be included, False otherwise.
         """
-        allowed = self.scope_filter.includes_channel(channel) and self.scope_rules.includes(channel)
+        allowed = should_include_channel(
+            channel,
+            self.scope_rules,
+            self.scope_filter,
+        )
         if not allowed:
             self.logger.debug("Excluding channel based on include/exclude filters: %s.", channel_str(channel))
         return allowed
@@ -604,10 +611,13 @@ class MessageCleaner:
             "get_last_fetch_summary",
             None,
         )
-        fetch_summary = (
+        raw_fetch_summary = (
             get_last_fetch_summary(channel["id"])
             if callable(get_last_fetch_summary)
             else None
+        )
+        fetch_summary = (
+            raw_fetch_summary if isinstance(raw_fetch_summary, dict) else None
         )
         if options.dry_run:
             action_count = (

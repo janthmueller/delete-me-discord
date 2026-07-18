@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
-from .scope_filter import THREAD_STATES
+from ..discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
+from .filter import THREAD_STATES
 
 
 THREAD_GROUP_SELECTOR = "threads"

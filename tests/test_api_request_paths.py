@@ -1,11 +1,11 @@
 import pytest
 
-from delete_me_discord.api import DiscordAPI
-from delete_me_discord.models import DeleteOutcome, UpdateOutcome
+from delete_me_discord.discord.client import DiscordClient
+from delete_me_discord.discord.models import DeleteOutcome, UpdateOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
-from delete_me_discord.rate_limits import DiscordRequestScheduler
-from delete_me_discord.type_enums import ReactionType
-from delete_me_discord.utils import (
+from delete_me_discord.discord.rate_limits import DiscordRequestScheduler
+from delete_me_discord.discord.type_enums import ReactionType
+from delete_me_discord.discord.errors import (
     AuthenticationError,
     ResourceUnavailable,
     UnexpectedStatus,
@@ -51,7 +51,7 @@ class FakeSession:
 
 
 def make_api(fake_session, max_retries=2):
-    api = DiscordAPI(
+    api = DiscordClient(
         token="dummy",
         max_retries=max_retries,
         request_scheduler=DiscordRequestScheduler(
@@ -59,7 +59,7 @@ def make_api(fake_session, max_retries=2):
             default_interval=(0, 0),
         ),
     )
-    api.session = fake_session
+    api.transport.session = fake_session
     return api
 
 
@@ -133,7 +133,7 @@ def test_request_retries_and_hits_max():
     api = make_api(FakeSession(responses), max_retries=2)
     with pytest.raises(ReachedMaxRetries):
         api.get_guilds()
-    assert api.session.calls == 3  # initial + two retries
+    assert api.transport.session.calls == 3  # initial + two retries
 
 
 def test_fetch_messages_skips_on_resource_unavailable():
@@ -295,8 +295,12 @@ def test_delete_own_reaction_malformed_emoji_log_is_redacted(caplog):
 
 
 def test_delete_own_reaction_unavailable_log_redacts_emoji_and_ids(monkeypatch, caplog):
-    api = DiscordAPI(token="token", max_retries=0, retry_time_buffer=(0, 0))
-    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
+    api = DiscordClient(token="token", max_retries=0, retry_time_buffer=(0, 0))
+    monkeypatch.setattr(
+        api.transport,
+        "request",
+        lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")),
+    )
     caplog.set_level("WARNING")
     set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
     try:

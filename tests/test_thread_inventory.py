@@ -1,8 +1,8 @@
 import logging
 
-from delete_me_discord.scope_inventory import ScopeInventory
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.utils import DIAGNOSTIC_LEVEL, ResourceUnavailable
+from delete_me_discord.scope import ScopeFilter, ScopeInventory
+from delete_me_discord.discord.errors import ResourceUnavailable
+from delete_me_discord.utils import DIAGNOSTIC_LEVEL
 
 
 class ThreadAPI:

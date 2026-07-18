@@ -7,10 +7,10 @@ from datetime import timedelta
 from typing import Any, Literal, Optional
 
 from .auth import DEFAULT_CONFIG_PATH
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
-from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
+from .discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
+from .cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
-from .scope_filter import THREAD_STATES
+from .scope import THREAD_STATES
 from .storage import atomic_write_json
 from .utils import parse_random_range, parse_time_delta
 

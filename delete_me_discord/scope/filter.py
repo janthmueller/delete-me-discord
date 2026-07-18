@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from dataclasses import replace
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping, cast
 
-from .channel_types import (
+from ..discord.channel_types import (
     FILTERABLE_CHANNEL_TYPES_BY_NAME,
     THREAD_CHANNEL_TYPES,
     THREAD_CHANNEL_TYPE_NAMES,
@@ -89,8 +89,14 @@ class ScopeFilter:
             excluded_channel_types=frozenset(
                 FILTERABLE_CHANNEL_TYPES_BY_NAME[name] for name in type_names
             ),
-            included_thread_states=frozenset(included_state_names),
-            excluded_thread_states=frozenset(state_names),
+            included_thread_states=cast(
+                frozenset[ThreadState],
+                frozenset(included_state_names),
+            ),
+            excluded_thread_states=cast(
+                frozenset[ThreadState],
+                frozenset(state_names),
+            ),
             exact_included_channel_ids=frozenset(
                 str(value) for value in exact_included_channel_ids or ()
             ),

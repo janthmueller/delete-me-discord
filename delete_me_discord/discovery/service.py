@@ -1,9 +1,7 @@
-# delete_me_discord/discovery.py
 from typing import Dict, Any, List
 from rich.console import Console
 
-from .api import DiscordAPI
-from .channel_types import (
+from ..discord.channel_types import (
     ChannelType,
     GUILD_MESSAGE_CHANNEL_TYPES,
     ROOT_MESSAGE_CHANNEL_TYPES,
@@ -13,10 +11,9 @@ from .channel_types import (
     channel_type_sort_order,
     is_archived_thread,
 )
-from .scope_inventory import ScopeInventory
-from .scope_filter import ScopeFilter
-from .utils import should_include_channel
-from .discovery_renderers import (
+from ..discord.client import DiscordClient
+from ..scope import ScopeFilter, ScopeInventory, ScopeRules, should_include_channel
+from .renderers import (
     render_guilds_json,
     render_guilds_rich,
     render_channels_json,
@@ -29,7 +26,7 @@ def _guild_sort_key(guild):
 
 
 def run_discovery_commands(
-    api: DiscordAPI,
+    api: DiscordClient,
     list_guilds: bool,
     list_channels: bool,
     include_ids,
@@ -54,6 +51,7 @@ def run_discovery_commands(
         if json_output:
             render_guilds_json(guilds)
         else:
+            assert console is not None
             render_guilds_rich(guilds, console)
 
     if list_channels:
@@ -62,11 +60,12 @@ def run_discovery_commands(
         if json_output:
             render_channels_json(data)
         else:
+            assert console is not None
             render_channels_rich(data, console)
 
 
 def collect_guilds(
-    api: DiscordAPI,
+    api: DiscordClient,
     include_set,
     exclude_set
 ) -> List[Dict[str, Any]]:
@@ -101,7 +100,7 @@ def collect_guilds_from_inventory(
 
 
 def collect_channels(
-    api: DiscordAPI,
+    api: DiscordClient,
     include_set,
     exclude_set,
     *,
@@ -125,11 +124,12 @@ def collect_channels_from_inventory(
     """
     Collect channels grouped by DMs and guilds from a fetched scope inventory.
     """
+    scope_rules = ScopeRules.from_values(include_set, exclude_set)
+
     def include_channel(channel):
         return should_include_channel(
             channel=channel,
-            include_ids=include_set,
-            exclude_ids=exclude_set,
+            rules=scope_rules,
             scope_filter=inventory.scope_filter,
         )
 
@@ -162,6 +162,9 @@ def collect_channels_from_inventory(
     for guild in sorted(inventory.guilds, key=_guild_sort_key):
         guild_id = guild.get("id")
         guild_name = guild.get("name", "Unknown")
+        if guild_id is None:
+            continue
+        guild_id = str(guild_id)
 
         channels = inventory.guild_channels(guild_id)
         threads = inventory.guild_threads(guild_id)

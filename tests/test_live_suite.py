@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from delete_me_discord.channel_types import ChannelType
+from delete_me_discord.discord.channel_types import ChannelType
 from tests.live import live_suite
 from tests.live.fixture_client import (
     FixtureClientError,

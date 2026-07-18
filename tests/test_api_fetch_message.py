@@ -10,11 +10,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import pytest
 
-from delete_me_discord.api import DiscordAPI
-from delete_me_discord.models import DeleteOutcome
-from delete_me_discord.rate_limits import DiscordRequestScheduler
-from delete_me_discord.utils import AuthenticationError, ResourceUnavailable
-from delete_me_discord.type_enums import MessageType
+from delete_me_discord.discord.client import DiscordClient
+from delete_me_discord.discord.models import DeleteOutcome
+from delete_me_discord.discord.rate_limits import DiscordRequestScheduler
+from delete_me_discord.discord.errors import AuthenticationError, ResourceUnavailable
+from delete_me_discord.discord.type_enums import MessageType
 
 
 class FakeResponse:
@@ -44,8 +44,8 @@ class FakeSession:
 
 
 def make_api_with_session(fake_session):
-    api = DiscordAPI(token="dummy-token")
-    api.session = fake_session
+    api = DiscordClient(token="dummy-token")
+    api.transport.session = fake_session
     return api
 
 
@@ -133,7 +133,7 @@ def test_fetch_message_by_id_returns_none_on_unavailable():
 
 
 def test_fetch_messages_paginates_and_respects_before(monkeypatch):
-    api = DiscordAPI(token="dummy-token")
+    api = DiscordClient(token="dummy-token")
     calls = []
     responses = [
         [
@@ -148,7 +148,7 @@ def test_fetch_messages_paginates_and_respects_before(monkeypatch):
         assert pacing_policy == "fetch"
         return responses.pop(0)
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
 
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
     assert [m["message_id"] for m in messages] == ["200", "150"]
@@ -177,7 +177,7 @@ def test_fetch_summary_reports_wait_before_next_page_only(monkeypatch):
         sleeper=clock.sleep,
         random_between=lambda minimum, _maximum: minimum,
     )
-    api = DiscordAPI(token="dummy-token", request_scheduler=scheduler)
+    api = DiscordClient(token="dummy-token", request_scheduler=scheduler)
     responses = [
         FakeResponse(
             200,
@@ -193,7 +193,7 @@ def test_fetch_summary_reports_wait_before_next_page_only(monkeypatch):
         ),
         FakeResponse(200, []),
     ]
-    monkeypatch.setattr(api.session, "request", lambda **_: responses.pop(0))
+    monkeypatch.setattr(api.transport.session, "request", lambda **_: responses.pop(0))
 
     messages = list(
         api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(1.5, 1.5))
@@ -285,7 +285,7 @@ def test_message_type_mapping(value, name, deletable):
 
 
 def test_fetch_messages_maps_friend_request_accepted_type(monkeypatch):
-    api = DiscordAPI(token="dummy-token")
+    api = DiscordClient(token="dummy-token")
     responses = [
         [
             {
@@ -299,7 +299,7 @@ def test_fetch_messages_maps_friend_request_accepted_type(monkeypatch):
         [],
     ]
 
-    monkeypatch.setattr(api, "_request", lambda *_, **__: responses.pop(0))
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: responses.pop(0))
 
     message = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))[0]
 
@@ -319,7 +319,7 @@ def test_unknown_numeric_message_type_warns_and_remains_non_deletable(caplog):
 
 
 def test_fetch_messages_stops_at_max_messages(monkeypatch):
-    api = DiscordAPI(token="dummy-token")
+    api = DiscordClient(token="dummy-token")
     responses = [
         [
             {"id": "200", "timestamp": "2026-01-02T00:00:00.000000+00:00", "type": 0, "author": {"id": "u1"}, "reactions": []},
@@ -330,14 +330,14 @@ def test_fetch_messages_stops_at_max_messages(monkeypatch):
     def fake_request(*args, **kwargs):
         return responses.pop(0)
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
     messages = list(api.fetch_messages(channel_id="c1", max_messages=1, fetch_sleep_time_range=(0, 0)))
     assert [m["message_id"] for m in messages] == ["200"]
     assert api.get_last_fetch_summary("c1")["complete"] is False
 
 
 def test_fetch_messages_stops_at_cutoff(monkeypatch):
-    api = DiscordAPI(token="dummy-token")
+    api = DiscordClient(token="dummy-token")
     responses = [
         [
             {"id": "200", "timestamp": "2026-01-02T00:00:00.000000+00:00", "type": 0, "author": {"id": "u1"}, "reactions": []},
@@ -349,21 +349,25 @@ def test_fetch_messages_stops_at_cutoff(monkeypatch):
     def fake_request(*args, **kwargs):
         return responses.pop(0)
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
     cutoff = datetime.fromisoformat("2026-01-01T12:00:00+00:00")
     messages = list(api.fetch_messages(channel_id="c1", fetch_since=cutoff, fetch_sleep_time_range=(0, 0)))
     assert [m["message_id"] for m in messages] == ["200"]
 
 
 def test_fetch_messages_handles_unavailable_channel(monkeypatch):
-    api = DiscordAPI(token="dummy-token")
-    monkeypatch.setattr(api, "_request", lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")))
+    api = DiscordClient(token="dummy-token")
+    monkeypatch.setattr(
+        api.transport,
+        "request",
+        lambda *_, **__: (_ for _ in ()).throw(ResourceUnavailable("gone")),
+    )
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
     assert messages == []
 
 
 def test_fetch_messages_keeps_unknown_message_type_without_aborting(monkeypatch, caplog):
-    api = DiscordAPI(token="dummy-token")
+    api = DiscordClient(token="dummy-token")
     responses = [[{
         "id": "200",
         "timestamp": "2026-01-02T00:00:00.000000+00:00",
@@ -371,7 +375,7 @@ def test_fetch_messages_keeps_unknown_message_type_without_aborting(monkeypatch,
         "author": {"id": "u1"},
         "reactions": [],
     }], []]
-    monkeypatch.setattr(api, "_request", lambda *_, **__: responses.pop(0))
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: responses.pop(0))
 
     messages = list(api.fetch_messages(channel_id="c1", fetch_sleep_time_range=(0, 0)))
 

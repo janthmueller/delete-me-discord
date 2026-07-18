@@ -2,10 +2,10 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
 
-from ..models import DeleteOutcome, DiscordEmoji, DiscordMessage
+from ..discord.models import DeleteOutcome, DiscordEmoji, DiscordMessage
 from ..privacy import sensitive
-from ..rate_limits import DELETE_POLICY
-from ..type_enums import ReactionType
+from ..discord.rate_limits import DELETE_POLICY
+from ..discord.type_enums import ReactionType
 from ..utils import format_timestamp
 from .models import (
     ActionKind,

@@ -9,12 +9,11 @@ from .app_config import (
     profile_requests_json_output,
 )
 from .auth import DEFAULT_CONFIG_PATH
-from .channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
-from .preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
+from .discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, OWNED_THREAD_DELETE_MODES
+from .cleanup.preserve_cache import DEFAULT_PRESERVE_CACHE_PATH
 from .privacy import RedactionConfig
-from .rate_limits import REQUEST_POLICY_DEFAULTS
-from .scope_filter import THREAD_STATES
-from .scope_selectors import parse_scope_selectors
+from .discord.rate_limits import REQUEST_POLICY_DEFAULTS
+from .scope import THREAD_STATES, parse_scope_selectors
 from .utils import parse_random_range, parse_redaction_spec, parse_time_delta
 
 

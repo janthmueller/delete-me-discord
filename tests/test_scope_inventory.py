@@ -1,8 +1,7 @@
 import logging
 
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.scope_inventory import ScopeDiscoverySeed, ScopeInventory
-from delete_me_discord.utils import ResourceUnavailable
+from delete_me_discord.scope import ScopeDiscoverySeed, ScopeFilter, ScopeInventory
+from delete_me_discord.discord.errors import ResourceUnavailable
 
 
 class InventoryAPI:

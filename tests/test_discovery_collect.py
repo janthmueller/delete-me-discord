@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from delete_me_discord.discovery import collect_channels, collect_guilds
-from delete_me_discord.scope_filter import ScopeFilter
+from delete_me_discord.scope import ScopeFilter
 
 
 class FakeAPI:

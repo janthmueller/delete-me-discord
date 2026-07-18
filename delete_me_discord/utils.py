@@ -7,18 +7,16 @@ import math
 import re
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Tuple, Set, Optional
+from typing import List, Dict, Any, Mapping, Tuple, Optional
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.padding import Padding
 
-from .channel_types import channel_type_name
+from .discord.channel_types import channel_type_name
 from rich.table import Table
 from rich.text import Text
 
 from .privacy import RedactionConfig, sensitive, sensitive_name, set_redaction_config
-from .scope_filter import ScopeFilter
-from .scope_rules import ScopeRules
 
 
 PROGRESS_LEVEL = 15
@@ -55,33 +53,6 @@ if not hasattr(logging.Logger, "detail"):
 if not hasattr(logging.Logger, "diagnostic"):
     logging.Logger.diagnostic = _log_at_level(DIAGNOSTIC_LEVEL)
 
-
-class AuthenticationError(Exception):
-    """Custom exception for authentication errors (e.g., 401)."""
-
-class ReachedMaxRetries(Exception):
-    """Custom exception for reaching maximum retries."""
-
-class ResourceUnavailable(Exception):
-    """Custom exception for unavailable resources."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-
-class UnexpectedStatus(Exception):
-    """Custom exception for unexpected/unhandled status codes."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        discord_code: int | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.discord_code = discord_code
 
 class JsonLogFormatter(logging.Formatter):
     """Format logs as JSON lines for sidecar integrations."""
@@ -181,12 +152,12 @@ def format_timestamp(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("[%y/%m/%d %H:%M:%S]")
 
 
-def channel_str(channel: Dict[str, Any]) -> str:
+def channel_str(channel: Mapping[str, Any]) -> str:
     """
     Returns a human-readable string representation of a Discord channel.
 
     Args:
-        channel (Dict[str, Any]): The channel data.
+        channel (Mapping[str, Any]): The channel data.
 
     Returns:
         str: A formatted string representing the channel.
@@ -233,26 +204,6 @@ def parse_redaction_spec(values: List[str]) -> RedactionConfig:
         raise argparse.ArgumentTypeError("Redaction prefix and suffix must be non-negative integers.")
 
     return RedactionConfig(enabled=True, prefix=prefix, suffix=suffix)
-
-def should_include_channel(
-    channel: Dict[str, Any],
-    include_ids: Set[str],
-    exclude_ids: Set[str],
-    scope_filter: ScopeFilter | None = None,
-) -> bool:
-    """
-    Decide whether a channel should be included based on include/exclude IDs.
-
-    Type and thread-state exclusions always win. ID scope uses nearest-target precedence.
-
-    Returns:
-        bool: True if the channel should be included, False otherwise.
-    """
-    if scope_filter is not None and not scope_filter.includes_channel(channel):
-        return False
-
-    return ScopeRules.from_values(include_ids, exclude_ids).includes(channel)
-
 
 def parse_random_range(arg: List[str], parameter_name: str) -> Tuple[float, float]:
     """

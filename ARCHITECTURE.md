@@ -47,8 +47,10 @@ delete_me_discord/
 │   ├── client.py           # Discord endpoint operations
 │   ├── transport.py        # HTTP requests, retries, error translation
 │   ├── rate_limits.py      # Scheduler and endpoint policies
-│   ├── payloads.py         # Discord API payload types
-│   └── types.py            # Channel, message, and reaction enums
+│   ├── errors.py           # HTTP and Discord failure types
+│   ├── models.py           # Discord payload types and operation outcomes
+│   ├── channel_types.py    # Channel enums, groups, and predicates
+│   └── type_enums.py       # Message and reaction enums
 │
 ├── cleanup/
 │   ├── service.py          # Run and per-channel orchestration
@@ -78,7 +80,7 @@ delete_me_discord/
 └── storage.py
 ```
 
-## Current Transitional State
+## Current State
 
 The first cleanup refactor has established:
 
@@ -89,10 +91,21 @@ The first cleanup refactor has established:
 - A small run-level `clean_messages()` coordinator.
 - A separate per-channel cleanup transaction.
 
-The root `cleaner.py` still owns the cleanup facade, scope iteration, message
-fetching and buffering, preserve-cache merging, owned-thread handling, and the
-per-channel transaction. It is transitional and should be removed in the next
-phase.
+`cleanup/service.py` now owns the cleanup facade, scope iteration, message
+fetching and buffering, preserve-cache merging, owned-thread deletion
+coordination, and the per-channel transaction. Archived-thread activation and
+restoration are isolated in `cleanup/threads.py`, and cache persistence is
+isolated in `cleanup/preserve_cache.py`. The former root cleanup implementation
+modules have been removed.
+
+Scope selector parsing, hierarchy rules, type/state filtering, explicit-ID
+resolution, and lazy/eager inventory traversal now live under `scope/`. The
+shared `should_include_channel()` policy moved out of `utils.py` with them.
+
+Discord HTTP execution now lives in `discord/transport.py`; endpoint operations
+live in `discord/client.py`. Rate-limit scheduling, response errors, payload
+models, and Discord enums are colocated under `discord/`, and the former root
+Discord implementation modules have been removed.
 
 ## Refactor Phases
 
@@ -103,11 +116,12 @@ phase.
 - [x] Extract cleanup reporting.
 - [x] Introduce typed cleanup options and result statistics.
 - [x] Separate run orchestration from per-channel processing.
-- [ ] Move cleanup orchestration to `cleanup/service.py`.
-- [ ] Move archived and owned-thread behavior to `cleanup/threads.py`.
-- [ ] Move preserve-cache behavior to `cleanup/preserve_cache.py`.
-- [ ] Update callers and tests to import the cleanup package.
-- [ ] Remove root `cleaner.py`.
+- [x] Move cleanup orchestration to `cleanup/service.py`.
+- [x] Move archived-thread activation and restoration to `cleanup/threads.py`.
+- [ ] Move owned-thread deletion coordination to `cleanup/threads.py`.
+- [x] Move preserve-cache behavior to `cleanup/preserve_cache.py`.
+- [x] Update callers and tests to import the cleanup package.
+- [x] Remove root `cleaner.py`.
 
 Completion criteria:
 
@@ -118,12 +132,12 @@ Completion criteria:
 
 ### Phase 2: Consolidate Scope And Discovery
 
-- [ ] Create the `scope/` package.
-- [ ] Move selector parsing, hierarchy rules, type/state filters, explicit-ID
+- [x] Create the `scope/` package.
+- [x] Move selector parsing, hierarchy rules, type/state filters, explicit-ID
   resolution, and inventory discovery to their target modules.
-- [ ] Remove duplicated eager/lazy filtering decisions.
-- [ ] Create the `discovery/` package and move list rendering into it.
-- [ ] Remove the root `scope_*` and discovery implementation modules.
+- [x] Remove duplicated eager/lazy filtering decisions.
+- [x] Create the `discovery/` package and move list rendering into it.
+- [x] Remove the root scope and discovery implementation modules.
 
 Completion criteria:
 
@@ -133,12 +147,13 @@ Completion criteria:
 
 ### Phase 3: Split Discord Transport From Operations
 
-- [ ] Create `discord/transport.py` for requests, retries, error translation,
+- [x] Create `discord/transport.py` for requests, retries, error translation,
   and response decoding.
-- [ ] Create `discord/client.py` for endpoint-level operations.
-- [ ] Move rate-limit scheduling and policies under `discord/`.
-- [ ] Move payload definitions and Discord enums under `discord/`.
-- [ ] Remove root `api.py`, `rate_limits.py`, `models.py`, `channel_types.py`,
+- [x] Create `discord/client.py` for endpoint-level operations.
+- [x] Move rate-limit scheduling and policies under `discord/`.
+- [x] Move payload definitions, outcomes, errors, and Discord enums under
+  `discord/`.
+- [x] Remove root `api.py`, `rate_limits.py`, `models.py`, `channel_types.py`,
   and `type_enums.py`.
 
 Completion criteria:

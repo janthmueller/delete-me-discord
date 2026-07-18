@@ -244,7 +244,7 @@ having to remove them.
 ### Centralized Discord channel types
 
 Discord channel type numbers and display names now live in
-`delete_me_discord/channel_types.py`. The model distinguishes:
+`delete_me_discord/discord/channel_types.py`. The model distinguishes:
 
 - root message channels: `DM`, `GroupDM`
 - direct guild message channels: `GuildText`, `GuildAnnouncement`,
@@ -266,13 +266,13 @@ consistent throughout the application.
 
 ### ScopeFilter is the shared policy
 
-`delete_me_discord/scope_selectors.py` classifies the compact `-i/--include`
+`delete_me_discord/scope/selectors.py` classifies the compact `-i/--include`
 and `-x/--exclude` values into complete IDs, canonical channel types, the
 `threads` group, and `active`/`archived` thread states. Existing structured
 profile fields remain supported, and `--include-ids`/`--exclude-ids` remain CLI
 aliases.
 
-`delete_me_discord/scope_filter.py` converts those selectors and profile fields
+`delete_me_discord/scope/filter.py` converts those selectors and profile fields
 into typed positive and negative channel/thread-state policy. The same filter
 is passed through eager inventory collection, listing, and incremental
 cleanup.
@@ -301,7 +301,7 @@ exclusion overrides `-i threads`. Exclusion wins when both sides name the same
 concrete type. Thread states are orthogonal filters: `active` or `archived`
 narrows the surviving thread types but does not override `-x threads`.
 
-`delete_me_discord/scope_rules.py` owns this policy independently from API
+`delete_me_discord/scope/rules.py` owns this policy independently from API
 discovery. If any include ID exists, unmatched channels default to excluded.
 With excludes only, unmatched channels retain the default included state.
 
@@ -357,7 +357,7 @@ selectors still use paginated thread discovery.
 tree requires all selected channels and threads. Cleanup does not build a
 global inventory, with or without explicit ID filters.
 
-Explicit IDs first pass through `delete_me_discord/scope_ids.py`. Preflight
+Explicit IDs first pass through `delete_me_discord/scope/resolver.py`. Preflight
 loads the current guild and DM lists once, recognizes those IDs directly, and
 uses `GET /channels/{id}` only for remaining category, channel, thread-parent,
 or thread IDs. Every ID is validated before mutation. The guild and DM results
@@ -488,14 +488,14 @@ deletes directly, while `all --dry-run` performs a complete scan so the shared
 message and reaction impact is visible first.
 
 An unknown future Discord message type no longer aborts message collection. It
-is retained in the scan, logged once, and treated as non-deletable unless DMD
-knows that type is safe to delete.
+is retained in the scan, logged whenever encountered, and treated as
+non-deletable unless DMD knows that type is safe to delete.
 
 ## Request scheduler
 
 The old pattern of sleeping unconditionally after fetches and deletions has
 been replaced by `DiscordRequestScheduler` in
-`delete_me_discord/rate_limits.py`.
+`delete_me_discord/discord/rate_limits.py`.
 
 The scheduler tracks in-memory timing state for:
 
@@ -1022,12 +1022,12 @@ The v3 release candidate is ready to merge only after:
 | --- | --- |
 | CLI and orchestration | `delete_me_discord/__init__.py`, `delete_me_discord/options.py` |
 | Profiles and effective settings | `delete_me_discord/app_config.py` |
-| Channel model and filters | `delete_me_discord/channel_types.py`, `delete_me_discord/scope_filter.py` |
-| Scope IDs, rules, and inventory | `delete_me_discord/scope_ids.py`, `delete_me_discord/scope_rules.py`, `delete_me_discord/scope_inventory.py` |
-| Thread API, archived-state policy, and rate scheduling | `delete_me_discord/api.py`, `delete_me_discord/thread_cleanup.py`, `delete_me_discord/rate_limits.py` |
-| Listing and rendering | `delete_me_discord/discovery.py`, `delete_me_discord/discovery_renderers.py` |
-| Cleanup semantics | `delete_me_discord/cleaner.py`, `delete_me_discord/models.py` |
-| Durable local state | `delete_me_discord/storage.py`, `delete_me_discord/auth.py`, `delete_me_discord/preserve_cache.py` |
+| Channel model and filters | `delete_me_discord/discord/channel_types.py`, `delete_me_discord/scope/filter.py` |
+| Scope IDs, rules, and inventory | `delete_me_discord/scope/resolver.py`, `delete_me_discord/scope/rules.py`, `delete_me_discord/scope/inventory.py` |
+| Thread API, archived-state policy, and rate scheduling | `delete_me_discord/discord/client.py`, `delete_me_discord/discord/transport.py`, `delete_me_discord/cleanup/threads.py`, `delete_me_discord/discord/rate_limits.py` |
+| Listing and rendering | `delete_me_discord/discovery/service.py`, `delete_me_discord/discovery/renderers.py` |
+| Cleanup semantics | `delete_me_discord/cleanup/service.py`, `delete_me_discord/cleanup/models.py` |
+| Durable local state | `delete_me_discord/storage.py`, `delete_me_discord/auth.py`, `delete_me_discord/cleanup/preserve_cache.py` |
 | Version and packaging | `delete_me_discord/_version.py`, `pyproject.toml`, `MANIFEST.in`, `delete_me_discord.spec`, `tools/verify_distribution.py` |
 | CI/CD | `.github/workflows/test.yml`, `.github/workflows/release.yml`, `.github/workflows/docs.yml`, `.github/workflows/pyinstaller.yml` |
 | Development environment | `flake.nix`, `flake.lock` |

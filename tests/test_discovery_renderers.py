@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.discovery_renderers import (
+from delete_me_discord.discovery import (
     render_channels_json,
     render_guilds_json,
     render_channels_rich,

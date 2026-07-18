@@ -26,20 +26,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from delete_me_discord.api import DiscordAPI  # noqa: E402
-from delete_me_discord.cleaner import MessageCleaner  # noqa: E402
+from delete_me_discord.discord.client import DiscordClient  # noqa: E402
+from delete_me_discord.cleanup import MessageCleaner  # noqa: E402
 from delete_me_discord.storage import atomic_write_json  # noqa: E402
-from delete_me_discord.channel_types import ChannelType  # noqa: E402
+from delete_me_discord.discord.channel_types import ChannelType  # noqa: E402
 from delete_me_discord.privacy import (  # noqa: E402
     RedactionConfig,
     get_redaction_config,
     set_redaction_config,
 )
-from delete_me_discord.scope_inventory import ScopeInventory  # noqa: E402
-from delete_me_discord.thread_cleanup import (  # noqa: E402
+from delete_me_discord.scope import ScopeInventory  # noqa: E402
+from delete_me_discord.cleanup.threads import (  # noqa: E402
     ThreadRestorationJournal,
 )
-from delete_me_discord.type_enums import MessageType  # noqa: E402
+from delete_me_discord.discord.type_enums import MessageType  # noqa: E402
 from tests.live.fixture_client import (  # noqa: E402
     DiscordFixtureClient,
     FixtureClientError,
@@ -4406,7 +4406,7 @@ class _RaceClock:
 class _ArchivedThreadRaceAPI:
     def __init__(
         self,
-        api: DiscordAPI,
+        api: DiscordClient,
         *,
         thread_id: str,
         scenario: ArchivedThreadRaceScenario,
@@ -4491,7 +4491,7 @@ def _silenced_redacted_dmd_logging() -> Iterator[None]:
 
 
 def _race_inventory(
-    api: DiscordAPI,
+    api: DiscordClient,
     thread: LedgerResource,
 ) -> tuple[ScopeInventory, dict[str, Any]]:
     if thread.guild_id is None or thread.parent_id is None:
@@ -4549,7 +4549,7 @@ def _run_archived_thread_race_cleanup(
     *,
     fetch_interval: tuple[float, float] = (1.0, 2.0),
     delete_interval: tuple[float, float] = (3.0, 6.0),
-    api_factory: Callable[..., DiscordAPI] = DiscordAPI,
+    api_factory: Callable[..., DiscordClient] = DiscordClient,
 ) -> tuple[int, int]:
     api = api_factory(token=token)
     try:
@@ -4604,7 +4604,7 @@ def _run_archived_thread_race_cleanup(
             "The archived-thread race cleanup failed with a redacted diagnostic."
         ) from None
     finally:
-        api.session.close()
+        api.close()
 
 
 def _assert_race_journal_empty(

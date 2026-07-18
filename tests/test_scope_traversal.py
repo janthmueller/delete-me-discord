@@ -1,8 +1,7 @@
 import pytest
 
-from delete_me_discord.cleaner import MessageCleaner
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.scope_ids import preflight_scope_ids
+from delete_me_discord.cleanup import MessageCleaner
+from delete_me_discord.scope import ScopeFilter, preflight_scope_ids
 
 
 GUILD_A = "100000000000000001"

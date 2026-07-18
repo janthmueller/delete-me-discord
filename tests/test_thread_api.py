@@ -1,11 +1,11 @@
 import pytest
 
-from delete_me_discord.api import DiscordAPI
-from delete_me_discord.utils import UnexpectedStatus
+from delete_me_discord.discord.client import DiscordClient
+from delete_me_discord.discord.errors import UnexpectedStatus
 
 
 def test_search_channel_threads_fetches_active_threads(monkeypatch):
-    api = DiscordAPI(token="token")
+    api = DiscordClient(token="token")
     captured = {}
 
     def fake_request(url, description, method="get", params=None, pacing_policy="read"):
@@ -18,7 +18,7 @@ def test_search_channel_threads_fetches_active_threads(monkeypatch):
         )
         return [{"threads": [{"id": "t1", "type": 11}], "members": []}]
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
 
     assert api.search_channel_threads("c1") == [{"id": "t1", "type": 11}]
     assert captured["url"].endswith("/channels/c1/threads/search")
@@ -32,7 +32,7 @@ def test_search_channel_threads_fetches_active_threads(monkeypatch):
 
 
 def test_search_channel_threads_paginates_by_thread_id_and_deduplicates(monkeypatch):
-    api = DiscordAPI(token="token")
+    api = DiscordClient(token="token")
     responses = [
         [{
             "threads": [{"id": "200", "type": 11}],
@@ -53,7 +53,7 @@ def test_search_channel_threads_paginates_by_thread_id_and_deduplicates(monkeypa
         assert pacing_policy == "thread-search"
         return responses.pop(0)
 
-    monkeypatch.setattr(api, "_request", fake_request)
+    monkeypatch.setattr(api.transport, "request", fake_request)
 
     threads = api.search_channel_threads("c1", include_archived=True)
 
@@ -64,10 +64,10 @@ def test_search_channel_threads_paginates_by_thread_id_and_deduplicates(monkeypa
 
 
 def test_thread_search_pagination_stops_when_cursor_cannot_advance(monkeypatch, caplog):
-    api = DiscordAPI(token="token")
+    api = DiscordClient(token="token")
     monkeypatch.setattr(
-        api,
-        "_request",
+        api.transport,
+        "request",
         lambda *_, **__: [{"threads": [{"id": "t1", "type": 11}], "has_more": True}],
     )
 
@@ -77,8 +77,8 @@ def test_thread_search_pagination_stops_when_cursor_cannot_advance(monkeypatch, 
 
 @pytest.mark.parametrize("response", [[], [{"wat": []}], [{"threads": "bad"}]])
 def test_thread_collection_rejects_malformed_payload(monkeypatch, response):
-    api = DiscordAPI(token="token")
-    monkeypatch.setattr(api, "_request", lambda *_, **__: response)
+    api = DiscordClient(token="token")
+    monkeypatch.setattr(api.transport, "request", lambda *_, **__: response)
 
     with pytest.raises(UnexpectedStatus, match="Malformed"):
         api.search_channel_threads("c1")

@@ -1,6 +1,6 @@
 import pytest
 
-from delete_me_discord.scope_selectors import parse_scope_selectors
+from delete_me_discord.scope import parse_scope_selectors
 
 
 def test_scope_selectors_classify_ids_types_group_and_states():

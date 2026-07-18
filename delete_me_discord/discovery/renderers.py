@@ -1,4 +1,3 @@
-# delete_me_discord/discovery_renderers.py
 import json
 from typing import Dict, Any, List
 
@@ -6,7 +5,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.tree import Tree
 
-from .privacy import sensitive, sensitive_name
+from ..privacy import sensitive, sensitive_name
 
 
 def render_guilds_json(guilds: List[Dict[str, Any]]) -> None:

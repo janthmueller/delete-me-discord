@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
-from .api import DiscordAPI
-from .channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CHANNEL_TYPES
-from .models import DiscordChannel
-from .privacy import sensitive
-from .scope_filter import ScopeFilter, ThreadDiscoveryMode
-from .scope_rules import ScopeRules
-from .utils import ResourceUnavailable
+from ..discord.channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CHANNEL_TYPES
+from ..discord.client import DiscordClient
+from ..discord.errors import ResourceUnavailable
+from ..discord.models import DiscordChannel
+from ..privacy import sensitive
+from .filter import ScopeFilter, ThreadDiscoveryMode
+from .rules import ScopeRules
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ class ScopeInventory:
     @classmethod
     def fetch(
         cls,
-        api: DiscordAPI,
+        api: DiscordClient,
         *,
         scope_filter: ScopeFilter | None = None,
         seed: ScopeDiscoverySeed | None = None,
@@ -97,7 +97,7 @@ class ScopeInventory:
 
     @staticmethod
     def _fetch_guild_threads(
-        api: DiscordAPI,
+        api: DiscordClient,
         guild_id: str,
         guild_channels: list[DiscordChannel],
         scope_filter: ScopeFilter,
@@ -136,7 +136,7 @@ class ScopeInventory:
 
     @staticmethod
     def fetch_parent_threads(
-        api: DiscordAPI,
+        api: DiscordClient,
         guild_id: str,
         parent: DiscordChannel,
         parent_by_id: dict[str, DiscordChannel],
@@ -152,7 +152,7 @@ class ScopeInventory:
                 include_archived=scope_filter.thread_discovery_mode == "all",
             )
         except ResourceUnavailable as exc:
-            api.logger.diagnostic(
+            _api_logger(api).diagnostic(
                 "Skipping threads for channel %s as they are unavailable. Error: %s",
                 sensitive(parent_id),
                 str(exc),
@@ -177,9 +177,10 @@ class ScopeInventory:
         normalized.setdefault("guild_id", guild_id)
         parent_id = normalized.get("parent_id")
         parent = parent_by_id.get(str(parent_id)) if parent_id is not None else None
-        if parent and parent.get("parent_id") is not None:
-            normalized["category_id"] = str(parent["parent_id"])
-        return normalized
+        parent_category_id = parent.get("parent_id") if parent else None
+        if parent_category_id is not None:
+            normalized["category_id"] = str(parent_category_id)
+        return cast(DiscordChannel, normalized)
 
     def guild_channels(self, guild_id: str) -> list[DiscordChannel]:
         return self.guild_channels_by_guild.get(str(guild_id), [])
@@ -212,7 +213,7 @@ class CleanupChannelContext:
 
 
 def iter_cleanup_channels(
-    api: DiscordAPI,
+    api: DiscordClient,
     *,
     scope_filter: ScopeFilter,
     inventory: ScopeInventory | None = None,
@@ -229,7 +230,7 @@ def iter_cleanup_channels(
 
 
 def iter_cleanup_channel_contexts(
-    api: DiscordAPI,
+    api: DiscordClient,
     *,
     scope_filter: ScopeFilter,
     inventory: ScopeInventory | None = None,
@@ -243,7 +244,7 @@ def iter_cleanup_channel_contexts(
 
 
 def _iter_discovered_cleanup_contexts(
-    api: DiscordAPI,
+    api: DiscordClient,
     scope_filter: ScopeFilter,
     seed: ScopeDiscoverySeed | None = None,
 ) -> Generator[CleanupChannelContext, None, None]:
@@ -395,8 +396,8 @@ def _iter_inventory_cleanup_contexts(
             )
 
 
-def _api_logger(api: DiscordAPI):
-    return getattr(api, "logger", logging.getLogger("scope_inventory"))
+def _api_logger(api: DiscordClient) -> Any:
+    return cast(Any, getattr(api, "logger", logging.getLogger("scope_inventory")))
 
 
 def _with_guild_id(channel: DiscordChannel, guild_id: str) -> DiscordChannel:
@@ -404,7 +405,7 @@ def _with_guild_id(channel: DiscordChannel, guild_id: str) -> DiscordChannel:
         return channel
     normalized = dict(channel)
     normalized["guild_id"] = guild_id
-    return normalized
+    return cast(DiscordChannel, normalized)
 
 
 def _searches_threads_below(

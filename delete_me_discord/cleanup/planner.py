@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Iterator
 
-from ..models import DiscordMessage, DiscordReaction
-from ..type_enums import ReactionType
+from ..discord.models import DiscordMessage, DiscordReaction
+from ..discord.type_enums import ReactionType
 from .models import (
     ActionKind,
     ChannelPlan,

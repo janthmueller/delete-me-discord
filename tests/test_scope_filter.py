@@ -1,7 +1,7 @@
 import pytest
 
-from delete_me_discord.channel_types import ChannelType
-from delete_me_discord.scope_filter import ScopeFilter
+from delete_me_discord.discord.channel_types import ChannelType
+from delete_me_discord.scope import ScopeFilter
 
 
 def thread(channel_type, *, archived):

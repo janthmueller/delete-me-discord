@@ -2,7 +2,7 @@ from itertools import product
 
 import pytest
 
-from delete_me_discord.scope_rules import ScopeRules
+from delete_me_discord.scope import ScopeRules
 
 
 CHANNELS = [

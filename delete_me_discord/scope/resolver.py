@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Any, Iterable, Literal, Mapping, TypeVar
 
-from .api import DiscordAPI
-from .channel_types import (
+from ..discord.channel_types import (
     GUILD_MESSAGE_CHANNEL_TYPES,
     ROOT_MESSAGE_CHANNEL_TYPES,
     THREAD_CHANNEL_TYPES,
     THREAD_CONTAINER_CHANNEL_TYPES,
     ChannelType,
 )
-from .models import DiscordChannel
-from .privacy import sensitive
-from .scope_inventory import ScopeDiscoverySeed
-from .scope_rules import ScopeRules
-from .utils import ResourceUnavailable
+from ..discord.client import DiscordClient
+from ..discord.errors import ResourceUnavailable
+from ..discord.models import DiscordChannel
+from ..privacy import sensitive
+from .inventory import ScopeDiscoverySeed
+from .rules import ScopeRules
 
 
 ScopeNodeKind = Literal[
@@ -47,7 +47,7 @@ class ScopePreflight:
 
 
 def preflight_scope_ids(
-    api: DiscordAPI,
+    api: DiscordClient,
     include_ids: Iterable[str] | None,
     exclude_ids: Iterable[str] | None,
 ) -> ScopePreflight:
@@ -96,7 +96,7 @@ def preflight_scope_ids(
         resolved_channels_by_id[scope_id] = channel
 
     included_guild_ids = frozenset(
-        node.id if node.kind == "guild" else node.guild_id
+        node.id if node.kind == "guild" else str(node.guild_id)
         for scope_id in normalized_include
         for node in [nodes_by_id[scope_id]]
         if node.kind == "guild" or node.guild_id is not None
@@ -137,7 +137,10 @@ def _normalize_ids(values: Iterable[str] | None) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _objects_by_id(objects) -> dict[str, dict]:
+_ObjectById = TypeVar("_ObjectById", bound=Mapping[str, Any])
+
+
+def _objects_by_id(objects: Iterable[_ObjectById]) -> dict[str, _ObjectById]:
     return {
         str(item["id"]): item
         for item in objects

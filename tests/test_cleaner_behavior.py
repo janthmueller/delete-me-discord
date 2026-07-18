@@ -10,7 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import pytest
 
-from delete_me_discord.cleaner import MessageCleaner
+from delete_me_discord.cleanup import MessageCleaner
 from delete_me_discord.cleanup import (
     ActionKind,
     ChannelCleanupStats,
@@ -19,11 +19,10 @@ from delete_me_discord.cleanup import (
     CleanupPolicy,
     PlannedAction,
 )
-from delete_me_discord.models import DeleteOutcome
+from delete_me_discord.discord.models import DeleteOutcome
 from delete_me_discord.privacy import RedactionConfig, set_redaction_config
-from delete_me_discord.scope_filter import ScopeFilter
-from delete_me_discord.scope_inventory import ScopeInventory
-from delete_me_discord.type_enums import ReactionType
+from delete_me_discord.scope import ScopeFilter, ScopeInventory
+from delete_me_discord.discord.type_enums import ReactionType
 from delete_me_discord.utils import DETAIL_LEVEL, PROGRESS_LEVEL
 
 
@@ -1123,7 +1122,10 @@ def test_clean_messages_logs_channel_and_total_elapsed(monkeypatch, caplog):
     )
 
     monotonic_values = iter([10.0, 12.0, 16.0, 19.0])
-    monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        "delete_me_discord.cleanup.service.time.monotonic",
+        lambda: next(monotonic_values),
+    )
 
     with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(
@@ -1158,7 +1160,10 @@ def test_clean_messages_lazy_dry_run_logs_estimates(monkeypatch, caplog):
     monkeypatch.setattr(cleaner, "iter_channels", lambda: iter([{"id": "c1", "type": 0, "name": "chan"}]))
     monkeypatch.setattr(cleaner, "fetch_all_messages", lambda **_: iter(messages))
     monotonic_values = iter([10.0, 11.0, 12.0, 13.0, 15.0, 16.0])
-    monkeypatch.setattr("delete_me_discord.cleaner.time.monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        "delete_me_discord.cleanup.service.time.monotonic",
+        lambda: next(monotonic_values),
+    )
 
     with caplog.at_level(PROGRESS_LEVEL):
         total = cleaner.clean_messages(

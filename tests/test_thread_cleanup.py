@@ -3,8 +3,8 @@ import stat
 
 import pytest
 
-from delete_me_discord.models import UpdateOutcome
-from delete_me_discord.thread_cleanup import (
+from delete_me_discord.discord.models import UpdateOutcome
+from delete_me_discord.cleanup.threads import (
     ADMINISTRATOR_PERMISSION,
     MANAGE_THREADS_PERMISSION,
     ArchivedThreadAssessment,
@@ -13,7 +13,7 @@ from delete_me_discord.thread_cleanup import (
     ThreadRestoreOutcome,
     effective_channel_permissions,
 )
-from delete_me_discord.utils import ResourceUnavailable
+from delete_me_discord.discord.errors import ResourceUnavailable
 
 
 def resolve_permissions(

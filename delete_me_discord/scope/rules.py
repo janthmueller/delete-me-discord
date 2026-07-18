@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from .privacy import sensitive
+from .filter import ScopeFilter
+from ..privacy import sensitive
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,3 +51,14 @@ class ScopeRules:
             if scope_id in self.include_ids:
                 return True
         return not self.has_includes
+
+
+def should_include_channel(
+    channel: Mapping[str, Any],
+    rules: ScopeRules,
+    scope_filter: ScopeFilter | None = None,
+) -> bool:
+    """Apply type/state filtering followed by nearest-target ID precedence."""
+    if scope_filter is not None and not scope_filter.includes_channel(channel):
+        return False
+    return rules.includes(channel)
