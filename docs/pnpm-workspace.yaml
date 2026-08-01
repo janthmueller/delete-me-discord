@@ -1,5 +1,5 @@
 overrides:
-  postcss: 8.5.24
+  postcss: 8.5.25
 
 allowBuilds:
   esbuild: true
