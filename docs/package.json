@@ -2,7 +2,7 @@
   "name": "delete-me-discord-docs",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.19.0",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
@@ -11,7 +11,7 @@
     "check": "astro check"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.6",
-    "astro": "^7.1.6"
+    "@astrojs/starlight": "^0.41.7",
+    "astro": "^7.2.0"
   }
 }
