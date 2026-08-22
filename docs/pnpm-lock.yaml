@@ -15,7 +15,7 @@ importers:
         specifier: ^0.41.7
         version: 0.41.7(astro@7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3))(supports-color@7.2.0)
       astro:
-        specifier: ^7.2.3
+        specifier: ^7.2.4
         version: 7.2.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)
 
 packages:
