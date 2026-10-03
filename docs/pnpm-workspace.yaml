@@ -1,5 +1,10 @@
 overrides:
-  postcss: 8.5.19
+  postcss: 8.5.23
+
+auditConfig:
+  # The advisory requires >=4.2.1, but npm has not published that version yet.
+  ignoreGhsas:
+    - GHSA-ch52-4w7c-c8xp
 
 allowBuilds:
   esbuild: true
