@@ -21,7 +21,7 @@ A profile is a saved baseline for `dmd clean`.
 Instead of typing:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
 every time, you can store that shape once and run:
@@ -56,20 +56,33 @@ Create a profile:
 
 ```bash
 dmd profile add nightly-dms \
-  --set include_ids=<id> \
+  --set include=<id> \
   --set keep_within=2w \
   --set preserve_cache=true
 ```
 
-For `include_ids` and `exclude_ids`, profile commands accept complete decimal Discord IDs.
-They validate those values through Discord before storing them in `config.json`. Partial ID suffixes are not accepted in v3.
-When scope fields are set, profile commands use your stored login, `DISCORD_TOKEN`, or `--token` for validation.
+The `include` and `exclude` fields accept the same complete IDs, channel types,
+`threads`, `active`, and `archived` selectors as `dmd clean -i/-x`. Profile
+commands validate numeric IDs through Discord before storing them in
+`config.json`; non-ID selectors need no Discord call. Partial ID suffixes are
+not accepted in v3. When IDs are set, profile commands use your stored login,
+`DISCORD_TOKEN`, or `--token` for validation.
 
 Show what is stored:
 
 ```bash
 dmd profile show nightly-dms
 ```
+
+Preview only its channel/thread scope:
+
+```bash
+dmd list channels --profile nightly-dms
+```
+
+This applies the profile's `include` and `exclude` selectors without applying
+retention, mutation, or dry-run settings. Use `dmd clean --profile
+nightly-dms --dry-run` afterward for the message-level plan.
 
 Update it later:
 
@@ -95,7 +108,7 @@ Example:
 {
   "profiles": {
     "nightly-dms": {
-      "include_ids": ["123456789012345678"],
+      "include": ["123456789012345678", "GuildText"],
       "keep_last": 0,
       "keep_last_scope": "all",
       "keep_within": "2w",
@@ -113,6 +126,12 @@ The important rule: `--set` is an input format, not a promise that the exact tex
 
 See [Value Formats](../value-formats/#profile-config-normalization) for the exact normalization rules.
 
+When v3 first loads an older profile, it atomically rewrites legacy
+`include_ids`, `exclude_ids`, and separate thread/type exclusion fields into
+the canonical `include` and `exclude` arrays. A profile that mixes old and new
+fields for the same side is rejected instead of guessing which value should
+win.
+
 ## Merge order
 
 Effective settings are resolved in this order:
@@ -123,6 +142,12 @@ Effective settings are resolved in this order:
 
 That means the profile is a base preset, not a lock.
 If you add a flag on the command line, the command line wins.
+
+Scope overrides are side-specific and complete:
+
+- explicit `-i/--include` replaces the profile's entire `include` list
+- explicit `-x/--exclude` replaces the profile's entire `exclude` list
+- overriding one side leaves the other profile side unchanged
 
 ## Managing profiles from the CLI
 
@@ -137,7 +162,7 @@ Examples:
 
 ```bash
 dmd profile add nightly-dms --json \
-  --set include_ids=<id> \
+  --set include=<id> \
   --set keep_last=20 \
   --set dry_run=true
 dmd profile update nightly-dms --set verbose=1 --unset fetch_within
@@ -146,7 +171,7 @@ dmd profile update nightly-dms --set verbose=1 --unset fetch_within
 In the first example:
 
 - `--json` changes the output format of `profile add`
-- `include_ids`, `keep_last`, and `dry_run` are written into the stored profile
+- `include`, `keep_last`, and `dry_run` are written into the stored profile
 
 ## `--set` Values
 
@@ -158,10 +183,8 @@ Examples:
 --set keep_last=20
 --set keep_within=2w
 --set preserve_cache=true
---set include_ids=123456789012345678,234567890123456789
---set exclude_channel_types=GuildVoice,PrivateThread
---set exclude_thread_states=archived
---set exclude_threads=true
+--set include=123456789012345678,GuildText,active
+--set exclude=GuildVoice,PrivateThread,archived,threads
 --set delete_owned_threads=self-only
 --set skip_unrestorable_threads=true
 --set retry_time_buffer=0.1,0.3
@@ -187,11 +210,8 @@ dmd profile fields
 
 Profiles can define cleanup behavior and run-style settings for `dmd clean`, including:
 
-- `include_ids`
-- `exclude_ids`
-- `exclude_channel_types`
-- `exclude_thread_states`
-- `exclude_threads`
+- `include`
+- `exclude`
 - `keep_last`
 - `keep_last_scope`
 - `keep_within`

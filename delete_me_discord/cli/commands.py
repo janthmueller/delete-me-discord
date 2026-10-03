@@ -23,13 +23,19 @@ from ..config import (
     update_profile,
     validate_profile_unset_fields,
 )
-from ..discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES, is_archived_thread
+from ..discord.channel_types import FILTERABLE_CHANNEL_TYPE_NAMES
 from ..discord.client import DiscordClient
 from ..discord.errors import AuthenticationError
 from ..discovery import run_discovery_commands
 from ..logging import get_logger
 from ..privacy import sensitive, sensitive_name
-from ..scope import ScopeFilter, ScopeInventory, THREAD_STATES, preflight_scope_ids
+from ..scope import (
+    ScopeInventory,
+    THREAD_STATES,
+    parse_scope_selectors,
+    preflight_scope_ids,
+    resolve_scope,
+)
 from .logging import setup_logging
 from .parser import parse_args
 
@@ -85,27 +91,6 @@ def _build_api_from_settings(settings: EffectiveCleanSettings) -> DiscordClient:
     )
 
 
-def _build_scope_filter(
-    exclude_channel_types,
-    exclude_thread_states,
-    exclude_threads: bool = False,
-    *,
-    include_channel_types=(),
-    include_thread_states=(),
-    include_threads: bool = False,
-    exact_included_channel_ids=(),
-) -> ScopeFilter:
-    return ScopeFilter.from_names(
-        excluded_channel_types=exclude_channel_types,
-        excluded_thread_states=exclude_thread_states,
-        exclude_threads=exclude_threads,
-        included_channel_types=include_channel_types,
-        included_thread_states=include_thread_states,
-        include_threads=include_threads,
-        exact_included_channel_ids=exact_included_channel_ids,
-    )
-
-
 def _run_clean(settings: EffectiveCleanSettings) -> None:
     if settings.keep_last < 0:
         logging.error("--keep-last must be a non-negative integer.")
@@ -132,63 +117,34 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
         sensitive_name(current_user.get("username", "unknown")),
         sensitive(user_id),
     )
-    scope_seed = None
-    include_ids = settings.include_ids
-    exclude_ids = settings.exclude_ids
-    preflight = None
-    if include_ids or exclude_ids:
+    if settings.include_ids or settings.exclude_ids:
         get_logger("discovery").progress("Validating explicit scope IDs.")
-        try:
-            preflight = preflight_scope_ids(api, include_ids, exclude_ids)
-        except ValueError as exc:
-            logging.error("%s", exc)
-            raise SystemExit(1)
-        include_ids = list(preflight.include_ids)
-        exclude_ids = list(preflight.exclude_ids)
-        scope_seed = preflight.seed
-
-    exact_included_channel_ids = (
-        [
-            scope_id
-            for scope_id in preflight.include_ids
-            if preflight.nodes_by_id[scope_id].kind
-            in {"private-channel", "message-channel", "thread"}
-        ]
-        if preflight is not None
-        else []
-    )
-    exact_archived_thread_selected = (
-        any(
-            preflight.nodes_by_id[scope_id].kind == "thread"
-            and is_archived_thread(preflight.seed.resolved_channels_by_id[scope_id])
-            for scope_id in preflight.include_ids
+    try:
+        scope = resolve_scope(
+            api,
+            include_ids=settings.include_ids,
+            exclude_ids=settings.exclude_ids,
+            included_channel_types=settings.include_channel_types,
+            excluded_channel_types=settings.exclude_channel_types,
+            included_thread_states=settings.include_thread_states,
+            excluded_thread_states=settings.exclude_thread_states,
+            include_threads=settings.include_threads,
+            exclude_threads=settings.exclude_threads,
         )
-        if preflight is not None
-        else False
-    )
-    scope_filter = _build_scope_filter(
-        settings.exclude_channel_types,
-        settings.exclude_thread_states,
-        settings.exclude_threads,
-        include_channel_types=getattr(settings, "include_channel_types", ()),
-        include_thread_states=getattr(settings, "include_thread_states", ()),
-        include_threads=getattr(settings, "include_threads", False),
-        exact_included_channel_ids=exact_included_channel_ids,
-    )
-    archived_threads_in_scope = (
-        scope_filter.thread_discovery_mode == "all"
-        or exact_archived_thread_selected
-    )
+    except ValueError as exc:
+        logging.error("%s", exc)
+        raise SystemExit(1)
+
     archived_thread_cleanup = (
         (
             "temporary"
             if settings.skip_unrestorable_threads
             else "allow-active"
         )
-        if archived_threads_in_scope
+        if scope.has_archived_thread_targets
         else "skip"
     )
-    if settings.delete_owned_threads != "none" and scope_filter.thread_discovery_mode == "none":
+    if settings.delete_owned_threads != "none" and not scope.has_thread_targets:
         logging.error(
             "--delete-owned-threads requires at least one included thread type and state."
         )
@@ -200,15 +156,15 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
     cleaner = MessageCleaner(
         api=api,
         user_id=user_id,
-        include_ids=include_ids,
-        exclude_ids=exclude_ids,
+        include_ids=list(scope.include_ids),
+        exclude_ids=list(scope.exclude_ids),
         preserve_last=settings.keep_within,
         preserve_n=settings.keep_last,
         preserve_n_mode=settings.keep_last_scope,
         preserve_cache=preserve_cache,
         scope_inventory=None,
-        scope_seed=scope_seed,
-        scope_filter=scope_filter,
+        scope_seed=scope.seed,
+        scope_filter=scope.scope_filter,
         thread_restoration_journal=ThreadRestorationJournal(),
     )
 
@@ -231,62 +187,54 @@ def _run_clean(settings: EffectiveCleanSettings) -> None:
 def _run_list(args) -> None:
     api = _build_api(args)
     inventory = None
-    include_ids = args.include_ids
-    exclude_ids = args.exclude_ids
     list_guilds = args.list_command == "guilds"
     list_channels = args.list_command == "channels"
     try:
-        seed = None
-        preflight = None
-        if include_ids or exclude_ids:
-            preflight = preflight_scope_ids(api, include_ids, exclude_ids)
-            include_ids = list(preflight.include_ids)
-            exclude_ids = list(preflight.exclude_ids)
-            seed = preflight.seed
+        scope = resolve_scope(
+            api,
+            include_ids=args.include_ids,
+            exclude_ids=args.exclude_ids,
+            included_channel_types=getattr(args, "include_channel_types", ()),
+            excluded_channel_types=getattr(args, "exclude_channel_types", ()),
+            included_thread_states=getattr(args, "include_thread_states", ()),
+            excluded_thread_states=getattr(args, "exclude_thread_states", ()),
+            include_threads=getattr(args, "include_threads", False),
+            exclude_threads=getattr(args, "exclude_threads", False),
+        )
         if list_channels:
-            exact_included_channel_ids = (
-                [
-                    scope_id
-                    for scope_id in preflight.include_ids
-                    if preflight.nodes_by_id[scope_id].kind
-                    in {"private-channel", "message-channel", "thread"}
-                ]
-                if preflight is not None
-                else []
-            )
-            scope_filter = _build_scope_filter(
-                args.exclude_channel_types,
-                args.exclude_thread_states,
-                args.exclude_threads,
-                include_channel_types=getattr(args, "include_channel_types", ()),
-                include_thread_states=getattr(args, "include_thread_states", ()),
-                include_threads=getattr(args, "include_threads", False),
-                exact_included_channel_ids=exact_included_channel_ids,
-            )
             if not args.json:
                 target_label = (
                     "channels and threads"
-                    if scope_filter.thread_discovery_mode != "none"
+                    if scope.has_thread_targets
                     else "channels"
                 )
                 get_logger("discovery").progress("Discovering %s.", target_label)
-            if seed is None:
-                inventory = ScopeInventory.fetch(
-                    api,
-                    scope_filter=scope_filter,
+            inventory = ScopeInventory.fetch(
+                api,
+                scope_filter=scope.scope_filter,
+                seed=scope.seed,
+            )
+        elif list_guilds and scope.preflight is not None:
+            invalid_ids = [
+                scope_id
+                for scope_id, node in scope.preflight.nodes_by_id.items()
+                if node.kind != "guild"
+            ]
+            if invalid_ids:
+                rendered = ", ".join(
+                    str(sensitive(scope_id)) for scope_id in invalid_ids
                 )
-            else:
-                inventory = ScopeInventory.fetch(
-                    api,
-                    scope_filter=scope_filter,
-                    seed=seed,
+                raise ValueError(
+                    "dmd list guilds accepts only guild IDs; non-guild scope "
+                    f"target(s): {rendered}."
                 )
-        elif list_guilds and seed is not None:
+            seed = scope.seed
+            assert seed is not None
             inventory = ScopeInventory(
                 guilds=list(seed.guilds),
                 root_channels=list(seed.root_channels),
                 guild_channels_by_guild={},
-                scope_filter=ScopeFilter.without_threads(),
+                scope_filter=scope.scope_filter,
             )
     except ValueError as exc:
         logging.error("%s", exc)
@@ -295,8 +243,8 @@ def _run_list(args) -> None:
         api=api,
         list_guilds=list_guilds,
         list_channels=list_channels,
-        include_ids=include_ids,
-        exclude_ids=exclude_ids,
+        include_ids=list(scope.include_ids),
+        exclude_ids=list(scope.exclude_ids),
         json_output=args.json,
         inventory=inventory,
     )
@@ -381,7 +329,13 @@ def _run_profile_update(args) -> None:
 
 
 def _resolve_profile_scope_updates(args, profile_updates: dict, unset_fields: list[str] | None = None) -> None:
-    if "include_ids" not in profile_updates and "exclude_ids" not in profile_updates:
+    if "include" not in profile_updates and "exclude" not in profile_updates:
+        return
+    updated_selectors = parse_scope_selectors(
+        profile_updates.get("include"),
+        profile_updates.get("exclude"),
+    )
+    if not updated_selectors.include_ids and not updated_selectors.exclude_ids:
         return
     unset_fields = unset_fields or []
     current = {}
@@ -391,21 +345,16 @@ def _resolve_profile_scope_updates(args, profile_updates: dict, unset_fields: li
     for field in unset_fields:
         effective_profile.pop(field, None)
     effective_profile.update(profile_updates)
-    scope_values = {
-        field: effective_profile[field]
-        for field in ("include_ids", "exclude_ids")
-        if field in effective_profile
-    }
-    api = _build_api(args)
-    preflight = preflight_scope_ids(
-        api,
-        scope_values.get("include_ids", []),
-        scope_values.get("exclude_ids", []),
+    selectors = parse_scope_selectors(
+        effective_profile.get("include"),
+        effective_profile.get("exclude"),
     )
-    if "include_ids" in scope_values:
-        profile_updates["include_ids"] = list(preflight.include_ids)
-    if "exclude_ids" in scope_values:
-        profile_updates["exclude_ids"] = list(preflight.exclude_ids)
+    api = _build_api(args)
+    preflight_scope_ids(
+        api,
+        selectors.include_ids,
+        selectors.exclude_ids,
+    )
 
 
 def _run_profile_remove(args) -> None:

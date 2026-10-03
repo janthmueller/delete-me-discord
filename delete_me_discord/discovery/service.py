@@ -4,6 +4,7 @@ from rich.console import Console
 from ..discord.channel_types import (
     ChannelType,
     GUILD_MESSAGE_CHANNEL_TYPES,
+    MESSAGE_CHANNEL_TYPES,
     ROOT_MESSAGE_CHANNEL_TYPES,
     THREAD_CHANNEL_TYPES,
     THREAD_CONTAINER_CHANNEL_TYPES,
@@ -156,6 +157,7 @@ def collect_channels_from_inventory(
                 [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
             ),
             "type": channel_type_name(channel.get("type")),
+            "cleanup_target": True,
         })
 
     json_guilds = []
@@ -228,6 +230,7 @@ def collect_channels_from_inventory(
                         [recipient.get("username", "Unknown") for recipient in channel.get("recipients", [])]
                     ),
                     "type": channel_type_name(channel.get("type")),
+                    "cleanup_target": channel.get("type") in MESSAGE_CHANNEL_TYPES,
                 }
                 if channel.get("type") in THREAD_CHANNEL_TYPES:
                     thread_parent_id = channel.get("parent_id")

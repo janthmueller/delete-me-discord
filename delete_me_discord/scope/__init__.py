@@ -12,12 +12,20 @@ from .inventory import (
     ScopeInventory,
     iter_cleanup_channel_contexts,
 )
-from .resolver import ScopeNode, ScopeNodeKind, ScopePreflight, preflight_scope_ids
+from .resolver import (
+    ResolvedScope,
+    ScopeNode,
+    ScopeNodeKind,
+    ScopePreflight,
+    preflight_scope_ids,
+    resolve_scope,
+)
 from .rules import ScopeRules, should_include_channel
 from .selectors import ScopeSelectors, parse_scope_selectors
 
 __all__ = [
     "CleanupChannelContext",
+    "ResolvedScope",
     "ScopeDiscoverySeed",
     "ScopeFilter",
     "ScopeInventory",
@@ -32,5 +40,6 @@ __all__ = [
     "iter_cleanup_channel_contexts",
     "parse_scope_selectors",
     "preflight_scope_ids",
+    "resolve_scope",
     "should_include_channel",
 ]

@@ -11,7 +11,7 @@ from ..discord.channel_types import (
     OWNED_THREAD_DELETE_MODES,
 )
 from ..privacy import RedactionConfig
-from ..scope import THREAD_STATES
+from ..scope import THREAD_STATES, parse_scope_selectors
 from .models import EffectiveCleanSettings
 from .parsing import parse_random_range, parse_time_delta
 
@@ -28,8 +28,8 @@ CLEAN_ARG_DEFAULTS: dict[str, Any] = {
     "token": None,
     "config_path": DEFAULT_CONFIG_PATH,
     "profile": None,
-    "include_ids": [],
-    "exclude_ids": [],
+    "include": [],
+    "exclude": [],
     "exclude_channel_types": [],
     "exclude_thread_states": [],
     "exclude_threads": False,
@@ -62,11 +62,8 @@ ProfileValueMode = Literal["cli-set", "stored", "runtime"]
 
 
 PROFILE_FIELD_SPECS: list[dict[str, Any]] = [
-    {"name": "include_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Restrict cleanup to matching complete Discord IDs. Profile commands validate IDs before storing."},
-    {"name": "exclude_ids", "type": "string list", "parser": "string_list", "nullable": False, "description": "Exclude matching complete Discord IDs. Profile commands validate IDs before storing."},
-    {"name": "exclude_channel_types", "type": "channel type list", "parser": "enum_list", "choices": FILTERABLE_CHANNEL_TYPE_NAMES, "nullable": False, "description": "Exclude message-bearing Discord channel types from discovery and cleanup."},
-    {"name": "exclude_thread_states", "type": "active|archived list", "parser": "enum_list", "choices": THREAD_STATES, "nullable": False, "description": "Exclude active or archived threads from discovery and cleanup."},
-    {"name": "exclude_threads", "type": "true|false", "parser": "bool", "nullable": False, "description": "Exclude all announcement, public, and private threads."},
+    {"name": "include", "type": "scope selector list", "parser": "scope_selector_list", "nullable": False, "description": "Restrict cleanup using the same complete IDs, channel types, thread group, or thread states accepted by --include. Profile commands validate IDs before storing."},
+    {"name": "exclude", "type": "scope selector list", "parser": "scope_selector_list", "nullable": False, "description": "Exclude scope using the same complete IDs, channel types, thread group, or thread states accepted by --exclude. Profile commands validate IDs before storing."},
     {"name": "keep_last", "type": "non-negative integer", "parser": "int", "nullable": False, "description": "Keep the last N messages in each channel."},
     {"name": "keep_last_scope", "type": "mine|all", "parser": "enum", "choices": ("mine", "all"), "nullable": False, "description": "Count keep_last against your messages or all recent messages."},
     {"name": "keep_within", "type": "time delta string", "parser": "time_delta", "nullable": False, "description": "Keep messages and reactions newer than this window."},
@@ -96,6 +93,9 @@ _PROFILE_FIELD_SPEC_BY_NAME = {spec["name"]: spec for spec in PROFILE_FIELD_SPEC
 _RUNTIME_ONLY_CLEAN_FIELDS = frozenset(
     {
         "config_path",
+        "exclude_channel_types",
+        "exclude_thread_states",
+        "exclude_threads",
         "profile",
         "request_intervals",
         "token",
@@ -238,7 +238,7 @@ def _normalize_profile_data(source_label: str, raw: Any, *, mode: ProfileValueMo
     if not isinstance(raw, dict):
         raise ValueError(f"{source_label} must be a JSON object.")
 
-    raw = _migrate_legacy_thread_fields(source_label, raw)
+    raw = _migrate_legacy_scope_fields(source_label, raw)
 
     unknown = sorted(set(raw.keys()) - _PROFILE_FIELD_NAMES)
     if unknown:
@@ -301,6 +301,96 @@ def _migrate_legacy_thread_fields(source_label: str, raw: dict[str, Any]) -> dic
     return migrated
 
 
+def _migrate_legacy_scope_fields(
+    source_label: str,
+    raw: dict[str, Any],
+) -> dict[str, Any]:
+    legacy_thread_fields = {
+        "threads",
+        "include_threads",
+        "include_archived_threads",
+    }
+    legacy_exclude_fields = {
+        "exclude_ids",
+        "exclude_channel_types",
+        "exclude_thread_states",
+        "exclude_threads",
+        *legacy_thread_fields,
+    }
+    if "include" in raw and "include_ids" in raw:
+        raise ValueError(
+            f"{source_label} cannot combine 'include' with legacy 'include_ids'."
+        )
+    present_legacy_exclude = legacy_exclude_fields.intersection(raw)
+    if "exclude" in raw and present_legacy_exclude:
+        rendered = ", ".join(sorted(present_legacy_exclude))
+        raise ValueError(
+            f"{source_label} cannot combine 'exclude' with legacy field(s): "
+            f"{rendered}."
+        )
+
+    migrated = _migrate_legacy_thread_fields(source_label, raw)
+    has_legacy_include = "include_ids" in migrated
+    migrated_exclude_fields = {
+        "exclude_ids",
+        "exclude_channel_types",
+        "exclude_thread_states",
+        "exclude_threads",
+    }
+    present_migrated_exclude = migrated_exclude_fields.intersection(migrated)
+
+    if not has_legacy_include and not present_migrated_exclude:
+        return migrated
+
+    migrated = dict(migrated)
+    if has_legacy_include:
+        migrated["include"] = _normalize_legacy_id_list(
+            source_label,
+            "include_ids",
+            migrated.pop("include_ids"),
+        )
+
+    if present_migrated_exclude:
+        exclude: list[str] = []
+        if "exclude_ids" in migrated:
+            exclude.extend(
+                _normalize_legacy_id_list(
+                    source_label,
+                    "exclude_ids",
+                    migrated.pop("exclude_ids"),
+                )
+            )
+        if "exclude_channel_types" in migrated:
+            exclude.extend(
+                _normalize_profile_enum_list(
+                    source_label,
+                    "exclude_channel_types",
+                    migrated.pop("exclude_channel_types"),
+                    FILTERABLE_CHANNEL_TYPE_NAMES,
+                )
+            )
+        if "exclude_thread_states" in migrated:
+            exclude.extend(
+                _normalize_profile_enum_list(
+                    source_label,
+                    "exclude_thread_states",
+                    migrated.pop("exclude_thread_states"),
+                    THREAD_STATES,
+                )
+            )
+        if "exclude_threads" in migrated:
+            exclude_threads = _normalize_profile_bool(
+                source_label,
+                "exclude_threads",
+                migrated.pop("exclude_threads"),
+            )
+            if exclude_threads:
+                exclude.append("threads")
+        migrated["exclude"] = list(dict.fromkeys(exclude))
+
+    return migrated
+
+
 def _normalize_profile_value(source_label: str, field: str, value: Any, *, mode: ProfileValueMode) -> Any:
     spec = _PROFILE_FIELD_SPEC_BY_NAME.get(field)
     if spec is None:
@@ -311,6 +401,12 @@ def _normalize_profile_value(source_label: str, field: str, value: Any, *, mode:
         raise ValueError(f"Unsupported profile value mode '{mode}'.")
 
     parser_name = spec["parser"]
+    if parser_name == "scope_selector_list":
+        return _normalize_profile_scope_selector_list(
+            source_label,
+            field,
+            value,
+        )
     if parser_name == "string_list":
         return _expect_string_list(source_label, field, _coerce_string_list(source_label, field, value))
     if parser_name == "enum_list":
@@ -375,6 +471,48 @@ def _normalize_profile_enum_list(
         raise ValueError(
             f"{source_label} field '{field}' contains unsupported value(s): "
             f"{rendered}. Expected: {expected}."
+        )
+    return list(dict.fromkeys(values))
+
+
+def _normalize_profile_scope_selector_list(
+    source_label: str,
+    field: str,
+    value: Any,
+) -> list[str]:
+    values = _expect_string_list(
+        source_label,
+        field,
+        _coerce_string_list(source_label, field, value),
+    )
+    try:
+        if field == "include":
+            parse_scope_selectors(values, ())
+        else:
+            parse_scope_selectors((), values)
+    except ValueError as exc:
+        raise ValueError(
+            f"{source_label} field '{field}' is invalid: {exc}"
+        ) from exc
+    return list(dict.fromkeys(values))
+
+
+def _normalize_legacy_id_list(
+    source_label: str,
+    field: str,
+    value: Any,
+) -> list[str]:
+    values = _expect_string_list(
+        source_label,
+        field,
+        _coerce_string_list(source_label, field, value),
+    )
+    invalid = [value for value in values if not value.isascii() or not value.isdigit()]
+    if invalid:
+        rendered = ", ".join(invalid)
+        raise ValueError(
+            f"{source_label} field '{field}' contains invalid Discord ID(s): "
+            f"{rendered}."
         )
     return list(dict.fromkeys(values))
 

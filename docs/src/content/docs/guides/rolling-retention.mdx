@@ -19,12 +19,12 @@ The simplest rolling-retention rule is:
 - delete messages older than that
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --dry-run
+dmd clean --include <id> --keep-within 2w --dry-run
 ```
 
 Here, `--keep-within 2w` keeps messages from the last 2 weeks, measured from when the command runs.
 
-If you omit `--include-ids`, the run uses the default scope: all eligible channels the tool can see.
+If you omit `--include`, the run uses the default scope: all eligible channels the tool can see.
 
 ## Step 2: add `--fetch-within` for recurring runs
 
@@ -40,7 +40,7 @@ So `--fetch-within` must still reach far enough back to include messages that ma
 For a daily job that keeps 2 weeks, the recurring command is:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --fetch-within 2w1d
+dmd clean --include <id> --keep-within 2w --fetch-within 2w1d
 ```
 
 `2w1d` means:
@@ -59,19 +59,19 @@ For other schedules, use:
 Preview:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --dry-run
+dmd clean --include <id> --keep-within 2w --dry-run
 ```
 
 First real cleanup:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w
+dmd clean --include <id> --keep-within 2w
 ```
 
 Daily recurring command:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --fetch-within 2w1d
+dmd clean --include <id> --keep-within 2w --fetch-within 2w1d
 ```
 
 The first real cleanup intentionally has no `--fetch-within`.
@@ -87,7 +87,7 @@ For example, if none of your messages are inside the last 2 weeks, `--keep-withi
 Use `--keep-last` when you also want a minimum floor of your recent messages per channel:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --dry-run
+dmd clean --include <id> --keep-within 2w --keep-last 20 --dry-run
 ```
 
 That means:
@@ -112,7 +112,7 @@ This matters most when you combine:
 For a daily job that keeps 2 weeks and at least 20 messages, the recurring command can be:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
+dmd clean --include <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
 ```
 
 That works only after the cache has been seeded by an earlier real run that saw enough history.
@@ -122,19 +122,19 @@ The setup order is the same: preview first, run once without a narrow fetch wind
 Preview:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
 First real cleanup and cache seed:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache
 ```
 
 Daily recurring command:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
+dmd clean --include <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
 ```
 
 Dry-runs use a separate dry-run cache path, so a preview does not seed the real cache.
@@ -148,7 +148,7 @@ If you are reusing the same rolling-retention command repeatedly, that is the po
 For example, instead of keeping a long command in shell history:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
 you can save it as a named profile and run:
@@ -165,7 +165,7 @@ If that is what you want, continue with [Recurring Cleanup with Profiles](../rec
 - Using `--keep-last` with a limited fetch window but no preserve-cache.
 - Expecting `--fetch-within` to decide what is kept.
 - Forgetting that time deltas are measured backwards from when the command runs.
-- Forgetting to scope the run with `--include-ids` when you do not want the default scope.
+- Forgetting to scope the run with `--include` when you do not want the default scope.
 
 ## See also
 

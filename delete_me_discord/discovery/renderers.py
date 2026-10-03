@@ -108,6 +108,8 @@ def _channel_display(channel: Dict[str, Any], *, show_parent: bool = True) -> st
     id_style = "dim"
     context = ""
     state = None
+    if channel.get("cleanup_target") is False:
+        context = " [dim](thread parent)[/]"
     if "archived" in channel:
         state = "archived" if channel.get("archived") else "active"
         context = f" [dim]({state})[/]"

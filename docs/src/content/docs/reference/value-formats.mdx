@@ -114,37 +114,40 @@ That removes the stored field from the profile.
 
 Do not store `null` in profile config. If a profile should not set a value, omit the field.
 
-## String Lists
+## Scope Selector Lists
 
-String lists are used by profile fields such as:
+Profile scope uses two string-list fields:
 
-- `include_ids`
-- `exclude_ids`
-- `exclude_channel_types`
-- `exclude_thread_states`
+- `include`
+- `exclude`
 
 Profile `--set` accepts:
 
 ```bash
---set include_ids=123456789012345678,234567890123456789
---set include_ids="123456789012345678 234567890123456789"
---set include_ids='["123456789012345678","234567890123456789"]'
+--set include=123456789012345678,GuildText,active
+--set include="123456789012345678 GuildText active"
+--set include='["123456789012345678","GuildText","active"]'
+--set exclude=GuildVoice,archived,threads
 ```
 
-For `include_ids` and `exclude_ids`, every value must be a complete decimal Discord ID.
-Profile commands validate them through Discord before writing config. Partial ID suffixes are not accepted in v3.
-
-`exclude_channel_types` accepts canonical values from `dmd list channel-types`. `exclude_thread_states` accepts values from `dmd list thread-states`.
+Each value must be a complete decimal Discord ID, a canonical value from
+`dmd list channel-types`, `threads`, or a state from
+`dmd list thread-states`. Profile commands validate numeric IDs through Discord
+before writing config. Partial ID suffixes are not accepted in v3. Profiles
+containing only non-ID selectors do not require a Discord request when created
+or updated.
 
 Hand-written profile config accepts the same list shapes:
 
 ```json
 {
-  "include_ids": ["123456789012345678", "234567890123456789"]
+  "include": ["123456789012345678", "GuildText"],
+  "exclude": ["GuildVoice", "archived"]
 }
 ```
 
-When profile commands rewrite the profile, string lists are stored as JSON arrays.
+When profile commands rewrite the profile, selector lists are stored as JSON
+arrays.
 
 ## Number Ranges
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Generator, cast
 
-from ..discord.channel_types import GUILD_CLEANUP_CHANNEL_TYPES, ROOT_MESSAGE_CHANNEL_TYPES
+from ..discord.channel_types import (
+    GUILD_CLEANUP_CHANNEL_TYPES,
+    ROOT_MESSAGE_CHANNEL_TYPES,
+    is_archived_thread,
+)
 from ..discord.client import DiscordClient
 from ..discord.errors import ResourceUnavailable
 from ..discord.models import DiscordChannel
@@ -39,11 +43,15 @@ class ScopeInventory:
 
     @property
     def includes_threads(self) -> bool:
-        return self.thread_mode != "none"
+        return self.thread_mode != "none" or any(self.threads_by_guild.values())
 
     @property
     def includes_archived_threads(self) -> bool:
-        return self.thread_mode == "all"
+        return self.thread_mode == "all" or any(
+            is_archived_thread(thread)
+            for threads in self.threads_by_guild.values()
+            for thread in threads
+        )
 
     @classmethod
     def fetch(
@@ -54,7 +62,6 @@ class ScopeInventory:
         seed: ScopeDiscoverySeed | None = None,
     ) -> "ScopeInventory":
         scope_filter = scope_filter or ScopeFilter()
-        thread_mode = scope_filter.thread_discovery_mode
         guilds = list(seed.guilds) if seed is not None else api.get_guilds()
         root_channels = (
             list(seed.root_channels) if seed is not None else api.get_root_channels()
@@ -69,7 +76,10 @@ class ScopeInventory:
             if seed is not None and seed.guild_ids is not None and guild_id not in seed.guild_ids:
                 continue
             try:
-                guild_channels = api.get_guild_channels(guild_id)
+                guild_channels = [
+                    _with_guild_id(channel, guild_id)
+                    for channel in api.get_guild_channels(guild_id)
+                ]
                 guild_channels_by_guild[guild_id] = guild_channels
             except ResourceUnavailable as exc:
                 api.logger.warning(
@@ -79,14 +89,13 @@ class ScopeInventory:
                 )
                 continue
 
-            if thread_mode != "none":
-                threads_by_guild[guild_id] = cls._fetch_guild_threads(
-                    api=api,
-                    guild_id=guild_id,
-                    guild_channels=guild_channels,
-                    scope_filter=scope_filter,
-                    seed=seed,
-                )
+            threads_by_guild[guild_id] = cls._fetch_guild_threads(
+                api=api,
+                guild_id=guild_id,
+                guild_channels=guild_channels,
+                scope_filter=scope_filter,
+                seed=seed,
+            )
         return cls(
             guilds=guilds,
             root_channels=root_channels,
@@ -111,18 +120,41 @@ class ScopeInventory:
         threads_by_id: dict[str, DiscordChannel] = {}
 
         for parent in guild_channels:
-            parent_id = parent.get("id")
-            if parent_id is not None:
-                for thread in _exact_threads_for_parent(
-                    seed,
-                    guild_id=guild_id,
-                    parent_id=str(parent_id),
-                    parent_by_id=parent_by_id,
-                ):
-                    if scope_filter.includes_channel(thread):
-                        threads_by_id[str(thread["id"])] = thread
-            if not _searches_threads_below(seed, parent):
-                continue
+            for thread in ScopeInventory.fetch_scope_parent_threads(
+                api=api,
+                guild_id=guild_id,
+                parent=parent,
+                parent_by_id=parent_by_id,
+                scope_filter=scope_filter,
+                seed=seed,
+            ):
+                threads_by_id[str(thread["id"])] = thread
+
+        return list(threads_by_id.values())
+
+    @staticmethod
+    def fetch_scope_parent_threads(
+        api: DiscordClient,
+        guild_id: str,
+        parent: DiscordChannel,
+        parent_by_id: dict[str, DiscordChannel],
+        scope_filter: ScopeFilter,
+        seed: ScopeDiscoverySeed | None = None,
+    ) -> list[DiscordChannel]:
+        """Merge exact preflight threads and broad search results for one parent."""
+        threads_by_id: dict[str, DiscordChannel] = {}
+        parent_id = parent.get("id")
+        if parent_id is not None:
+            for thread in _exact_threads_for_parent(
+                seed,
+                guild_id=guild_id,
+                parent_id=str(parent_id),
+                parent_by_id=parent_by_id,
+            ):
+                if scope_filter.includes_channel(thread):
+                    threads_by_id[str(thread["id"])] = thread
+
+        if _searches_threads_below(seed, parent):
             for thread in ScopeInventory.fetch_parent_threads(
                 api=api,
                 guild_id=guild_id,
@@ -131,7 +163,6 @@ class ScopeInventory:
                 scope_filter=scope_filter,
             ):
                 threads_by_id[str(thread["id"])] = thread
-
         return list(threads_by_id.values())
 
     @staticmethod
@@ -283,29 +314,14 @@ def _iter_discovered_cleanup_contexts(
         yielded_thread_ids: set[str] = set()
         for raw_channel in guild_channels:
             channel = _with_guild_id(raw_channel, guild_id)
-            parent_id = channel.get("id")
-            parent_threads = (
-                ScopeInventory.fetch_parent_threads(
-                    api=api,
-                    guild_id=guild_id,
-                    parent=channel,
-                    parent_by_id=parent_by_id,
-                    scope_filter=scope_filter,
-                )
-                if _searches_threads_below(seed, channel)
-                else []
+            parent_threads = ScopeInventory.fetch_scope_parent_threads(
+                api=api,
+                guild_id=guild_id,
+                parent=channel,
+                parent_by_id=parent_by_id,
+                scope_filter=scope_filter,
+                seed=seed,
             )
-            if parent_id is not None:
-                parent_threads.extend(
-                    thread
-                    for thread in _exact_threads_for_parent(
-                        seed,
-                        guild_id=guild_id,
-                        parent_id=str(parent_id),
-                        parent_by_id=parent_by_id,
-                    )
-                    if scope_filter.includes_channel(thread)
-                )
             if channel.get("type") in GUILD_CLEANUP_CHANNEL_TYPES:
                 yield CleanupChannelContext(channel=channel, guild=guild)
 

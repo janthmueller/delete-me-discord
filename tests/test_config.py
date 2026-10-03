@@ -49,6 +49,35 @@ def test_load_profile_names_returns_sorted_names(tmp_path):
     assert load_profile_names(str(config_path)) == ["alpha", "manual-review", "nightly-dms"]
 
 
+def test_loading_profile_does_not_migrate_or_validate_unrelated_profiles(
+    tmp_path,
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "profiles": {
+                    "valid": {"include_ids": ["123"]},
+                    "unrelated": {
+                        "include": ["456"],
+                        "include_ids": ["789"],
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_profile(str(config_path), "valid") == {"include": ["123"]}
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["profiles"]["valid"] == {"include": ["123"]}
+    assert saved["profiles"]["unrelated"] == {
+        "include": ["456"],
+        "include_ids": ["789"],
+    }
+
+
 def test_load_raw_profile_returns_stored_profile_without_validation(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -117,19 +146,16 @@ def test_load_profile_rejects_unknown_field(tmp_path):
 @pytest.mark.parametrize(
     ("assignment", "expected"),
     [
-        ("include_ids=123,456", {"include_ids": ["123", "456"]}),
-        ("include_ids=123 456", {"include_ids": ["123", "456"]}),
-        ('include_ids=["123","456"]', {"include_ids": ["123", "456"]}),
-        ("exclude_ids=789,101112", {"exclude_ids": ["789", "101112"]}),
+        ("include=123,456", {"include": ["123", "456"]}),
+        ("include=123 GuildText active", {"include": ["123", "GuildText", "active"]}),
         (
-            "exclude_channel_types=GuildVoice,PrivateThread",
-            {"exclude_channel_types": ["GuildVoice", "PrivateThread"]},
+            'include=["123","GuildText","threads"]',
+            {"include": ["123", "GuildText", "threads"]},
         ),
         (
-            "exclude_thread_states=archived",
-            {"exclude_thread_states": ["archived"]},
+            "exclude=789,GuildVoice,archived,threads",
+            {"exclude": ["789", "GuildVoice", "archived", "threads"]},
         ),
-        ("exclude_threads=true", {"exclude_threads": True}),
         ("keep_last=20", {"keep_last": 20}),
         ("keep_last_scope=mine", {"keep_last_scope": "mine"}),
         ("keep_last_scope=all", {"keep_last_scope": "all"}),
@@ -183,22 +209,27 @@ def test_parse_profile_set_assignments_accepts_all_supported_shapes(assignment, 
 @pytest.mark.parametrize(
     ("field", "raw_value", "expected_runtime"),
     [
-        ("include_ids", ["123", "456"], ["123", "456"]),
-        ("include_ids", "123,456", ["123", "456"]),
-        ("include_ids", "123 456", ["123", "456"]),
-        ("include_ids", '["123","456"]', ["123", "456"]),
-        ("exclude_ids", ["789", "101112"], ["789", "101112"]),
-        ("exclude_ids", "789,101112", ["789", "101112"]),
         (
-            "exclude_channel_types",
-            ["GuildVoice", "PrivateThread"],
-            ["GuildVoice", "PrivateThread"],
+            "include",
+            ["123", "GuildText", "active", "threads"],
+            ["123", "GuildText", "active", "threads"],
         ),
-        ("exclude_channel_types", "GuildVoice,PrivateThread", ["GuildVoice", "PrivateThread"]),
-        ("exclude_thread_states", ["active"], ["active"]),
-        ("exclude_thread_states", "archived", ["archived"]),
-        ("exclude_threads", True, True),
-        ("exclude_threads", "false", False),
+        ("include", "123,GuildText,active,threads", ["123", "GuildText", "active", "threads"]),
+        (
+            "include",
+            '["123","GuildText","active","threads"]',
+            ["123", "GuildText", "active", "threads"],
+        ),
+        (
+            "exclude",
+            ["789", "GuildVoice", "archived", "threads"],
+            ["789", "GuildVoice", "archived", "threads"],
+        ),
+        (
+            "exclude",
+            "789 GuildVoice archived threads",
+            ["789", "GuildVoice", "archived", "threads"],
+        ),
         ("keep_last", 20, 20),
         ("keep_last", "20", 20),
         ("keep_last_scope", "mine", "mine"),
@@ -278,11 +309,12 @@ def test_load_profile_accepts_all_supported_config_shapes(tmp_path, field, raw_v
 @pytest.mark.parametrize(
     ("field", "raw_value", "expected_stored"),
     [
-        ("include_ids", "123,456", ["123", "456"]),
-        ("exclude_ids", "789 101112", ["789", "101112"]),
-        ("exclude_channel_types", "GuildVoice,PrivateThread", ["GuildVoice", "PrivateThread"]),
-        ("exclude_thread_states", "archived", ["archived"]),
-        ("exclude_threads", "true", True),
+        ("include", "123,GuildText,active", ["123", "GuildText", "active"]),
+        (
+            "exclude",
+            "789 GuildVoice archived threads",
+            ["789", "GuildVoice", "archived", "threads"],
+        ),
         ("keep_last", "20", 20),
         ("keep_last_scope", "all", "all"),
         ("keep_within", "2w", "2w"),
@@ -322,10 +354,10 @@ def test_update_profile_normalizes_all_supported_stored_shapes(tmp_path, field, 
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
-        ("include_ids", 1, "list of strings"),
-        ("include_ids", "", "empty list string"),
-        ("exclude_channel_types", ["ForumPost"], "unsupported value"),
-        ("exclude_thread_states", ["locked"], "unsupported value"),
+        ("include", 1, "list of strings"),
+        ("include", "", "empty list string"),
+        ("exclude", ["ForumPost"], "Unknown --exclude selector"),
+        ("exclude", ["locked"], "Unknown --exclude selector"),
         ("keep_last", -1, "non-negative integer"),
         ("keep_last_scope", "weird", "must be 'mine' or 'all'"),
         ("keep_within", [], "field 'keep_within' must be a string or zero-like number"),
@@ -360,8 +392,8 @@ def test_parse_profile_set_assignments_parses_and_validates_values():
             "keep_last=20",
             "keep_within=2w",
             "preserve_cache=true",
-            "include_ids=123,456",
-            "exclude_ids=789 101112",
+            "include=123,GuildText,active",
+            "exclude=789 GuildVoice archived threads",
             "retry_time_buffer=25,35",
             "verbose=2",
             "fetch_within=none",
@@ -373,8 +405,8 @@ def test_parse_profile_set_assignments_parses_and_validates_values():
     assert parsed["keep_last"] == 20
     assert parsed["keep_within"] == "2w"
     assert parsed["preserve_cache"] is True
-    assert parsed["include_ids"] == ["123", "456"]
-    assert parsed["exclude_ids"] == ["789", "101112"]
+    assert parsed["include"] == ["123", "GuildText", "active"]
+    assert parsed["exclude"] == ["789", "GuildVoice", "archived", "threads"]
     assert parsed["retry_time_buffer"] == [25.0, 35.0]
     assert parsed["verbose"] == 2
     assert parsed["fetch_within"] is None
@@ -389,8 +421,8 @@ def test_load_profile_accepts_config_convenience_strings(tmp_path):
             {
                 "profiles": {
                     "nightly-dms": {
-                        "include_ids": "123,456",
-                        "exclude_ids": "789 101112",
+                        "include": "123,GuildText,active",
+                        "exclude": "789 GuildVoice archived threads",
                         "keep_last": "20",
                         "keep_within": "2w",
                         "fetch_within": "1d",
@@ -408,8 +440,8 @@ def test_load_profile_accepts_config_convenience_strings(tmp_path):
 
     loaded = load_profile(str(config_path), "nightly-dms")
 
-    assert loaded["include_ids"] == ["123", "456"]
-    assert loaded["exclude_ids"] == ["789", "101112"]
+    assert loaded["include"] == ["123", "GuildText", "active"]
+    assert loaded["exclude"] == ["789", "GuildVoice", "archived", "threads"]
     assert loaded["keep_last"] == 20
     assert loaded["keep_within"].days == 14
     assert loaded["fetch_within"].days == 1
@@ -436,13 +468,13 @@ def test_load_profile_accepts_redact_sensitive_false_without_unsetting(tmp_path)
 def test_parse_profile_set_assignments_accepts_json_arrays_for_list_values():
     parsed = parse_profile_set_assignments(
         [
-            'include_ids=["123","456"]',
+            'include=["123","GuildText","threads"]',
             "fetch_sleep_time=[0.2,0.4]",
             "redact_sensitive=[0,4]",
         ]
     )
 
-    assert parsed["include_ids"] == ["123", "456"]
+    assert parsed["include"] == ["123", "GuildText", "threads"]
     assert parsed["fetch_sleep_time"] == [0.2, 0.4]
     assert parsed["redact_sensitive"] == [0, 4]
 
@@ -465,14 +497,19 @@ def test_parse_profile_set_assignments_accepts_none_for_nullable_fields():
         ("keep_last=abc", "non-negative integer"),
         ("verbose=9", "between 0 and 3"),
         ("preserve_cache=maybe", "true or false"),
-        ("exclude_channel_types=ForumPost", "unsupported value"),
-        ("exclude_thread_states=locked", "unsupported value"),
+        ("exclude=ForumPost", "Unknown --exclude selector"),
+        ("exclude=locked", "Unknown --exclude selector"),
         ("keep_within=banana", "invalid"),
         ("retry_time_buffer=abc", "invalid"),
         ("redact_sensitive=abc", "one-integer suffix list"),
         ("redact_sensitive=0,abc", "one-integer suffix list"),
-        ("include_ids=", "empty list string"),
+        ("include=", "empty list string"),
         ("retry_time_buffer=", "empty list string"),
+        ("include_ids=123", "Unsupported profile field"),
+        ("exclude_ids=123", "Unsupported profile field"),
+        ("exclude_channel_types=GuildVoice", "Unsupported profile field"),
+        ("exclude_thread_states=archived", "Unsupported profile field"),
+        ("exclude_threads=true", "Unsupported profile field"),
         ("wat=1", "Unsupported profile field"),
         ("not-an-assignment", "Expected key=value"),
     ],
@@ -515,12 +552,12 @@ def test_add_profile_normalizes_direct_profile_data(tmp_path):
     add_profile(
         str(config_path),
         "nightly-dms",
-        {"include_ids": "123,456", "keep_within": "2w", "preserve_cache": "true"},
+        {"include": "123,GuildText", "keep_within": "2w", "preserve_cache": "true"},
     )
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["profiles"]["nightly-dms"] == {
-        "include_ids": ["123", "456"],
+        "include": ["123", "GuildText"],
         "keep_within": "2w",
         "preserve_cache": True,
     }
@@ -549,7 +586,7 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
             {
                 "profiles": {
                     "nightly-dms": {
-                        "include_ids": "123,456",
+                        "include": "123,GuildText",
                         "preserve_cache": "true",
                         "retry_time_buffer": "25,35",
                         "redact_sensitive": "false",
@@ -565,7 +602,7 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["profiles"]["nightly-dms"] == {
-        "include_ids": ["123", "456"],
+        "include": ["123", "GuildText"],
         "keep_last": 10,
         "preserve_cache": True,
         "redact_sensitive": False,
@@ -574,18 +611,91 @@ def test_update_profile_normalizes_existing_convenience_config_values(tmp_path):
     }
 
 
+def test_load_profile_migrates_legacy_scope_fields_and_rewrites_config(
+    tmp_path,
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "profiles": {
+                    "nightly-dms": {
+                        "include_ids": "123,456",
+                        "exclude_ids": ["789"],
+                        "exclude_channel_types": [
+                            "GuildVoice",
+                            "PrivateThread",
+                        ],
+                        "exclude_thread_states": ["archived"],
+                        "exclude_threads": True,
+                        "keep_last": 5,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_profile(str(config_path), "nightly-dms")
+
+    assert loaded["include"] == ["123", "456"]
+    assert loaded["exclude"] == [
+        "789",
+        "GuildVoice",
+        "PrivateThread",
+        "archived",
+        "threads",
+    ]
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["profiles"]["nightly-dms"] == {
+        "exclude": [
+            "789",
+            "GuildVoice",
+            "PrivateThread",
+            "archived",
+            "threads",
+        ],
+        "include": ["123", "456"],
+        "keep_last": 5,
+    }
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {"include": ["123"], "include_ids": ["456"]},
+        {"exclude": ["123"], "exclude_ids": ["456"]},
+        {"exclude": ["GuildText"], "exclude_channel_types": ["GuildVoice"]},
+        {"exclude": ["GuildText"], "threads": "all"},
+        {"exclude": ["GuildText"], "include_archived_threads": True},
+    ],
+)
+def test_load_profile_rejects_mixed_canonical_and_legacy_scope_fields(
+    tmp_path,
+    profile,
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"profiles": {"nightly-dms": profile}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot combine"):
+        load_profile(str(config_path), "nightly-dms")
+
+
 @pytest.mark.parametrize(
     ("legacy_fields", "expected_filters"),
     [
         (
             {"include_threads": False},
-            {"exclude_threads": True},
+            {"exclude": ["threads"]},
         ),
-        ({"include_threads": True}, {"exclude_thread_states": ["archived"]}),
+        ({"include_threads": True}, {"exclude": ["archived"]}),
         ({"include_archived_threads": True}, {}),
         ({"include_threads": True, "include_archived_threads": True}, {}),
-        ({"threads": "none"}, {"exclude_threads": True}),
-        ({"threads": "active"}, {"exclude_thread_states": ["archived"]}),
+        ({"threads": "none"}, {"exclude": ["threads"]}),
+        ({"threads": "active"}, {"exclude": ["archived"]}),
         ({"threads": "all"}, {}),
     ],
 )
@@ -597,6 +707,8 @@ def test_load_profile_migrates_legacy_thread_fields(tmp_path, legacy_fields, exp
     )
 
     assert load_profile(str(config_path), "nightly-dms") == expected_filters
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["profiles"]["nightly-dms"] == expected_filters
 
 
 def test_update_profile_rewrites_legacy_thread_fields(tmp_path):
@@ -609,25 +721,25 @@ def test_update_profile_rewrites_legacy_thread_fields(tmp_path):
     update_profile(
         str(config_path),
         "nightly-dms",
-        {"exclude_thread_states": []},
+        {"exclude": []},
         [],
     )
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["profiles"]["nightly-dms"] == {
-        "exclude_thread_states": [],
+        "exclude": [],
         "keep_last": 1,
     }
 
 
-def test_load_profile_rejects_combined_current_and_legacy_thread_fields(tmp_path):
+def test_load_profile_rejects_combined_canonical_and_legacy_thread_fields(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        '{"profiles":{"nightly-dms":{"threads":"all","exclude_channel_types":[]}}}',
+        '{"profiles":{"nightly-dms":{"threads":"active","exclude":[]}}}',
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="cannot combine current and legacy thread filters"):
+    with pytest.raises(ValueError, match="cannot combine 'exclude' with legacy"):
         load_profile(str(config_path), "nightly-dms")
 
 
@@ -728,6 +840,8 @@ def test_build_clean_defaults_uses_global_default_when_profile_missing():
     defaults = build_clean_defaults(None, None)
 
     assert defaults["profile"] is None
+    assert defaults["include"] == []
+    assert defaults["exclude"] == []
     assert defaults["exclude_channel_types"] == []
     assert defaults["exclude_thread_states"] == []
     assert defaults["exclude_threads"] is False
@@ -752,6 +866,33 @@ def test_parse_args_profile_applies_defaults(tmp_path):
     assert args.dry_run is True
     assert args.verbose == 2
     assert args.delete_owned_threads == "self-only"
+
+
+def test_parse_args_profile_classifies_scope_selector_defaults(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        (
+            '{"profiles":{"nightly-dms":{'
+            '"include":["111111111111111111","GuildText","active","threads"],'
+            '"exclude":["222222222222222222","GuildVoice","archived"]'
+            "}}}"
+        ),
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=["clean", "--config-path", str(config_path), "--profile", "nightly-dms"],
+    )
+
+    assert args.include_ids == ["111111111111111111"]
+    assert args.include_channel_types == ["GuildText"]
+    assert args.include_thread_states == ["active"]
+    assert args.include_threads is True
+    assert args.exclude_ids == ["222222222222222222"]
+    assert args.exclude_channel_types == ["GuildVoice"]
+    assert args.exclude_thread_states == ["archived"]
+    assert args.exclude_threads is False
 
 
 def test_parse_args_profile_applies_redact_names_to_redaction_config(tmp_path):
@@ -813,10 +954,15 @@ def test_parse_args_cli_values_override_profile_defaults(tmp_path):
     assert args.verbose == 3
 
 
-def test_parse_args_cli_can_reset_profile_scope_exclusions(tmp_path):
+def test_parse_args_cli_scope_selectors_replace_each_profile_side(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        '{"profiles":{"nightly-dms":{"exclude_channel_types":["GuildVoice"],"exclude_thread_states":["archived"],"exclude_threads":true}}}',
+        (
+            '{"profiles":{"nightly-dms":{'
+            '"include":["111111111111111111","GuildText","threads"],'
+            '"exclude":["222222222222222222","GuildVoice","archived","threads"]'
+            "}}}"
+        ),
         encoding="utf-8",
     )
 
@@ -828,15 +974,55 @@ def test_parse_args_cli_can_reset_profile_scope_exclusions(tmp_path):
             str(config_path),
             "--profile",
             "nightly-dms",
-            "--exclude-channel-types",
-            "--exclude-thread-states",
-            "--no-exclude-threads",
+            "-i",
+            "PublicThread",
+            "-x",
+            "active",
         ],
     )
 
+    assert args.include_ids == []
+    assert args.include_channel_types == ["PublicThread"]
+    assert args.include_thread_states == []
+    assert args.include_threads is False
+    assert args.exclude_ids == []
     assert args.exclude_channel_types == []
-    assert args.exclude_thread_states == []
+    assert args.exclude_thread_states == ["active"]
     assert args.exclude_threads is False
+
+
+def test_parse_args_cli_scope_override_leaves_other_profile_side_unchanged(
+    tmp_path,
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        (
+            '{"profiles":{"nightly-dms":{'
+            '"include":["111111111111111111","GuildText"],'
+            '"exclude":["222222222222222222","GuildVoice","archived"]'
+            "}}}"
+        ),
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "clean",
+            "--config-path",
+            str(config_path),
+            "--profile",
+            "nightly-dms",
+            "-i",
+            "PublicThread",
+        ],
+    )
+
+    assert args.include_ids == []
+    assert args.include_channel_types == ["PublicThread"]
+    assert args.exclude_ids == ["222222222222222222"]
+    assert args.exclude_channel_types == ["GuildVoice"]
+    assert args.exclude_thread_states == ["archived"]
 
 
 def test_parse_args_cli_can_reset_profile_nullable_defaults(tmp_path):

@@ -57,19 +57,19 @@ Without the cache, repeated runs with a limited fetch window can stop seeing ite
 For a new setup, preview first:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache --dry-run
 ```
 
 Then seed the real cache:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --preserve-cache
+dmd clean --include <id> --keep-within 2w --keep-last 20 --preserve-cache
 ```
 
 After that, scheduled daily runs can use a short fetch window:
 
 ```bash
-dmd clean --include-ids <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
+dmd clean --include <id> --keep-within 2w --keep-last 20 --fetch-within 1d --preserve-cache
 ```
 
 ## How it changes fetch windows

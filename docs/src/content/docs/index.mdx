@@ -20,7 +20,7 @@ Typical workflow:
 
 - discover targets first
 - scope runs explicitly
-- preview with `dmd clean --include-ids <id> --dry-run`
+- preview with `dmd clean --include <id> --dry-run`
 - execute once the plan matches your intent
 
 ## Start here
@@ -41,7 +41,7 @@ If you are new to the tool, follow this order:
 ## Core ideas
 
 - `--dry-run` scans and plans without deleting.
-- `--include-ids` scopes the run; omit it to use all eligible channels and accessible threads the tool can see.
+- `--include` scopes the run; omit it to use all eligible channels and accessible threads the tool can see.
 - `--exclude-channel-types` removes exact Discord channel types from discovery and cleanup.
 - `--exclude-thread-states` removes active or archived threads from discovery and cleanup.
 - `--exclude-threads` removes every thread type as a convenience shortcut.

@@ -50,9 +50,13 @@ All accessible active and archived threads are discovered and cleaned by default
 dmd list channels -x archived
 dmd list channels -x PrivateThread
 dmd list channels -x threads
+dmd list channels --profile <name>
 ```
 
 Inspect accepted filter values locally with `dmd list channel-types` and `dmd list thread-states`.
+`list channels` and `clean` resolve the same cleanup leaves for equivalent
+scope selectors. The list keeps forum and media containers as marked tree
+context; JSON entries expose `cleanup_target` to distinguish them from leaves.
 
 Preview the selected scope:
 
@@ -93,10 +97,10 @@ Thread containers are never deleted by default. Creator-owned thread deletion is
 
 ```bash
 # Delete only after a complete scan finds no messages from other authors.
-dmd clean --include-ids <thread-id> --delete-owned-threads self-only --dry-run
+dmd clean --include <thread-id> --delete-owned-threads self-only --dry-run
 
 # Delete your thread even when it contains other users' messages.
-dmd clean --include-ids <thread-id> --delete-owned-threads all --dry-run
+dmd clean --include <thread-id> --delete-owned-threads all --dry-run
 ```
 
 Both modes require Discord's `MANAGE_THREADS` permission. Deleting a thread removes the entire shared conversation and overrides retention settings for that thread. `self-only` checks message authors at scan time, but can still remove other users' reactions and cannot eliminate the small race in which a new message arrives before deletion. Run a narrow dry-run first.

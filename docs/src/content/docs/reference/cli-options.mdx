@@ -41,8 +41,8 @@ Other top-level commands are:
 | Short | Long | Default | Description |
 | --- | --- | --- | --- |
 | `-d` | `--dry-run` | off | Simulate deletions without making changes. Reports foreign reactions affected by parent-message deletion and, when owned-thread deletion is enabled, scans those threads to report container impact. Uses a separate `.dryrun.json` preserve cache file when preserve-cache is enabled. |
-| `-i` | `--include SELECTOR...` | all eligible | Include complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. `--include-ids` remains an alias. |
-| `-x` | `--exclude SELECTOR...` | none | Exclude complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. `--exclude-ids` remains an alias. |
+| `-i` | `--include SELECTOR...` | all eligible | Include complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. |
+| `-x` | `--exclude SELECTOR...` | none | Exclude complete Discord IDs, canonical channel types, `threads`, `active`, or `archived`. |
 | `-` | `--exclude-channel-types TYPE...` | none | Exclude exact message-bearing Discord channel types such as `GuildVoice` or `PrivateThread`. |
 | `-` | `--exclude-thread-states STATE...` | none | Exclude `active` or `archived` threads. |
 | `-` | `--exclude-threads` | off | Exclude all announcement, public, and private threads. |
@@ -166,12 +166,27 @@ Both commands are local and do not require a Discord token. Add `--json` for a J
 - retry flags
 
 `dmd list channels` also supports `--exclude-channel-types`, `--exclude-thread-states`, and `--exclude-threads`.
+It also accepts `--profile <name>` to load that profile's `include` and
+`exclude` scope. Cleanup-only profile fields such as retention limits and
+thread-deletion policy do not affect channel listing. An explicit `-i` or `-x`
+replaces the corresponding profile selector list for that invocation.
+
+```bash
+dmd list channels --profile nightly-dms
+```
 
 `--include` and `--exclude` classify ASCII decimal values as complete Discord
 IDs. Guild and DM IDs are validated from the current top-level lists;
 category, channel, thread-parent, and thread IDs use an exact channel lookup.
 Old suffix shorthand is treated as an exact ID and fails when Discord cannot
 resolve it.
+
+`dmd list guilds` accepts only guild IDs. Use `dmd list channels` when the
+selector is a category, message channel, thread parent, or thread.
+
+Specify `--include` and `--exclude` at most once each and place every selector
+for that option after the same occurrence. Use either the long form or its
+`-i`/`-x` short form; combining both spellings still counts as repetition.
 
 Canonical channel types are case-sensitive. `threads` groups
 `AnnouncementThread`, `PublicThread`, and `PrivateThread`; `active` and
@@ -283,10 +298,11 @@ Profile commands are useful once you want saved cleanup presets.
 
 Examples:
 
-- `dmd profile add nightly-dms --set include_ids=123456789012345678 --set keep_within=2w`
+- `dmd profile add nightly-dms --set include=123456789012345678,GuildText --set keep_within=2w`
 - `dmd profile add nightly-dms --set preserve_cache=true`
 
-When `include_ids` or `exclude_ids` are set, profile commands validate the complete IDs through Discord before writing `config.json`.
+Profile `include` and `exclude` accept the same IDs, channel types, `threads`, `active`, and `archived` selectors as the cleanup options.
+When either field contains complete IDs, profile commands validate those IDs through Discord before writing `config.json`.
 Because that validation calls Discord, `profile add` and `profile update` also accept `--token`, `--config-path`, and retry flags.
 
 ### Update
@@ -393,7 +409,12 @@ Exact leaf IDs can override broad type/state exclusions. Existing ID hierarchy r
 
 Forum and media channels are containers rather than message channels. Thread discovery makes those parent IDs selectable, while cleanup operates on their discovered thread posts.
 
-The Rich terminal tree nests each thread below its visible parent channel. If the parent is unavailable or filtered out, the thread remains at category level with parent context. JSON output keeps its existing flat channel entries and `parent_id` fields for compatibility.
+The Rich terminal tree nests each thread below its visible parent channel and
+marks non-cleanable forum/media containers as `thread parent`. If the parent is
+unavailable or filtered out, the thread remains at category level with parent
+context. JSON output keeps flat channel entries and `parent_id` fields, and
+adds `cleanup_target`: `true` for leaves that cleanup can process and `false`
+for context-only containers.
 
 Thread discovery can issue one or more paginated API requests for every
 relevant thread-capable channel in each visible guild. Exclusions avoid searches

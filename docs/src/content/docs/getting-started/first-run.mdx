@@ -19,6 +19,10 @@ dmd list channels
 
 This shows the IDs you can pass to `--include`.
 IDs can refer to guilds, categories, supported message channels, thread parents, or threads.
+Use the same `-i` and `-x` selectors on `list channels` and `clean`; both resolve
+the same cleanup leaves. Forum and media parents remain visible as marked tree
+context even though cleanup processes their discovered posts rather than the
+container itself.
 
 All accessible active and archived threads are included by default. Thread discovery may require one or more paginated search requests for every thread-capable channel in every visible guild.
 
@@ -35,6 +39,17 @@ dmd list channels -x PrivateThread
 ```
 
 Use `dmd list channel-types` and `dmd list thread-states` to inspect all accepted values. Use `-x threads` to omit every thread type.
+
+For a stored cleanup profile, inspect its channel scope without fetching
+message histories:
+
+```bash
+dmd list channels --profile <name>
+```
+
+This uses only the profile's `include` and `exclude` selectors. A later
+`dmd clean --profile <name> --dry-run` is still required to evaluate retention,
+messages, and reactions.
 
 Channel listing and cleanup include archived threads by default. To preview
 only archived content, use:
@@ -91,7 +106,7 @@ Common adjustments:
 - Add `--fetch-within 2w1d` later if repeated runs should only inspect a recent slice.
 - Add `--max-messages 100` if you only want to inspect a small recent slice first.
 - Add `-x archived` when cleanup should search active threads only.
-- Store `exclude_thread_states=archived` in a reusable profile for the same active-only policy.
+- Store `exclude=archived` in a reusable profile for the same active-only policy.
 - Add `-x PrivateThread` to omit private threads, or use another displayed channel type such as `GuildVoice`.
 
 Discord's application API documentation permits message deletion in archived

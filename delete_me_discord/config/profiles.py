@@ -8,7 +8,7 @@ from ..storage import atomic_write_json
 from .schema import (
     DEFAULT_CONFIG_PATH,
     _PROFILE_FIELD_NAMES,
-    _migrate_legacy_thread_fields,
+    _migrate_legacy_scope_fields,
     _normalize_profile_data,
     _normalize_profile_value,
 )
@@ -31,10 +31,7 @@ def load_profile_names(path: str = DEFAULT_CONFIG_PATH) -> list[str]:
 
 
 def load_raw_profile(path: str, name: str) -> Any:
-    profiles = _load_profiles_dict(path)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
-    return profiles[name]
+    return _load_migrated_raw_profile(path, name)
 
 
 def profile_requests_json_output(path: str, name: str) -> bool:
@@ -57,12 +54,10 @@ def profile_requests_json_output(path: str, name: str) -> bool:
 
 
 def load_profile(path: str, name: str) -> dict[str, Any]:
-    profiles = _load_profiles_dict(path)
-    if name not in profiles:
-        raise ValueError(f"Unknown profile '{name}'.")
+    raw_profile = _load_migrated_raw_profile(path, name)
     return _normalize_profile_data(
         f"Profile '{name}'",
-        profiles[name],
+        raw_profile,
         mode="runtime",
     )
 
@@ -134,7 +129,7 @@ def update_profile(
         raise ValueError(f"Profile '{name}' must be a JSON object.")
 
     current = dict(
-        _migrate_legacy_thread_fields(f"Profile '{name}'", current_raw)
+        _migrate_legacy_scope_fields(f"Profile '{name}'", current_raw)
     )
     missing_unset_fields = [
         field for field in unset_fields if field not in current
@@ -174,6 +169,32 @@ def _load_profiles_dict(path: str) -> dict[str, Any]:
     if not isinstance(profiles, dict):
         raise ValueError("Config field 'profiles' must be a JSON object.")
     return profiles
+
+
+def _load_migrated_raw_profile(path: str, name: str) -> Any:
+    config = load_config(path)
+    profiles = config.get("profiles")
+    if profiles is None:
+        raise ValueError(f"Unknown profile '{name}'.")
+    if not isinstance(profiles, dict):
+        raise ValueError("Config field 'profiles' must be a JSON object.")
+    if name not in profiles:
+        raise ValueError(f"Unknown profile '{name}'.")
+
+    raw_profile = profiles[name]
+    if not isinstance(raw_profile, dict):
+        return raw_profile
+
+    migrated = _migrate_legacy_scope_fields(
+        f"Profile '{name}'",
+        raw_profile,
+    )
+    if migrated != raw_profile:
+        updated_profiles = dict(profiles)
+        updated_profiles[name] = migrated
+        config["profiles"] = updated_profiles
+        _write_config(path, config)
+    return migrated
 
 
 def _mutable_profiles(config: dict[str, Any]) -> dict[str, Any]:

@@ -36,7 +36,9 @@ def test_inventory_reuses_seed_and_fetches_only_safely_selected_guilds():
 
     assert api.guild_channel_calls == ["g2"]
     assert inventory.guild_channels("g1") == []
-    assert inventory.guild_channels("g2") == [{"id": "channel-g2", "type": 0}]
+    assert inventory.guild_channels("g2") == [
+        {"id": "channel-g2", "type": 0, "guild_id": "g2"}
+    ]
     assert inventory.root_channels == [{"id": "dm", "type": 1}]
 
 

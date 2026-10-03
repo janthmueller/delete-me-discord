@@ -155,6 +155,73 @@ def test_parse_args_list_channels_accepts_channel_and_thread_exclusions():
     assert args.exclude_threads is True
 
 
+def test_parse_args_list_channels_profile_applies_scope_defaults(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        (
+            '{"profiles":{"nightly-dms":{'
+            '"include":["111111111111111111","GuildText","threads"],'
+            '"exclude":["222222222222222222","GuildVoice","archived"],'
+            '"keep_last":25'
+            "}}}"
+        ),
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "list",
+            "channels",
+            "--config-path",
+            str(config_path),
+            "--profile",
+            "nightly-dms",
+        ],
+    )
+
+    assert args.profile == "nightly-dms"
+    assert args.include_ids == ["111111111111111111"]
+    assert args.include_channel_types == ["GuildText"]
+    assert args.include_threads is True
+    assert args.exclude_ids == ["222222222222222222"]
+    assert args.exclude_channel_types == ["GuildVoice"]
+    assert args.exclude_thread_states == ["archived"]
+    assert not hasattr(args, "keep_last")
+
+
+def test_parse_args_list_channels_cli_scope_replaces_each_profile_side(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        (
+            '{"profiles":{"nightly-dms":{'
+            '"include":["111111111111111111","GuildText"],'
+            '"exclude":["222222222222222222","GuildVoice"]'
+            "}}}"
+        ),
+        encoding="utf-8",
+    )
+
+    args = parse_args(
+        "1.0.0",
+        argv=[
+            "list",
+            "channels",
+            "--config-path",
+            str(config_path),
+            "--profile",
+            "nightly-dms",
+            "-i",
+            "PublicThread",
+        ],
+    )
+
+    assert args.include_ids == []
+    assert args.include_channel_types == ["PublicThread"]
+    assert args.exclude_ids == ["222222222222222222"]
+    assert args.exclude_channel_types == ["GuildVoice"]
+
+
 def test_parse_args_unified_scope_selectors():
     args = parse_args(
         "1.0.0",
@@ -180,6 +247,45 @@ def test_parse_args_unified_scope_selectors():
     assert args.exclude_thread_states == ["active"]
     assert args.include_threads is True
     assert args.exclude_threads is False
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["clean", "-i", "100000000000000001", "-i", "GuildText"],
+        ["clean", "-i", "100000000000000001", "--include", "GuildText"],
+        ["clean", "--include", "100000000000000001", "-i", "GuildText"],
+        ["clean", "-x", "100000000000000001", "-x", "GuildVoice"],
+        ["clean", "-x", "100000000000000001", "--exclude", "GuildVoice"],
+        ["clean", "--exclude", "100000000000000001", "-x", "GuildVoice"],
+    ],
+)
+def test_parse_args_rejects_repeated_scope_selector_option(argv, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=argv)
+
+    assert exc.value.code == 2
+    assert "may only be specified once" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("option", ["-i", "--include", "-x", "--exclude"])
+def test_parse_args_scope_selector_option_requires_a_value(option):
+    with pytest.raises(SystemExit) as exc:
+        parse_args("1.0.0", argv=["clean", option])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("option", ["--include-ids", "--exclude-ids"])
+def test_parse_args_rejects_removed_scope_id_aliases(option, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            "1.0.0",
+            argv=["clean", option, "100000000000000001"],
+        )
+
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_parse_args_list_guilds_rejects_non_id_selector():

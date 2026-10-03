@@ -26,7 +26,7 @@ Example:
 
 ```bash
 dmd profile add nightly-dms \
-  --set include_ids=<id> \
+  --set include=<id> \
   --set keep_within=2w \
   --set keep_last=20 \
   --set preserve_cache=true
@@ -35,9 +35,9 @@ dmd profile add nightly-dms \
 This creates a baseline profile that can seed the preserve-cache before you introduce a narrow fetch window.
 
 Replace `<id>` with a complete guild, category, supported message channel, thread parent, or thread ID. Exact thread IDs can be validated regardless of their active or archived state; profile exclusions are applied later during discovery and cleanup.
-If you want multiple IDs, use a comma-separated list such as `include_ids=123456789012345678,234567890123456789`.
+If you want multiple selectors, use a comma-separated list such as `include=123456789012345678,GuildText,active`.
 
-The scope field is not required by the CLI. If you omit `include_ids` and `exclude_ids`, the profile uses the default cleanup scope: all eligible channels.
+The scope fields are not required. If you omit `include` and `exclude`, the profile uses the default cleanup scope: all eligible channels.
 
 ## Step 3: inspect the stored result
 
@@ -51,7 +51,17 @@ Do this immediately after creation so you can confirm:
 - nothing unexpected ended up in the profile
 - the shape is what you want to maintain over time
 
-## Step 4: preview the profile as a dry-run
+## Step 4: preview the profile scope
+
+```bash
+dmd list channels --profile nightly-dms
+```
+
+This performs channel and thread discovery with the profile's `include` and
+`exclude` selectors, but does not fetch message histories. Cleanup-only fields
+such as retention settings do not affect this listing.
+
+## Step 5: preview cleanup as a dry-run
 
 ```bash
 dmd clean --profile nightly-dms --dry-run
@@ -65,7 +75,7 @@ You want to verify:
 - the retention behavior looks right
 - the number of affected messages and reactions is believable
 
-## Step 5: seed the real run once
+## Step 6: seed the real run once
 
 ```bash
 dmd clean --profile nightly-dms
@@ -73,7 +83,7 @@ dmd clean --profile nightly-dms
 
 This first real run intentionally has no `fetch_within` limit. It lets the tool inspect the full scoped history and populate preserve-cache for kept messages.
 
-## Step 6: add the recurring fetch window
+## Step 7: add the recurring fetch window
 
 After the first real run has seeded preserve-cache, update the profile for the recurring schedule:
 
@@ -89,7 +99,7 @@ Use a wider fetch window if you want each recurring run to fetch the whole keep 
 dmd profile update nightly-dms --set fetch_within=2w1d
 ```
 
-## Step 7: evolve the profile instead of rewriting commands
+## Step 8: evolve the profile instead of rewriting commands
 
 Examples:
 
@@ -122,7 +132,7 @@ See [Preserve Cache](../preserve-cache/) for the detailed behavior.
 ## Common mistakes
 
 - Creating a profile before validating the command manually.
-- Creating a profile without an explicit `include_ids` or `exclude_ids` scope.
+- Creating a profile without an explicit `include` or `exclude` scope.
 - Forgetting to run the saved profile once in `--dry-run`.
 - Storing too many output preferences before you know what level you actually want.
 - Using `keep_last` with a limited fetch window but no preserve-cache.

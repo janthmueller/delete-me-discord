@@ -92,11 +92,28 @@ dmd list thread-states
 
 Both value-list commands support `--json`.
 
+### Replace ID-specific option names
+
+The scope options now accept complete IDs, channel types, the `threads` group,
+and thread states through one interface:
+
+```bash
+# v2
+dmd clean --include-ids <id> --exclude-ids <id>
+
+# v3
+dmd clean --include <id> --exclude <id>
+```
+
+Use `-i` and `-x` as the short forms. `--include-ids` and `--exclude-ids` are no
+longer accepted. Profiles use the same selector model through the `include` and
+`exclude` fields.
+
 ### Replace partial ID suffixes with complete IDs
 
-v3 removes the implicit unique-suffix fallback from `--include-ids` and
-`--exclude-ids`. Every scope value must now be a complete decimal Discord ID
-that identifies an accessible supported guild, category, channel, thread
+v3 removes the implicit unique-suffix fallback from `--include` and
+`--exclude`. Every numeric scope value must now be a complete decimal Discord
+ID that identifies an accessible supported guild, category, channel, thread
 parent, or thread.
 
 ```bash
@@ -104,7 +121,7 @@ parent, or thread.
 dmd clean --include-ids 490059 --dry-run
 
 # v3 exact scope
-dmd clean --include-ids 123456789012490059 --dry-run
+dmd clean --include 123456789012490059 --dry-run
 ```
 
 Use `dmd list guilds` or `dmd list channels` to obtain complete IDs. Profiles
@@ -113,32 +130,52 @@ and require no change. Replace suffixes only in hand-written configuration or
 scripts. Old shorthand is treated as an exact ID and fails preflight when
 Discord cannot resolve it.
 
-### Existing profiles are migrated in memory
+### Existing profiles are migrated on disk
 
-The current profile fields are:
+The canonical v3 profile scope fields are:
 
-- `exclude_channel_types`
-- `exclude_thread_states`
-- `exclude_threads`
+- `include`
+- `exclude`
+
+They accept complete IDs, canonical channel types, `threads`, `active`, and
+`archived`, just like the CLI options. Existing scope fields are translated and
+the profile is rewritten the first time it is loaded:
+
+| Legacy field | Canonical v3 field |
+| --- | --- |
+| `include_ids: ["<id>"]` | `include: ["<id>"]` |
+| `exclude_ids: ["<id>"]` | `exclude: ["<id>"]` |
+| `exclude_channel_types: ["GuildVoice"]` | `exclude: ["GuildVoice"]` |
+| `exclude_thread_states: ["archived"]` | `exclude: ["archived"]` |
+| `exclude_threads: true` | `exclude: ["threads"]` |
 
 Legacy thread fields are accepted and translated when a profile is loaded:
 
 | Legacy value | Effective v3 value |
 | --- | --- |
-| `threads: "none"` | `exclude_threads: true` |
-| `threads: "active"` | `exclude_thread_states: ["archived"]` |
+| `threads: "none"` | `exclude: ["threads"]` |
+| `threads: "active"` | `exclude: ["archived"]` |
 | `threads: "all"` | no thread exclusion |
-| `include_threads: false` | `exclude_threads: true` |
+| `include_threads: false` | `exclude: ["threads"]` |
 | `include_threads: true` | active threads only |
 | `include_archived_threads: true` | active and archived threads |
 
-Updating a legacy profile rewrites it using the current fields. A profile that
-mixes legacy and current thread fields is rejected because its intent would be
-ambiguous.
+Profiles that mix a canonical field with legacy fields for the same side are
+rejected because their intent would be ambiguous.
+Legacy names are migration input only; `dmd profile add/update --set` accepts
+only `include` and `exclude`.
 
 Profiles that never defined thread behavior inherit the v3 default and include
-all accessible threads. Add `exclude_threads=true` to profiles that must retain
+all accessible threads. Add `exclude: ["threads"]` to profiles that must retain
 the old scope.
+
+An explicit CLI `-i` replaces the complete profile `include` list for that run.
+An explicit CLI `-x` independently replaces the complete profile `exclude`
+list. Selectors are not partially merged across the same side.
+
+`dmd list channels --profile <name>` loads the same two profile scope lists
+without applying retention or mutation settings. This gives a topology
+preview before the message-level `dmd clean --profile <name> --dry-run`.
 
 ### Archived content is included by default
 
@@ -188,10 +225,10 @@ explicit mode:
 
 ```bash
 # Require a complete scan with no messages from other or unknown authors.
-dmd clean --include-ids <thread-id> --delete-owned-threads self-only --dry-run
+dmd clean --include <thread-id> --delete-owned-threads self-only --dry-run
 
 # Permit deletion even when the thread contains other users' messages.
-dmd clean --include-ids <thread-id> --delete-owned-threads all --dry-run
+dmd clean --include <thread-id> --delete-owned-threads all --dry-run
 ```
 
 Both modes require the thread's `owner_id` to match the authenticated account,
@@ -272,14 +309,17 @@ consistent throughout the application.
 
 `delete_me_discord/scope/selectors.py` classifies the compact `-i/--include`
 and `-x/--exclude` values into complete IDs, canonical channel types, the
-`threads` group, and `active`/`archived` thread states. Existing structured
-profile fields remain supported, and `--include-ids`/`--exclude-ids` remain CLI
-aliases.
+`threads` group, and `active`/`archived` thread states. Legacy structured
+profile fields are migrated into the same selector lists.
 
-`delete_me_discord/scope/filter.py` converts those selectors and profile fields
-into typed positive and negative channel/thread-state policy. The same filter
+`delete_me_discord/scope/filter.py` converts those selectors into typed positive
+and negative channel/thread-state policy. The same filter
 is passed through eager inventory collection, listing, and incremental
 cleanup.
+
+`delete_me_discord/scope/resolver.py` produces one `ResolvedScope` for both CLI
+paths. It owns exact-ID preflight, normalized IDs, exact-leaf exceptions, and
+the effective thread target decision used by listing and cleanup guards.
 
 ID filtering follows nearest-target precedence:
 
@@ -350,15 +390,20 @@ channels without disabling public/private thread searches elsewhere.
 Exact-ID preflight now retains the resolved channel payloads in
 `ScopeDiscoverySeed`. An exact thread include is injected beneath its fetched
 parent with guild and permission context, so it does not require a thread
-search request. Broad text/forum/media parent, category, guild, type, and state
-selectors still use paginated thread discovery.
+search request. This remains true when a broad selector disables thread search,
+for example `-x threads -i <thread-id>`. Broad text/forum/media parent,
+category, guild, type, and state selectors still use paginated thread
+discovery.
 
 ## Thread discovery pipeline
 
 ### Inventory and incremental cleanup
 
 `dmd list channels` builds a complete `ScopeInventory` because rendering the
-tree requires all selected channels and threads. Cleanup does not build a
+tree requires all selected channels and threads. Its processable leaves are
+covered by a parity matrix against incremental cleanup discovery. Forum and
+media containers remain visible context, are marked `thread parent` in Rich
+output, and carry `cleanup_target: false` in JSON. Cleanup does not build a
 global inventory, with or without explicit ID filters.
 
 Explicit IDs first pass through `delete_me_discord/scope/resolver.py`. Preflight
@@ -706,14 +751,21 @@ GitHub Pages. Completed tests on `v3` do not trigger this downstream workflow.
 Manual deployment is allowed only from `main`. Pages deployments share one
 concurrency group so a stale deployment cannot race the latest build.
 
-## Planned work before the v3 release
+## Roadmap around the v3 release
 
 The current `v3` branch is an integration checkpoint, not the final release
-candidate. The following work is planned before merging it to `main`. This
-section is forward-looking: items remain unimplemented until their changes and
-tests land on the branch.
+candidate. The following work is a forward-looking roadmap: items remain
+unimplemented until their changes and tests land on the branch, and optional
+items may be deferred without blocking the v3 release.
 
-### Phase 1: long-running live Discord suite
+### Optional diagnostic: live Discord suite
+
+The multi-account harness is retained as an opt-in diagnostic for investigating
+Discord API drift, permission behavior, and rate limits. It is not a release
+gate, and the dedicated accounts and fixture guilds do not need to be kept
+active. The deterministic offline suite is the authoritative regression gate;
+future live runs may provide additional evidence when a Discord-side behavior
+cannot be reproduced locally.
 
 Build an opt-in integration suite around multiple dedicated test accounts and
 isolated fixture guilds. The initial M0 harness and its orchestrator now live
@@ -958,15 +1010,17 @@ through the same path as traversal results. The implementation must also:
   `--max-messages`, keep rules, dry-run output, and deletion ordering
 - fall back to channel traversal when search is unavailable or cannot prove the
   required completeness
-- compare search and traversal plans against the same live fixtures before
-  search becomes the default for eligible runs
+- compare search and traversal plans against deterministic equivalent fixtures
+  before search becomes the default for eligible runs; optional live diagnostics
+  may supplement that evidence
 
 Search may eventually make preserve-cache unnecessary for search-backed,
 own-message-only runs because retained messages can be rediscovered on the next
 run. That is a hypothesis, not yet a migration decision. The cache must remain
-available until live tests establish search completeness across guilds, DMs,
-Group DMs, private threads, archived threads, indexing delays, and long
-histories. It may remain useful as a fallback even after search ships.
+available until deterministic plan-equivalence coverage establishes behavior
+across guilds, DMs, Group DMs, private threads, archived threads, indexing
+delays, and long histories. It may remain useful as a fallback even after
+search ships.
 
 ### Phase 5: batched retention and reaction traversal
 
@@ -985,26 +1039,42 @@ time proximity guarantees page proximity.
 This optimization must preserve the current merge contract: newest-to-oldest
 ordering, deduplication against the main stream, exact retention decisions,
 lazy per-channel processing, and graceful handling of deleted or inaccessible
-messages. Tests and live metrics should compare API request count and elapsed
-time for sparse, clustered, and mixed cache layouts before selecting the default
-window policy.
+messages. Tests and local benchmarks should compare API request count and
+elapsed time for sparse, clustered, and mixed cache layouts before selecting
+the default window policy.
+
+### Deferred: message-type filtering
+
+Message-type filtering is a potential later feature and is not required for
+the v3 release. `MessageType` currently remains an internal safety boundary:
+known numeric Discord types determine whether an authored message is deletable,
+while unknown types remain conservatively non-deletable.
+
+A future implementation could expose canonical message-type names through a
+local `dmd list message-types` command and add explicit include/exclude options
+at the message-planning layer. It should not overload channel `--include` and
+`--exclude`, which determine container discovery and hierarchy. The design must
+define how message-type selection interacts with reaction cleanup,
+`--keep-last-scope`, time windows, preserve-cache, search-backed discovery, and
+persisted plans. Exclusions should win over inclusions, unknown values should
+fail before network access, and unknown Discord message types should continue
+to be retained. Unit and recorded-fixture plan-equivalence coverage are required
+before making the filter user-facing.
 
 ### Release readiness gate
 
 The v3 release candidate is ready to merge only after:
 
 1. the normal cross-platform `Test` workflow passes on the final branch SHA
-2. the live suite passes its dry-run, destructive, permission, and recovery
-   scenarios against isolated Discord fixtures
-3. persisted cleanup plans preserve planner equivalence, privacy, account
+2. persisted cleanup plans preserve planner equivalence, privacy, account
    binding, idempotent replay, and archived-thread recovery, if included in v3
-4. QR authentication preserves token redaction, keyring-only storage, CAPTCHA
+3. QR authentication preserves token redaction, keyring-only storage, CAPTCHA
    failure, and existing token-login behavior, if it is included in v3
-5. search-backed discovery has plan-equivalence coverage and a traversal
+4. search-backed discovery has plan-equivalence coverage and a traversal
    fallback, if it is included in v3
-6. batched cache/history fetching preserves existing retention semantics, if it
+5. batched cache/history fetching preserves existing retention semantics, if it
    is included in v3
-7. the migration guide, user documentation, artifact audit, and release notes
+6. the migration guide, user documentation, artifact audit, and release notes
    describe the final behavior rather than planned behavior
 
 ## Operational constraints

@@ -4,6 +4,11 @@ This directory contains opt-in tests against dedicated Discord accounts and
 fixtures. Ordinary `pytest`, pull-request, and push workflows collect these
 tests but skip them without making network requests.
 
+This harness is an optional diagnostic, not a release gate. The deterministic
+offline test suite is authoritative, and the dedicated accounts do not need to
+be kept active. Use the harness only when investigating Discord-side behavior
+that local fixtures cannot represent.
+
 ## Local secrets
 
 Copy `secrets.env.example` to `secrets.env`, fill the four generic fixture-role

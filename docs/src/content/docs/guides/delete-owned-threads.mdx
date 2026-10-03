@@ -61,7 +61,7 @@ Select one exact thread and preview it first:
 
 ```bash
 dmd clean \
-  --include-ids <thread-id> \
+  --include <thread-id> \
   --delete-owned-threads self-only \
   --dry-run
 ```
@@ -70,7 +70,7 @@ If the thread intentionally contains a shared conversation that you still want t
 
 ```bash
 dmd clean \
-  --include-ids <thread-id> \
+  --include <thread-id> \
   --delete-owned-threads all \
   --dry-run
 ```

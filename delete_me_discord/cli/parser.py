@@ -45,6 +45,23 @@ class CountFromZeroAction(argparse.Action):
         setattr(namespace, self.dest, 1 if current is None else current + 1)
 
 
+class SingleOccurrenceAction(argparse.Action):
+    """Store one multi-value option and reject repeated aliases or occurrences."""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, **kwargs)
+        self._seen = False
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if self._seen:
+            raise argparse.ArgumentError(
+                self,
+                "may only be specified once; pass all selectors after one option",
+            )
+        self._seen = True
+        setattr(namespace, self.dest, values)
+
+
 def _parse_redaction_spec(values: list[str]) -> RedactionConfig:
     if values == []:
         return RedactionConfig(enabled=True)
@@ -200,11 +217,12 @@ def _scope_parent(
 ) -> JsonArgumentParser:
     parser = JsonArgumentParser(add_help=False)
     parser.add_argument(
-        "-i", "--include", "--include-ids",
+        "-i", "--include",
         dest="include_selectors",
         type=str,
-        nargs="*",
-        default=_clean_default("include_ids", clean_defaults),
+        nargs="+",
+        action=SingleOccurrenceAction,
+        default=_clean_default("include", clean_defaults),
         metavar="SELECTOR",
         help=(
             "Include complete Discord IDs, channel types, 'threads', or thread "
@@ -212,11 +230,12 @@ def _scope_parent(
         ),
     )
     parser.add_argument(
-        "-x", "--exclude", "--exclude-ids",
+        "-x", "--exclude",
         dest="exclude_selectors",
         type=str,
-        nargs="*",
-        default=_clean_default("exclude_ids", clean_defaults),
+        nargs="+",
+        action=SingleOccurrenceAction,
+        default=_clean_default("exclude", clean_defaults),
         metavar="SELECTOR",
         help=(
             "Exclude complete Discord IDs, channel types, 'threads', or thread "
@@ -290,13 +309,16 @@ def build_parser(
     version: str,
     json_output: bool = False,
     clean_defaults: dict[str, object] | None = None,
+    list_channel_defaults: dict[str, object] | None = None,
 ) -> argparse.ArgumentParser:
     output_parent = _common_output_parent()
     clean_output_parent = _common_output_parent(clean_defaults=clean_defaults)
     config_parent = _config_parent()
     auth_parent = _auth_parent()
     clean_auth_parent = _auth_parent(clean_defaults=clean_defaults)
-    scope_parent = _scope_parent()
+    list_channel_scope_parent = _scope_parent(
+        clean_defaults=list_channel_defaults,
+    )
     guild_scope_parent = _scope_parent(channel_filter_options=False)
     clean_scope_parent = _scope_parent(clean_defaults=clean_defaults)
     api_parent = _api_parent()
@@ -436,10 +458,16 @@ def build_parser(
         help="List guild IDs and names.",
         parents=[output_parent, auth_parent, guild_scope_parent, api_parent],
     )
-    list_subparsers.add_parser(
+    list_channels_parser = list_subparsers.add_parser(
         "channels",
         help="List channels grouped by guild/category/parent plus DMs.",
-        parents=[output_parent, auth_parent, scope_parent, api_parent],
+        parents=[output_parent, auth_parent, list_channel_scope_parent, api_parent],
+    )
+    list_channels_parser.add_argument(
+        "--profile",
+        type=str,
+        default=_clean_default("profile", list_channel_defaults),
+        help="Load channel-scope selectors from a named cleanup profile.",
     )
     list_subparsers.add_parser(
         "profiles",
@@ -588,6 +616,7 @@ def _bootstrap_parse(argv: list[str]):
     guilds_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
     channels_parser = list_subparsers.add_parser("channels", add_help=False)
     channels_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
+    channels_parser.add_argument("--profile", default=None)
     profiles_parser = list_subparsers.add_parser("profiles", add_help=False)
     profiles_parser.add_argument("--config-path", default=DEFAULT_CONFIG_PATH)
     list_subparsers.add_parser("channel-types", add_help=False)
@@ -616,13 +645,18 @@ def _resolve_bootstrap_clean_json_output(
 def parse_args(version: str, argv=None):
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     bootstrap_args = _bootstrap_parse(raw_argv)
+    list_channels_command = (
+        bootstrap_args.command == "list"
+        and getattr(bootstrap_args, "list_command", None) == "channels"
+    )
     json_output = _resolve_bootstrap_clean_json_output(
         raw_argv,
         bootstrap_args.config_path,
         getattr(bootstrap_args, "profile", None),
     ) if bootstrap_args.command == "clean" else (_argv_json_setting(raw_argv) is True)
     clean_defaults = None
-    if bootstrap_args.command == "clean":
+    list_channel_defaults = None
+    if bootstrap_args.command == "clean" or list_channels_command:
         profile_defaults = None
         try:
             if bootstrap_args.profile:
@@ -630,10 +664,22 @@ def parse_args(version: str, argv=None):
         except ValueError as exc:
             parser = build_parser(version, json_output=json_output)
             parser.error(str(exc))
-        clean_defaults = build_clean_defaults(bootstrap_args.profile, profile_defaults)
-        json_output = json_output or bool(clean_defaults.get("json"))
+        resolved_defaults = build_clean_defaults(
+            bootstrap_args.profile,
+            profile_defaults,
+        )
+        if bootstrap_args.command == "clean":
+            clean_defaults = resolved_defaults
+            json_output = json_output or bool(clean_defaults.get("json"))
+        else:
+            list_channel_defaults = resolved_defaults
 
-    parser = build_parser(version, json_output=json_output, clean_defaults=clean_defaults)
+    parser = build_parser(
+        version,
+        json_output=json_output,
+        clean_defaults=clean_defaults,
+        list_channel_defaults=list_channel_defaults,
+    )
     args = parser.parse_args(raw_argv)
     if hasattr(args, "include_selectors"):
         try:

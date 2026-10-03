@@ -165,7 +165,9 @@ def test_discovery_renders_threads_in_their_category_with_parent_context():
         "parent_id": "text",
         "parent_name": "Text",
         "archived": False,
+        "cleanup_target": True,
     }
+    assert entries["forum"]["cleanup_target"] is False
     assert entries["archived-post"]["parent_name"] == "Forum"
     assert entries["archived-post"]["archived"] is True
 

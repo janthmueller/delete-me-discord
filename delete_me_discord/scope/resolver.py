@@ -9,11 +9,13 @@ from ..discord.channel_types import (
     THREAD_CHANNEL_TYPES,
     THREAD_CONTAINER_CHANNEL_TYPES,
     ChannelType,
+    is_archived_thread,
 )
 from ..discord.client import DiscordClient
 from ..discord.errors import ResourceUnavailable
 from ..discord.models import DiscordChannel
 from ..privacy import sensitive
+from .filter import ScopeFilter
 from .inventory import ScopeDiscoverySeed
 from .rules import ScopeRules
 
@@ -44,6 +46,99 @@ class ScopePreflight:
     rules: ScopeRules
     nodes_by_id: dict[str, ScopeNode]
     seed: ScopeDiscoverySeed
+
+
+@dataclass(frozen=True)
+class ResolvedScope:
+    """Validated selectors and their effective channel/thread filter."""
+
+    include_ids: tuple[str, ...]
+    exclude_ids: tuple[str, ...]
+    scope_filter: ScopeFilter
+    preflight: ScopePreflight | None = None
+
+    @property
+    def seed(self) -> ScopeDiscoverySeed | None:
+        return self.preflight.seed if self.preflight is not None else None
+
+    @property
+    def exact_included_thread_ids(self) -> frozenset[str]:
+        if self.preflight is None:
+            return frozenset()
+        return self.preflight.seed.exact_included_thread_ids
+
+    @property
+    def has_thread_targets(self) -> bool:
+        return (
+            self.scope_filter.thread_discovery_mode != "none"
+            or bool(self.exact_included_thread_ids)
+        )
+
+    @property
+    def has_archived_thread_targets(self) -> bool:
+        if self.scope_filter.thread_discovery_mode == "all":
+            return True
+        if self.preflight is None:
+            return False
+        return any(
+            is_archived_thread(
+                self.preflight.seed.resolved_channels_by_id[thread_id]
+            )
+            for thread_id in self.exact_included_thread_ids
+        )
+
+
+def resolve_scope(
+    api: DiscordClient,
+    *,
+    include_ids: Iterable[str] | None = None,
+    exclude_ids: Iterable[str] | None = None,
+    included_channel_types: Iterable[str] | None = None,
+    excluded_channel_types: Iterable[str] | None = None,
+    included_thread_states: Iterable[str] | None = None,
+    excluded_thread_states: Iterable[str] | None = None,
+    include_threads: bool = False,
+    exclude_threads: bool = False,
+) -> ResolvedScope:
+    """Resolve one shared list/cleanup scope from already classified selectors."""
+    raw_include_ids = tuple(str(value) for value in include_ids or ())
+    raw_exclude_ids = tuple(str(value) for value in exclude_ids or ())
+    preflight = (
+        preflight_scope_ids(api, raw_include_ids, raw_exclude_ids)
+        if raw_include_ids or raw_exclude_ids
+        else None
+    )
+    normalized_include_ids = (
+        preflight.include_ids if preflight is not None else raw_include_ids
+    )
+    normalized_exclude_ids = (
+        preflight.exclude_ids if preflight is not None else raw_exclude_ids
+    )
+    exact_included_channel_ids = (
+        tuple(
+            scope_id
+            for scope_id in preflight.include_ids
+            if preflight.nodes_by_id[scope_id].kind
+            in {"private-channel", "message-channel", "thread"}
+        )
+        if preflight is not None
+        else ()
+    )
+    scope_filter = ScopeFilter.from_names(
+        excluded_channel_types=excluded_channel_types,
+        excluded_thread_states=excluded_thread_states,
+        exclude_threads=exclude_threads,
+        included_channel_types=included_channel_types,
+        included_thread_states=included_thread_states,
+        include_threads=include_threads,
+        exact_included_channel_ids=exact_included_channel_ids,
+    )
+    return ResolvedScope(
+        include_ids=normalized_include_ids,
+        exclude_ids=normalized_exclude_ids,
+        scope_filter=scope_filter,
+        preflight=preflight,
+    )
 
 
 def preflight_scope_ids(

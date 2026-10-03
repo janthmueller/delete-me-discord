@@ -189,6 +189,37 @@ def test_render_channels_rich_keeps_orphan_thread_at_category_level():
     assert "parent: Missing parent, archived" in text
 
 
+def test_render_channels_rich_marks_context_only_thread_parents():
+    console = Console(record=True, width=140)
+    data = {
+        "dms": [],
+        "guilds": [
+            {
+                "id": "g1",
+                "name": "Guild",
+                "categories": [
+                    {
+                        "id": "cat",
+                        "name": "Category",
+                        "channels": [
+                            {
+                                "id": "forum",
+                                "name": "Forum",
+                                "type": "GuildForum",
+                                "cleanup_target": False,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    render_channels_rich(data, console)
+
+    assert "GuildForum Forum (thread parent)" in console.export_text()
+
+
 def test_render_channels_rich_redacts_names_and_ids():
     set_redaction_config(RedactionConfig(enabled=True, prefix=0, suffix=4))
     try:
