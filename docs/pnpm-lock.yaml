@@ -5,17 +5,17 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  postcss: 8.5.32
+  postcss: 8.5.33
 
 importers:
 
   .:
     dependencies:
       '@astrojs/starlight':
-        specifier: ^0.42.11
-        version: 0.42.11(astro@7.4.12(@types/node@26.6.6)(yaml@2.9.1))
+        specifier: ^0.43.1
+        version: 0.43.1(astro@7.4.12(@types/node@26.6.6)(yaml@2.9.1))
       astro:
-        specifier: ^7.4.11
+        specifier: ^7.4.12
         version: 7.4.12(@types/node@26.6.6)(yaml@2.9.1)
 
 packages:
@@ -118,8 +118,8 @@ packages:
   '@astrojs/sitemap@3.7.5':
     resolution: {integrity: sha512-rxSbFcxdcOoVRR02q0aFxyZ6chwXZpUOHMg8e+3iWPo7xYV4hlYBU4ztFd1Xl/pWtr6pe+TVCFKJfyPe0sp8iA==}
 
-  '@astrojs/starlight@0.42.11':
-    resolution: {integrity: sha512-z5kNKF7HR5Ma0DQkRNgv/6vmcodL/d5LTUTFfuoYRLgSnoozsRoudBlmTrkd+/GzqBwsIStPcSqtpK9GZfSUwA==}
+  '@astrojs/starlight@0.43.1':
+    resolution: {integrity: sha512-GhTK+93UNejoQThnYbEkJAlRJiOtctxOCnFtLcUMSTraT75vzS1E89xdMtKOdKcUDD2wx+taJxsfrA3UBs0QgQ==}
     peerDependencies:
       '@astrojs/markdown-remark': ^7.3.0
       astro: ^7.2.10
@@ -998,8 +998,9 @@ packages:
   http-cache-semantics@4.3.0:
     resolution: {integrity: sha512-M5t5LlJpS1UHMjvwRQVdFHvPISGeLAxNcrWuJkeGh0KxsqCHZ1O3NXZU/8x7cD0BDcGW8kapxMKTvwlqrNkHkA==}
 
-  i18next@26.7.2:
-    resolution: {integrity: sha512-RsOY3BeaCDdkk52NeJSFAXELQ2rQXBO/tOub6L8ue2ICPfR/FRDWDOfEDg4xMPd1SqO5goVYQ6i72qWEUB/PPw==}
+  i18next@27.1.2:
+    resolution: {integrity: sha512-851D6dY9vuhn9hF0p5KpY7FPeYnm3P73tqyX2nxfsjeEYVg7Du0Fflw0rJtv7nFnZcDQS0+Hqn0UP6+SPx8mew==}
+    engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
@@ -1302,14 +1303,14 @@ packages:
     resolution: {integrity: sha512-5osppouFc0VR9/VYzYxO03VaDa3e8F23Kfd6/9qcZTUI8P58GIYlArOET2Wq0ywSl2o2PjELhYOFI4W7l5QHKw==}
     engines: {node: '>=18.0'}
     peerDependencies:
-      postcss: 8.5.32
+      postcss: 8.5.33
 
   postcss-selector-parser@7.2.1:
     resolution: {integrity: sha512-GwxlMgTTXwIom+ebC7an3k6RaJDwklRQQnfiXsLPGicu8FYV/k/+1/9YY2OU2+r938H2t4X0TDxoif+HP2rjzQ==}
     engines: {node: '>=4'}
 
-  postcss@8.5.32:
-    resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
+  postcss@8.5.33:
+    resolution: {integrity: sha512-RVHEU9/Pp1Fnjr/MpAJsZoADukCKhfIi15OunEYiGktIkYLkPVvC1sioWolGDS7XByMTx9m/IGbro0Js13zhnQ==}
     engines: {node: ^10 || ^12 || >=14}
 
   prismjs@1.30.0:
@@ -1719,7 +1720,7 @@ snapshots:
       sitemap: 10.0.0
       zod: 4.6.7
 
-  '@astrojs/starlight@0.42.11(astro@7.4.12(@types/node@26.6.6)(yaml@2.9.1))':
+  '@astrojs/starlight@0.43.1(astro@7.4.12(@types/node@26.6.6)(yaml@2.9.1))':
     dependencies:
       '@astrojs/markdown-satteri': 0.4.10
       '@astrojs/mdx': 8.1.6(@astrojs/markdown-satteri@0.4.10)(astro@7.4.12(@types/node@26.6.6)(yaml@2.9.1))
@@ -1735,7 +1736,7 @@ snapshots:
       hast-util-to-html: 9.0.6
       hast-util-to-string: 3.0.1
       hastscript: 9.0.3
-      i18next: 26.7.2
+      i18next: 27.1.2
       klona: 2.0.6
       magic-string: 1.4.5
       mdast-util-directive: 3.2.0
@@ -1928,8 +1929,8 @@ snapshots:
       hast-util-to-html: 9.0.6
       hast-util-to-text: 4.0.3
       hastscript: 9.0.3
-      postcss: 8.5.32
-      postcss-nested: 7.0.2(postcss@8.5.32)
+      postcss: 8.5.33
+      postcss-nested: 7.0.2(postcss@8.5.33)
       unist-util-visit: 5.2.0
       unist-util-visit-parents: 6.1.0
 
@@ -2631,7 +2632,7 @@ snapshots:
 
   http-cache-semantics@4.3.0: {}
 
-  i18next@26.7.2: {}
+  i18next@27.1.2: {}
 
   iron-webcrypto@1.2.1: {}
 
@@ -3012,16 +3013,16 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  postcss-nested@7.0.2(postcss@8.5.32):
+  postcss-nested@7.0.2(postcss@8.5.33):
     dependencies:
-      postcss: 8.5.32
+      postcss: 8.5.33
       postcss-selector-parser: 7.2.1
 
   postcss-selector-parser@7.2.1:
     dependencies:
       util-deprecate: 1.0.2
 
-  postcss@8.5.32:
+  postcss@8.5.33:
     dependencies:
       nanoid: 3.3.20
       picocolors: 1.1.1
@@ -3308,7 +3309,7 @@ snapshots:
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
-      postcss: 8.5.32
+      postcss: 8.5.33
       rolldown: 1.2.19
       tinyglobby: 0.2.17
     optionalDependencies:
